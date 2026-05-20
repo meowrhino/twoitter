@@ -13,7 +13,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "twoitter-db"
-database_id = "REPLACE_AFTER_DB_CREATE"
+database_id = "9fec7a62-ec30-4b2d-9eeb-4e1e0caf5552"
 
 [[r2_buckets]]
 binding = "STORAGE"

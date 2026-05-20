@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>twoitter — login</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <h1>twoitter</h1>
+    <form method="post" action="/login" class="login-form">
+      <input
+        type="password"
+        name="password"
+        placeholder="contraseña"
+        autofocus
+        required
+        autocomplete="current-password"
+      />
+      <button type="submit">entrar</button>
+    </form>
+    <p id="err" class="login-err"></p>
+  </main>
+  <script>
+    if (new URLSearchParams(location.search).get('e')) {
+      document.getElementById('err').textContent = 'contraseña incorrecta';
+    }
+  </script>
+</body>
+</html>

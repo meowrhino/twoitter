@@ -1,0 +1,21 @@
+{
+  "name": "twoitter",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create twoitter-db",
+    "db:migrate": "wrangler d1 execute twoitter-db --remote --file=schema.sql",
+    "db:migrate:local": "wrangler d1 execute twoitter-db --local --file=schema.sql",
+    "r2:create": "wrangler r2 bucket create twoitter-storage"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.69.0"
+  }
+}

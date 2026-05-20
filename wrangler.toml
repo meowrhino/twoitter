@@ -1,0 +1,20 @@
+name = "twoitter"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+routes = [
+  { pattern = "twoitter.meowrhino.studio", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "twoitter-db"
+database_id = "REPLACE_AFTER_DB_CREATE"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "twoitter-storage"

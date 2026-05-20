@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>twoitter — post</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1><a href="/">twoitter</a></h1>
+    <nav>
+      <a href="/" class="link-btn">← timeline</a>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit" class="link-btn">salir</button>
+      </form>
+    </nav>
+  </header>
+
+  <main class="main-col single-post">
+    <div id="postContainer"></div>
+
+    <form id="replyForm" class="composer reply-composer" hidden>
+      <textarea id="replyText" placeholder="responder a este post..."></textarea>
+      <div id="replyMediaPreview" class="media-preview"></div>
+      <div class="composer-foot">
+        <label class="file-btn">
+          adjuntar
+          <input id="replyFileInput" type="file" accept="image/*,video/*" multiple hidden />
+        </label>
+        <button type="submit">responder</button>
+      </div>
+    </form>
+
+    <h2 class="replies-header" id="repliesHeader" hidden>respuestas</h2>
+    <div id="replies" class="timeline"></div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

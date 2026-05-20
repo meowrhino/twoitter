@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>twoitter</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1><a href="/">twoitter</a></h1>
+    <nav>
+      <input id="searchBox" type="search" placeholder="buscar..." />
+      <a href="/api/export" class="link-btn">export</a>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit" class="link-btn">salir</button>
+      </form>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <main class="main-col">
+      <form id="composer" class="composer">
+        <textarea id="text" placeholder="pega aquí (cmd+v) o escribe... usa #tags"></textarea>
+        <div id="mediaPreview" class="media-preview"></div>
+        <div class="composer-foot">
+          <label class="file-btn">
+            adjuntar
+            <input id="fileInput" type="file" accept="image/*,video/*" multiple hidden />
+          </label>
+          <span id="hint" class="hint">cmd+v para pegar imagen/video</span>
+          <button type="submit" id="btnPost">publicar</button>
+        </div>
+      </form>
+
+      <div id="filterBanner" class="filter-banner" hidden></div>
+      <div id="timeline" class="timeline"></div>
+      <button id="loadMore" class="load-more" hidden>cargar más</button>
+    </main>
+
+    <aside class="side-col">
+      <h2>#tags</h2>
+      <ul id="tagList" class="tag-list"></ul>
+    </aside>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

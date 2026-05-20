@@ -8,20 +8,26 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <h1><a href="/">twoitter</a></h1>
-    <nav>
-      <input id="searchBox" type="search" placeholder="buscar..." />
-      <a href="/api/export" class="link-btn">export</a>
-      <form method="post" action="/logout" class="inline">
-        <button type="submit" class="link-btn">salir</button>
-      </form>
-    </nav>
-  </header>
+  <div class="watermark">twoitter</div>
 
-  <div class="layout">
+  <button id="menuBtn" class="menu-btn" aria-label="menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+
+  <div id="menuPanel" class="menu-panel" hidden>
+    <input id="searchBox" type="search" placeholder="buscar..." class="menu-search" />
+    <a href="/" class="menu-link" id="menuHome">timeline</a>
+    <a href="/api/export" class="menu-link" data-authed-only hidden>export json</a>
+    <a href="/login.html" class="menu-link" data-anon-only hidden>iniciar sesión</a>
+    <form method="post" action="/logout" class="menu-form" data-authed-only hidden>
+      <button type="submit" class="menu-link as-btn">salir</button>
+    </form>
+    <button id="toggleSidebar" class="menu-link as-btn" data-authed-only hidden>ocultar #tags</button>
+  </div>
+
+  <div class="layout" id="layout">
     <main class="main-col">
-      <form id="composer" class="composer">
+      <form id="composer" class="composer" data-authed-only hidden>
         <textarea id="text" placeholder="pega aquí (cmd+v) o escribe... usa #tags"></textarea>
         <div id="mediaPreview" class="media-preview"></div>
         <div class="composer-foot">
@@ -29,8 +35,8 @@
             adjuntar
             <input id="fileInput" type="file" accept="image/*,video/*" multiple hidden />
           </label>
-          <span id="hint" class="hint">cmd+v para pegar imagen/video</span>
-          <button type="submit" id="btnPost">publicar</button>
+          <span class="hint">cmd+v para pegar</span>
+          <button type="submit" id="btnPost" class="btn-primary">publicar</button>
         </div>
       </form>
 
@@ -39,7 +45,7 @@
       <button id="loadMore" class="load-more" hidden>cargar más</button>
     </main>
 
-    <aside class="side-col">
+    <aside id="sideCol" class="side-col" data-authed-only hidden>
       <h2>#tags</h2>
       <ul id="tagList" class="tag-list"></ul>
     </aside>

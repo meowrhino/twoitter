@@ -2,11 +2,12 @@
 const PAGE = location.pathname.startsWith('/post/') ? 'post' : 'timeline';
 const POST_ID = PAGE === 'post' ? parseInt(location.pathname.split('/')[2]) : null;
 
-// pending media attached to composer (timeline or reply)
+let IS_AUTHED = false;
 const pending = new Map(); // localId -> { kind, r2_key, thumb_key, width, height, status, previewUrl }
-
 let nextCursor = null;
 let loading = false;
+
+const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
 
 // ----- helpers -----
 
@@ -24,11 +25,9 @@ function escapeHtml(s) {
 
 function linkify(text) {
   const esc = escapeHtml(text);
-  // hashtags
   let out = esc.replace(/#([\p{L}\p{N}_]+)/gu, (_, t) =>
     `<a class="hashtag" href="/?tag=${encodeURIComponent(t.toLowerCase())}">#${escapeHtml(t)}</a>`,
   );
-  // urls
   out = out.replace(/(https?:\/\/[^\s<]+)/g, (u) =>
     `<a href="${u}" target="_blank" rel="noopener">${u}</a>`,
   );
@@ -49,11 +48,82 @@ function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 }
 
+// ----- auth check & visibility -----
+
+async function checkAuth() {
+  try {
+    const r = await fetch('/api/me');
+    const d = await r.json();
+    IS_AUTHED = !!d.authed;
+  } catch {
+    IS_AUTHED = false;
+  }
+  applyAuthVisibility();
+}
+
+function applyAuthVisibility() {
+  for (const el of $$('[data-authed-only]')) el.hidden = !IS_AUTHED;
+  for (const el of $$('[data-anon-only]')) el.hidden = IS_AUTHED;
+  // when anon: sidebar hidden, layout becomes single-col centered
+  document.body.classList.toggle('anon', !IS_AUTHED);
+  document.body.classList.toggle('authed', IS_AUTHED);
+  // honor stored sidebar collapsed pref
+  if (IS_AUTHED && localStorage.getItem(SIDEBAR_KEY) === '1') {
+    document.body.classList.add('sidebar-hidden');
+    const tog = $('#toggleSidebar');
+    if (tog) tog.textContent = 'mostrar #tags';
+  }
+}
+
+// ----- menu -----
+
+function setupMenu() {
+  const btn = $('#menuBtn');
+  const panel = $('#menuPanel');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !panel.hidden;
+    panel.hidden = open;
+    btn.setAttribute('aria-expanded', String(!open));
+    btn.classList.toggle('open', !open);
+  });
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !panel.contains(e.target) && e.target !== btn) {
+      panel.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+      btn.classList.remove('open');
+    }
+  });
+
+  const search = $('#searchBox');
+  if (search) {
+    const initialQ = new URLSearchParams(location.search).get('q');
+    if (initialQ) search.value = initialQ;
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const q = search.value.trim();
+        location.href = q ? `/?q=${encodeURIComponent(q)}` : '/';
+      }
+    });
+  }
+
+  const tog = $('#toggleSidebar');
+  if (tog) {
+    tog.addEventListener('click', () => {
+      const hidden = document.body.classList.toggle('sidebar-hidden');
+      localStorage.setItem(SIDEBAR_KEY, hidden ? '1' : '0');
+      tog.textContent = hidden ? 'mostrar #tags' : 'ocultar #tags';
+    });
+  }
+}
+
 // ----- upload + thumbnail -----
 
 async function uploadBlob(blob, folder) {
   const res = await fetch('/api/upload', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       'content-type': blob.type,
       'x-content-type': blob.type,
@@ -107,8 +177,8 @@ async function attachFile(file, previewRoot) {
   itemEl.className = 'item';
   itemEl.dataset.localId = localId;
   itemEl.innerHTML = isImage
-    ? `<img src="${previewUrl}"><span class="status">subiendo...</span><button class="remove" type="button">×</button>`
-    : `<video src="${previewUrl}" muted></video><span class="status">subiendo...</span><button class="remove" type="button">×</button>`;
+    ? `<img src="${previewUrl}"><span class="status">subiendo…</span><button class="remove" type="button">×</button>`
+    : `<video src="${previewUrl}" muted></video><span class="status">subiendo…</span><button class="remove" type="button">×</button>`;
   previewRoot.appendChild(itemEl);
 
   itemEl.querySelector('.remove').onclick = () => {
@@ -159,7 +229,8 @@ async function attachFile(file, previewRoot) {
     setTimeout(() => itemEl.querySelector('.status')?.remove(), 800);
   } catch (e) {
     console.error(e);
-    itemEl.querySelector('.status').textContent = 'error';
+    const s = itemEl.querySelector('.status');
+    if (s) s.textContent = 'error';
     pending.delete(localId);
   }
 }
@@ -188,34 +259,36 @@ function renderPost(p, { single = false } = {}) {
       <div class="post-text">${linkify(p.text || '')}</div>
       ${mediaHtml}
       <div class="post-foot">
-        <a href="/post/${p.id}" class="permalink">${timeAgo(p.created_at)}</a>
+        <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}">${timeAgo(p.created_at)}</a>
         ${p.reply_count ? `<a href="/post/${p.id}">${p.reply_count} resp</a>` : ''}
         <span class="grow"></span>
-        <button class="delete-btn" type="button">borrar</button>
+        ${IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : ''}
       </div>
     </div>
   `;
 
-  // navigate to permalink when clicking the body, but not on links/buttons/media
   if (!single) {
     el.addEventListener('click', (e) => {
       if (e.target.closest('a, button, video, .post-media')) return;
       location.href = `/post/${p.id}`;
     });
-    el.style.cursor = 'pointer';
+    el.classList.add('clickable');
   }
 
-  el.querySelector('.delete-btn').onclick = async (e) => {
-    e.stopPropagation();
-    if (!confirm('¿borrar este post?')) return;
-    const res = await fetch(`/api/posts/${p.id}`, { method: 'DELETE' });
-    if (res.ok) {
-      if (single) location.href = '/';
-      else el.remove();
-    } else {
-      alert('error al borrar');
-    }
-  };
+  const del = el.querySelector('.delete-btn');
+  if (del) {
+    del.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm('¿borrar este post?')) return;
+      const res = await fetch(`/api/posts/${p.id}`, { method: 'DELETE', credentials: 'same-origin' });
+      if (res.ok) {
+        if (single) location.href = '/';
+        else el.remove();
+      } else {
+        alert('error al borrar');
+      }
+    };
+  }
 
   return el;
 }
@@ -246,11 +319,12 @@ async function loadHashtags() {
   const res = await fetch('/api/hashtags');
   const tags = await res.json();
   const ul = $('#tagList');
+  if (!ul) return;
   const currentTag = new URLSearchParams(location.search).get('tag');
   ul.innerHTML = tags
     .map(
       (t) =>
-        `<li><a href="/?tag=${encodeURIComponent(t.tag)}"${t.tag === currentTag ? ' style="color:var(--accent)"' : ''}>#${escapeHtml(t.tag)}<span class="count">${t.count}</span></a></li>`,
+        `<li><a href="/?tag=${encodeURIComponent(t.tag)}"${t.tag === currentTag ? ' class="active"' : ''}>#${escapeHtml(t.tag)}<span class="count">${t.count}</span></a></li>`,
     )
     .join('');
 }
@@ -270,6 +344,7 @@ function setupFilterBanner() {
 
 function setupComposer() {
   const form = $('#composer');
+  if (!form) return;
   const text = $('#text');
   const preview = $('#mediaPreview');
   const fileInput = $('#fileInput');
@@ -279,9 +354,8 @@ function setupComposer() {
     fileInput.value = '';
   });
 
-  // paste anywhere on the page
   document.addEventListener('paste', async (e) => {
-    if (!e.clipboardData) return;
+    if (!IS_AUTHED || !e.clipboardData) return;
     let attachedAny = false;
     for (const item of e.clipboardData.items) {
       if (item.kind === 'file') {
@@ -296,7 +370,6 @@ function setupComposer() {
     if (attachedAny) text.focus();
   });
 
-  // drag & drop
   ['dragenter', 'dragover'].forEach((ev) =>
     form.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -310,7 +383,7 @@ function setupComposer() {
     }),
   );
   form.addEventListener('drop', async (e) => {
-    if (!e.dataTransfer) return;
+    if (!IS_AUTHED || !e.dataTransfer) return;
     for (const f of e.dataTransfer.files) await attachFile(f, preview);
   });
 
@@ -320,18 +393,11 @@ function setupComposer() {
     const media = [...pending.values()]
       .filter((m) => m.status === 'ready')
       .map(({ kind, r2_key, thumb_key, width, height }) => ({
-        kind,
-        r2_key,
-        thumb_key,
-        width,
-        height,
+        kind, r2_key, thumb_key, width, height,
       }));
     if (!t && media.length === 0) return;
 
-    const stillUploading = [...pending.values()].some(
-      (m) => m.status === 'uploading',
-    );
-    if (stillUploading) {
+    if ([...pending.values()].some((m) => m.status === 'uploading')) {
       alert('espera a que terminen de subir los archivos');
       return;
     }
@@ -341,6 +407,7 @@ function setupComposer() {
     try {
       const res = await fetch('/api/posts', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: t || null, media }),
       });
@@ -349,7 +416,6 @@ function setupComposer() {
       text.value = '';
       preview.innerHTML = '';
       pending.clear();
-      // prepend to timeline
       $('#timeline').prepend(renderPost(post));
       loadHashtags();
     } catch (err) {
@@ -360,17 +426,8 @@ function setupComposer() {
     }
   });
 
-  $('#loadMore').addEventListener('click', () => loadTimeline(false));
-
-  const search = $('#searchBox');
-  const initialQ = new URLSearchParams(location.search).get('q');
-  if (initialQ) search.value = initialQ;
-  search.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const q = search.value.trim();
-      location.href = q ? `/?q=${encodeURIComponent(q)}` : '/';
-    }
-  });
+  const lm = $('#loadMore');
+  if (lm) lm.addEventListener('click', () => loadTimeline(false));
 }
 
 // ----- POST PAGE -----
@@ -378,14 +435,13 @@ function setupComposer() {
 async function loadSinglePost() {
   const res = await fetch(`/api/posts/${POST_ID}`);
   if (!res.ok) {
-    $('#postContainer').innerHTML = '<p>post no encontrado</p>';
+    $('#postContainer').innerHTML = '<p class="not-found">post no encontrado</p>';
     return;
   }
   const { post, replies } = await res.json();
   document.title = `twoitter — ${post.text?.slice(0, 40) || 'post'}`;
   $('#postContainer').appendChild(renderPost(post, { single: true }));
 
-  $('#replyForm').hidden = false;
   if (replies.length) {
     $('#repliesHeader').hidden = false;
     for (const r of replies) $('#replies').appendChild(renderPost(r));
@@ -394,6 +450,7 @@ async function loadSinglePost() {
 
 function setupReplyForm() {
   const form = $('#replyForm');
+  if (!form) return;
   const text = $('#replyText');
   const preview = $('#replyMediaPreview');
   const fileInput = $('#replyFileInput');
@@ -404,7 +461,7 @@ function setupReplyForm() {
   });
 
   document.addEventListener('paste', async (e) => {
-    if (!e.clipboardData) return;
+    if (!IS_AUTHED || !e.clipboardData) return;
     for (const item of e.clipboardData.items) {
       if (item.kind === 'file') {
         const file = item.getAsFile();
@@ -422,31 +479,20 @@ function setupReplyForm() {
     const media = [...pending.values()]
       .filter((m) => m.status === 'ready')
       .map(({ kind, r2_key, thumb_key, width, height }) => ({
-        kind,
-        r2_key,
-        thumb_key,
-        width,
-        height,
+        kind, r2_key, thumb_key, width, height,
       }));
     if (!t && media.length === 0) return;
-
-    const stillUploading = [...pending.values()].some(
-      (m) => m.status === 'uploading',
-    );
-    if (stillUploading) {
+    if ([...pending.values()].some((m) => m.status === 'uploading')) {
       alert('espera a que terminen de subir los archivos');
       return;
     }
-
     const res = await fetch('/api/posts', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: t || null, media, parent_id: POST_ID }),
     });
-    if (!res.ok) {
-      alert('error al responder');
-      return;
-    }
+    if (!res.ok) { alert('error al responder'); return; }
     const reply = await res.json();
     text.value = '';
     preview.innerHTML = '';
@@ -458,12 +504,17 @@ function setupReplyForm() {
 
 // ----- init -----
 
-if (PAGE === 'timeline') {
-  setupComposer();
-  setupFilterBanner();
-  loadTimeline(true);
-  loadHashtags();
-} else if (PAGE === 'post') {
-  loadSinglePost();
-  setupReplyForm();
-}
+(async () => {
+  await checkAuth();
+  setupMenu();
+
+  if (PAGE === 'timeline') {
+    setupComposer();
+    setupFilterBanner();
+    loadTimeline(true);
+    if (IS_AUTHED) loadHashtags();
+  } else if (PAGE === 'post') {
+    await loadSinglePost();
+    setupReplyForm();
+  }
+})();

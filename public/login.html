@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>twoitter — login</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>" />
+  <title>twoitter — entrar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="login-body">
+  <div class="watermark">twoitter</div>
   <main class="login-card">
-    <h1>twoitter</h1>
+    <h1 class="login-title">twoitter</h1>
+    <p class="login-sub">notas, citas, capturas</p>
+
     <form method="post" action="/login" class="login-form">
       <input
         type="password"
@@ -19,8 +22,13 @@
         required
         autocomplete="current-password"
       />
-      <button type="submit">entrar</button>
+      <button type="submit" class="btn-primary">entrar con contraseña</button>
     </form>
+
+    <div class="login-divider"><span>o</span></div>
+
+    <a href="/" class="btn-secondary">solo mirar</a>
+
     <p id="err" class="login-err"></p>
   </main>
   <script>

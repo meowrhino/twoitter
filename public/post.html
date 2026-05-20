@@ -8,28 +8,33 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <h1><a href="/">twoitter</a></h1>
-    <nav>
-      <a href="/" class="link-btn">← timeline</a>
-      <form method="post" action="/logout" class="inline">
-        <button type="submit" class="link-btn">salir</button>
-      </form>
-    </nav>
-  </header>
+  <div class="watermark">twoitter</div>
+
+  <button id="menuBtn" class="menu-btn" aria-label="menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+
+  <div id="menuPanel" class="menu-panel" hidden>
+    <a href="/" class="menu-link">← timeline</a>
+    <a href="/api/export" class="menu-link" data-authed-only hidden>export json</a>
+    <a href="/login.html" class="menu-link" data-anon-only hidden>iniciar sesión</a>
+    <form method="post" action="/logout" class="menu-form" data-authed-only hidden>
+      <button type="submit" class="menu-link as-btn">salir</button>
+    </form>
+  </div>
 
   <main class="main-col single-post">
     <div id="postContainer"></div>
 
-    <form id="replyForm" class="composer reply-composer" hidden>
-      <textarea id="replyText" placeholder="responder a este post..."></textarea>
+    <form id="replyForm" class="composer reply-composer" data-authed-only hidden>
+      <textarea id="replyText" placeholder="responder..."></textarea>
       <div id="replyMediaPreview" class="media-preview"></div>
       <div class="composer-foot">
         <label class="file-btn">
           adjuntar
           <input id="replyFileInput" type="file" accept="image/*,video/*" multiple hidden />
         </label>
-        <button type="submit">responder</button>
+        <button type="submit" class="btn-primary">responder</button>
       </div>
     </form>
 

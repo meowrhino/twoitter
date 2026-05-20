@@ -27,12 +27,11 @@ body {
   font-family: var(--mono);
   background-color: var(--bg);
   background-image:
-    radial-gradient(ellipse 70% 50% at 50% 35%, rgba(232, 176, 74, 0.055) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(232, 176, 74, 0.025) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 50% at 50% 45%, var(--bg) 0%, var(--bg) 30%, transparent 75%),
     radial-gradient(var(--dots) 1px, transparent 1px);
-  background-size: auto, auto, 22px 22px;
-  background-position: 0 0, 0 0, 0 0;
-  background-attachment: fixed, fixed, fixed;
+  background-size: auto, 22px 22px;
+  background-position: 0 0, 0 0;
+  background-attachment: fixed, fixed;
   color: var(--text);
   min-height: 100vh;
   line-height: 1.6;
@@ -51,22 +50,21 @@ a:hover { border-bottom-color: var(--accent-dim); }
 
 .watermark {
   position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  top: 80%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   font-family: var(--mono);
   font-weight: 600;
-  font-size: clamp(90px, 17vw, 240px);
-  letter-spacing: -0.05em;
+  font-size: clamp(5rem, 18vw, 16rem);
+  letter-spacing: -0.04em;
+  text-transform: lowercase;
   color: var(--accent);
-  opacity: 0.05;
+  opacity: 0.08;
   pointer-events: none;
   user-select: none;
   z-index: 0;
   white-space: nowrap;
   line-height: 1;
-  text-shadow: 0 0 60px rgba(232, 176, 74, 0.15);
 }
 
 body > *:not(.watermark) { position: relative; z-index: 1; }
@@ -192,7 +190,7 @@ textarea {
 .menu-btn {
   position: fixed;
   top: 20px;
-  left: 20px;
+  right: 20px;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -222,7 +220,7 @@ textarea {
 .menu-panel {
   position: fixed;
   top: 60px;
-  left: 20px;
+  right: 20px;
   min-width: 220px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -324,8 +322,8 @@ body.sidebar-hidden .side-col { display: none; }
   .side-col { position: static; max-height: none; margin-top: 20px; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag-list li { padding: 0; }
-  .menu-btn { top: 12px; left: 12px; }
-  .menu-panel { top: 56px; left: 12px; right: 12px; min-width: 0; }
+  .menu-btn { top: 12px; right: 12px; }
+  .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
 }
 
 /* ---------- composer ---------- */
@@ -433,8 +431,7 @@ body.sidebar-hidden .side-col { display: none; }
 .timeline { display: flex; flex-direction: column; }
 
 .post {
-  padding: 20px 4px;
-  border-bottom: 1px solid var(--hairline);
+  padding: 18px 4px;
   position: relative;
 }
 .post.clickable { cursor: pointer; }
@@ -450,6 +447,26 @@ body.sidebar-hidden .side-col { display: none; }
   color: var(--text);
 }
 .post-text:empty { display: none; }
+
+.thread { margin-bottom: 28px; }
+.thread-replies {
+  padding-left: 22px;
+  position: relative;
+}
+.thread-replies::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--border);
+}
+.thread-replies .post {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.thread-replies .post-text { font-size: 0.88rem; }
 .post-text .hashtag {
   color: var(--accent);
   font-family: var(--mono);

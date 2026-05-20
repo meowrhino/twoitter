@@ -20,6 +20,7 @@ export interface Post extends PostRow {
   media: MediaRow[];
   hashtags: string[];
   reply_count: number;
+  replies?: Post[];
 }
 
 async function attachMediaAndTags(
@@ -110,6 +111,29 @@ export async function listPosts(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const posts = await attachMediaAndTags(db, page);
+
+  // attach replies for each root post (single batch)
+  if (posts.length) {
+    const ids = posts.map((p) => p.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const replyRows = await db
+      .prepare(
+        `SELECT * FROM posts WHERE parent_id IN (${placeholders}) ORDER BY created_at ASC`,
+      )
+      .bind(...ids)
+      .all<PostRow>();
+    const replies = await attachMediaAndTags(db, replyRows.results);
+    const repliesByParent = new Map<number, Post[]>();
+    for (const r of replies) {
+      const arr = repliesByParent.get(r.parent_id!) || [];
+      arr.push(r);
+      repliesByParent.set(r.parent_id!, arr);
+    }
+    for (const p of posts) {
+      p.replies = repliesByParent.get(p.id) || [];
+    }
+  }
+
   const nextCursor = hasMore ? page[page.length - 1].created_at : null;
   return { posts, nextCursor };
 }

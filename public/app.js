@@ -308,7 +308,18 @@ async function loadTimeline(reset = false) {
   const data = await res.json();
   const timeline = $('#timeline');
   if (reset) timeline.innerHTML = '';
-  for (const p of data.posts) timeline.appendChild(renderPost(p));
+  for (const p of data.posts) {
+    const wrap = document.createElement('div');
+    wrap.className = 'thread';
+    wrap.appendChild(renderPost(p));
+    if (p.replies && p.replies.length) {
+      const repliesEl = document.createElement('div');
+      repliesEl.className = 'thread-replies';
+      for (const r of p.replies) repliesEl.appendChild(renderPost(r));
+      wrap.appendChild(repliesEl);
+    }
+    timeline.appendChild(wrap);
+  }
   nextCursor = data.nextCursor;
   $('#loadMore').hidden = !nextCursor;
   loading = false;

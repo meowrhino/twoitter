@@ -16,7 +16,9 @@
 
   <div id="menuPanel" class="menu-panel" hidden>
     <a href="/" class="menu-link">← timeline</a>
+    <div class="menu-divider"></div>
     <a href="/api/export" class="menu-link" data-authed-only hidden>export json</a>
+    <div class="menu-divider" data-authed-only hidden></div>
     <a href="/login.html" class="menu-link" data-anon-only hidden>iniciar sesión</a>
     <form method="post" action="/logout" class="menu-form" data-authed-only hidden>
       <button type="submit" class="menu-link as-btn">salir</button>

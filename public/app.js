@@ -64,15 +64,13 @@ async function checkAuth() {
 function applyAuthVisibility() {
   for (const el of $$('[data-authed-only]')) el.hidden = !IS_AUTHED;
   for (const el of $$('[data-anon-only]')) el.hidden = IS_AUTHED;
-  // when anon: sidebar hidden, layout becomes single-col centered
   document.body.classList.toggle('anon', !IS_AUTHED);
   document.body.classList.toggle('authed', IS_AUTHED);
-  // honor stored sidebar collapsed pref
-  if (IS_AUTHED && localStorage.getItem(SIDEBAR_KEY) === '1') {
-    document.body.classList.add('sidebar-hidden');
-    const tog = $('#toggleSidebar');
-    if (tog) tog.textContent = 'mostrar #tags';
-  }
+  // sidebar plegado por defecto, abierto solo si el usuario lo pidió
+  const shown = IS_AUTHED && localStorage.getItem(SIDEBAR_KEY) === 'open';
+  document.body.classList.toggle('sidebar-hidden', !shown);
+  const tog = $('#toggleSidebar');
+  if (tog) tog.textContent = shown ? 'ocultar #tags' : 'mostrar #tags';
 }
 
 // ----- menu -----
@@ -112,8 +110,9 @@ function setupMenu() {
   if (tog) {
     tog.addEventListener('click', () => {
       const hidden = document.body.classList.toggle('sidebar-hidden');
-      localStorage.setItem(SIDEBAR_KEY, hidden ? '1' : '0');
+      localStorage.setItem(SIDEBAR_KEY, hidden ? 'closed' : 'open');
       tog.textContent = hidden ? 'mostrar #tags' : 'ocultar #tags';
+      if (!hidden) loadHashtags();
     });
   }
 }
@@ -512,7 +511,9 @@ function setupReplyForm() {
     setupComposer();
     setupFilterBanner();
     loadTimeline(true);
-    if (IS_AUTHED) loadHashtags();
+    if (IS_AUTHED && !document.body.classList.contains('sidebar-hidden')) {
+      loadHashtags();
+    }
   } else if (PAGE === 'post') {
     await loadSinglePost();
     setupReplyForm();

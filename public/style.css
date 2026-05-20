@@ -24,11 +24,15 @@
 html, body { height: 100%; }
 
 body {
-  font-family: var(--serif);
+  font-family: var(--mono);
   background-color: var(--bg);
-  background-image: radial-gradient(var(--dots) 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-position: 0 0;
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% 35%, rgba(232, 176, 74, 0.055) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(232, 176, 74, 0.025) 0%, transparent 60%),
+    radial-gradient(var(--dots) 1px, transparent 1px);
+  background-size: auto, auto, 22px 22px;
+  background-position: 0 0, 0 0, 0 0;
+  background-attachment: fixed, fixed, fixed;
   color: var(--text);
   min-height: 100vh;
   line-height: 1.6;
@@ -47,20 +51,22 @@ a:hover { border-bottom-color: var(--accent-dim); }
 
 .watermark {
   position: fixed;
-  bottom: -0.15em;
-  right: -0.05em;
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 700;
-  font-size: clamp(120px, 22vw, 320px);
-  letter-spacing: -0.04em;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: clamp(90px, 17vw, 240px);
+  letter-spacing: -0.05em;
   color: var(--accent);
-  opacity: 0.045;
+  opacity: 0.05;
   pointer-events: none;
   user-select: none;
   z-index: 0;
   white-space: nowrap;
-  line-height: 0.85;
+  line-height: 1;
+  text-shadow: 0 0 60px rgba(232, 176, 74, 0.15);
 }
 
 body > *:not(.watermark) { position: relative; z-index: 1; }
@@ -105,13 +111,13 @@ button:hover, .link-btn:hover, .btn-secondary:hover {
 .btn-secondary:hover { border-bottom-color: var(--accent); }
 
 input, textarea {
-  font-family: var(--serif);
+  font-family: var(--mono);
   background: var(--bg-warm);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px 12px;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   width: 100%;
   transition: border-color 0.15s;
 }
@@ -119,16 +125,11 @@ input:focus, textarea:focus {
   outline: none;
   border-color: var(--accent-dim);
 }
-input[type="password"], input[type="search"] {
-  font-family: var(--mono);
-  font-size: 0.9rem;
-}
 textarea {
-  font-family: var(--mono);
   font-size: 0.92rem;
   resize: vertical;
   min-height: 70px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 /* ---------- login ---------- */
@@ -144,12 +145,12 @@ textarea {
   text-align: center;
 }
 .login-title {
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 700;
-  font-size: 2.4rem;
-  letter-spacing: -0.02em;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 2rem;
+  letter-spacing: -0.04em;
   color: var(--accent);
+  text-shadow: 0 0 30px rgba(232, 176, 74, 0.25);
 }
 .login-sub {
   font-family: var(--mono);
@@ -190,28 +191,28 @@ textarea {
 
 .menu-btn {
   position: fixed;
-  top: 18px;
-  left: 18px;
-  width: 36px;
-  height: 36px;
+  top: 20px;
+  left: 20px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  background: var(--bg-warm);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 4px;
+  gap: 4.5px;
   z-index: 20;
   cursor: pointer;
 }
 .menu-btn span {
   display: block;
   width: 16px;
-  height: 1.5px;
-  background: var(--text);
-  transition: transform 0.2s, opacity 0.2s;
+  height: 1px;
+  background: var(--text-dim);
+  transition: transform 0.2s, opacity 0.2s, background 0.15s;
 }
 .menu-btn:hover span { background: var(--accent); }
 .menu-btn.open span:nth-child(1) { transform: translateY(5.5px) rotate(45deg); }
@@ -220,36 +221,42 @@ textarea {
 
 .menu-panel {
   position: fixed;
-  top: 62px;
-  left: 18px;
+  top: 60px;
+  left: 20px;
   min-width: 220px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   z-index: 19;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 .menu-search {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   padding: 7px 10px;
   font-size: 0.85rem;
+}
+.menu-divider {
+  height: 1px;
+  background: var(--hairline);
+  margin: 6px 0;
 }
 .menu-link, .menu-link.as-btn {
   display: block;
   width: 100%;
   text-align: left;
   font-family: var(--mono);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-dim);
   background: transparent;
   border: none;
   padding: 7px 10px;
   border-radius: 3px;
   cursor: pointer;
+  letter-spacing: 0;
 }
 .menu-link:hover, .menu-link.as-btn:hover {
   background: var(--bg-warm);
@@ -274,6 +281,8 @@ body.sidebar-hidden .layout {
   grid-template-columns: minmax(0, 1fr);
   max-width: 620px;
 }
+body.anon .side-col,
+body.sidebar-hidden .side-col { display: none; }
 
 .main-col { min-width: 0; }
 
@@ -432,9 +441,9 @@ body.sidebar-hidden .layout {
 .post.clickable:hover { background: rgba(232, 176, 74, 0.02); }
 
 .post-text {
-  font-family: var(--serif);
-  font-size: 1rem;
-  line-height: 1.65;
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
   margin-bottom: 12px;
@@ -444,7 +453,6 @@ body.sidebar-hidden .layout {
 .post-text .hashtag {
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 0.88em;
   border-bottom: none;
 }
 .post-text .hashtag:hover { border-bottom: 1px dotted var(--accent); }

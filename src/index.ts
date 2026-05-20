@@ -4,7 +4,9 @@ import {
   requireAuth,
   setAuthCookie,
   clearAuthCookie,
+  timingSafeEqual,
 } from "./auth";
+import type { Context, Next } from "hono";
 import {
   attachMedia,
   createPost,
@@ -34,15 +36,27 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 app.onError((err, c) => {
   console.error("worker error:", err?.message, err?.stack);
-  return c.json({ error: err?.message || "internal" }, 500);
+  return c.json({ error: "internal" }, 500);
 });
+
+// CSRF: writes require a custom header that HTML forms cannot set,
+// so cross-site form POSTs (even from same-site subdomains via fetch
+// without CORS allowance) cannot reach this endpoint.
+function requireCsrf() {
+  return async (c: Context, next: Next) => {
+    if (c.req.header("x-twoitter-csrf") !== "1") {
+      return c.json({ error: "csrf" }, 403);
+    }
+    await next();
+  };
+}
 
 // ---------- auth ----------
 
 app.post("/login", async (c) => {
   const form = await c.req.parseBody();
   const pw = (form.password as string) || "";
-  if (!c.env.PASSWORD || pw !== c.env.PASSWORD) {
+  if (!c.env.PASSWORD || !timingSafeEqual(pw, c.env.PASSWORD)) {
     return c.redirect("/login.html?e=1");
   }
   await setAuthCookie(c, c.env.AUTH_SECRET);
@@ -64,7 +78,8 @@ app.get("/api/posts", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
   const tag = c.req.query("tag") || undefined;
   const q = c.req.query("q") || undefined;
-  const limit = parseInt(c.req.query("limit") || "20");
+  const limitRaw = parseInt(c.req.query("limit") || "20");
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
   const result = await listPosts(c.env.DB, { cursor, tag, q, limit });
   return c.json(result);
 });
@@ -85,7 +100,7 @@ app.get("/api/hashtags", async (c) => {
 
 // ---------- API: writes (gated) ----------
 
-app.post("/api/posts", requireAuth(), async (c) => {
+app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
   let body: {
     text?: string | null;
     parent_id?: number | null;
@@ -113,8 +128,15 @@ app.post("/api/posts", requireAuth(), async (c) => {
   }
 
   if (body.parent_id != null) {
-    const parent = await getPost(c.env.DB, body.parent_id);
+    const parent = await c.env.DB
+      .prepare("SELECT parent_id FROM posts WHERE id = ?")
+      .bind(body.parent_id)
+      .first<{ parent_id: number | null }>();
     if (!parent) return c.json({ error: "parent no existe" }, 404);
+    // replies-of-replies serían invisibles en la TL y romperían deletePost
+    if (parent.parent_id !== null) {
+      return c.json({ error: "solo se permite responder a posts raíz" }, 400);
+    }
   }
 
   const post = await createPost(c.env.DB, text, body.parent_id ?? null);
@@ -135,7 +157,7 @@ app.post("/api/posts", requireAuth(), async (c) => {
   return c.json(full, 201);
 });
 
-app.delete("/api/posts/:id", requireAuth(), async (c) => {
+app.delete("/api/posts/:id", requireAuth(), requireCsrf(), async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
   const result = await deletePost(c.env.DB, c.env.STORAGE, id);
@@ -143,7 +165,7 @@ app.delete("/api/posts/:id", requireAuth(), async (c) => {
   return c.json({ ok: true, deleted_keys: result.deletedKeys });
 });
 
-app.post("/api/upload", requireAuth(), async (c) => {
+app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
   const ct = c.req.header("x-content-type") || c.req.header("content-type") || "";
   const folderHint = c.req.header("x-folder") as
     | "images"
@@ -193,6 +215,7 @@ app.get("/r2/*", async (c) => {
   obj.writeHttpMetadata(headers);
   headers.set("etag", obj.httpEtag);
   headers.set("cache-control", "public, max-age=31536000, immutable");
+  headers.set("x-content-type-options", "nosniff");
   return new Response(obj.body, { headers });
 });
 

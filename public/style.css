@@ -46,28 +46,36 @@ a {
 }
 a:hover { border-bottom-color: var(--accent-dim); }
 
-/* ---------- watermark ---------- */
+/* ---------- toast ---------- */
 
-.watermark {
+#toastHost {
   position: fixed;
-  top: 80%;
+  bottom: 20px;
   left: 50%;
-  transform: translate(-50%, -50%);
-  font-family: var(--mono);
-  font-weight: 600;
-  font-size: clamp(5rem, 18vw, 16rem);
-  letter-spacing: -0.04em;
-  text-transform: lowercase;
-  color: var(--accent);
-  opacity: 0.08;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 30;
   pointer-events: none;
-  user-select: none;
-  z-index: 0;
-  white-space: nowrap;
-  line-height: 1;
 }
-
-body > *:not(.watermark) { position: relative; z-index: 1; }
+.toast {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: auto;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-error { border-color: var(--danger); color: var(--danger); }
+.toast-warn { border-color: var(--accent-dim); color: var(--accent); }
 
 /* ---------- buttons ---------- */
 

@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT,
     parent_id INTEGER,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     FOREIGN KEY (parent_id) REFERENCES posts(id)
 );
 
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS hashtags (
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_posts_parent ON posts(parent_id);
+CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_parent_created ON posts(parent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id, position);
 CREATE INDEX IF NOT EXISTS idx_hashtags_tag ON hashtags(tag);

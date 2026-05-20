@@ -25,6 +25,14 @@ async function hmac(secret: string, msg: string): Promise<string> {
     .replace(/=+$/, "");
 }
 
+// constant-time string compare (avoids early-exit timing leaks)
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return result === 0;
+}
+
 export async function makeToken(secret: string): Promise<string> {
   const issued = Date.now().toString();
   const sig = await hmac(secret, issued);
@@ -39,7 +47,7 @@ export async function verifyToken(
   const [issued, sig] = token.split(".");
   if (!issued || !sig) return false;
   const expected = await hmac(secret, issued);
-  if (expected !== sig) return false;
+  if (!timingSafeEqual(expected, sig)) return false;
   const age = Date.now() - parseInt(issued);
   return age >= 0 && age < COOKIE_MAX_AGE * 1000;
 }

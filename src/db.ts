@@ -91,16 +91,23 @@ export async function listPosts(
     );
     args.push(opts.tag.toLowerCase());
   }
-  if (opts.q) {
-    conds.push("p.text LIKE ?");
-    args.push(`%${opts.q}%`);
+  if (opts.q && opts.q.length <= 200) {
+    // escape LIKE wildcards so user-typed % and _ are literal
+    const escaped = opts.q.replace(/[\\%_]/g, "\\$&");
+    conds.push("p.text LIKE ? ESCAPE '\\'");
+    args.push(`%${escaped}%`);
   }
   if (opts.cursor) {
-    conds.push("p.created_at < ?");
-    args.push(opts.cursor);
+    // cursor encodes (created_at|id) to break ties on same-second posts
+    const [cAt, cIdStr] = opts.cursor.split("|");
+    const cId = parseInt(cIdStr || "0");
+    if (cAt && Number.isFinite(cId)) {
+      conds.push("(p.created_at < ? OR (p.created_at = ? AND p.id < ?))");
+      args.push(cAt, cAt, cId);
+    }
   }
 
-  const sql = `SELECT p.* FROM posts p WHERE ${conds.join(" AND ")} ORDER BY p.created_at DESC LIMIT ?`;
+  const sql = `SELECT p.* FROM posts p WHERE ${conds.join(" AND ")} ORDER BY p.created_at DESC, p.id DESC LIMIT ?`;
   args.push(limit + 1);
 
   const res = await db
@@ -134,7 +141,8 @@ export async function listPosts(
     }
   }
 
-  const nextCursor = hasMore ? page[page.length - 1].created_at : null;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? `${last.created_at}|${last.id}` : null;
   return { posts, nextCursor };
 }
 
@@ -171,7 +179,7 @@ export async function createPost(
 ): Promise<PostRow> {
   const row = await db
     .prepare(
-      "INSERT INTO posts (text, parent_id) VALUES (?, ?) RETURNING *",
+      "INSERT INTO posts (text, parent_id, created_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) RETURNING *",
     )
     .bind(text, parentId)
     .first<PostRow>();

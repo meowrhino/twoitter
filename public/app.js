@@ -3,11 +3,32 @@ const PAGE = location.pathname.startsWith('/post/') ? 'post' : 'timeline';
 const POST_ID = PAGE === 'post' ? parseInt(location.pathname.split('/')[2]) : null;
 
 let IS_AUTHED = false;
-const pending = new Map(); // localId -> { kind, r2_key, thumb_key, width, height, status, previewUrl }
 let nextCursor = null;
 let loading = false;
+let knownTags = new Set();
 
 const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
+const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
+
+// ----- toast -----
+
+function toast(msg, type = 'info') {
+  let host = document.getElementById('toastHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toastHost';
+    document.body.appendChild(host);
+  }
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3200);
+}
 
 // ----- helpers -----
 
@@ -28,9 +49,14 @@ function linkify(text) {
   let out = esc.replace(/#([\p{L}\p{N}_]+)/gu, (_, t) =>
     `<a class="hashtag" href="/?tag=${encodeURIComponent(t.toLowerCase())}">#${escapeHtml(t)}</a>`,
   );
-  out = out.replace(/(https?:\/\/[^\s<]+)/g, (u) =>
-    `<a href="${u}" target="_blank" rel="noopener">${u}</a>`,
-  );
+  out = out.replace(/(https?:\/\/[^\s<]+)/g, (u) => {
+    // u is already HTML-escaped; sanity-check protocol via URL parser
+    try {
+      const parsed = new URL(u.replace(/&amp;/g, '&'));
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return u;
+    } catch { return u; }
+    return `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`;
+  });
   return out;
 }
 
@@ -127,6 +153,7 @@ async function uploadBlob(blob, folder) {
       'content-type': blob.type,
       'x-content-type': blob.type,
       'x-folder': folder,
+      ...CSRF_HEADERS,
     },
     body: blob,
   });
@@ -141,6 +168,18 @@ async function generateVideoThumb(file) {
     v.muted = true;
     v.playsInline = true;
     v.src = URL.createObjectURL(file);
+    let settled = false;
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(v.src);
+      fn(val);
+    };
+    const timer = setTimeout(
+      () => finish(reject, new Error('thumb timeout')),
+      10_000,
+    );
     v.onloadeddata = () => {
       v.currentTime = Math.min(0.5, (v.duration || 1) / 4);
     };
@@ -152,20 +191,16 @@ async function generateVideoThumb(file) {
       c.height = h;
       c.getContext('2d').drawImage(v, 0, 0, w, h);
       c.toBlob(
-        (b) => {
-          URL.revokeObjectURL(v.src);
-          if (b) resolve({ blob: b, width: w, height: h });
-          else reject(new Error('thumb blob null'));
-        },
+        (b) => finish(b ? resolve : reject, b ? { blob: b, width: w, height: h } : new Error('thumb blob null')),
         'image/jpeg',
         0.8,
       );
     };
-    v.onerror = () => reject(new Error('video load error'));
+    v.onerror = () => finish(reject, new Error('video load error'));
   });
 }
 
-async function attachFile(file, previewRoot) {
+async function attachFile(file, previewRoot, pending) {
   const localId = uuid();
   const previewUrl = URL.createObjectURL(file);
   const isImage = file.type.startsWith('image/');
@@ -279,12 +314,23 @@ function renderPost(p, { single = false } = {}) {
     del.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm('¿borrar este post?')) return;
-      const res = await fetch(`/api/posts/${p.id}`, { method: 'DELETE', credentials: 'same-origin' });
+      const res = await fetch(`/api/posts/${p.id}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: CSRF_HEADERS,
+      });
       if (res.ok) {
-        if (single) location.href = '/';
-        else el.remove();
+        if (single) {
+          location.href = '/';
+        } else if (el.closest('.thread-replies')) {
+          // reply: solo el post, no el thread entero
+          el.remove();
+        } else {
+          // root: borra el thread completo
+          el.closest('.thread')?.remove() || el.remove();
+        }
       } else {
-        alert('error al borrar');
+        toast('error al borrar', 'error');
       }
     };
   }
@@ -328,6 +374,7 @@ async function loadTimeline(reset = false) {
 async function loadHashtags() {
   const res = await fetch('/api/hashtags');
   const tags = await res.json();
+  knownTags = new Set(tags.map((t) => t.tag));
   const ul = $('#tagList');
   if (!ul) return;
   const currentTag = new URLSearchParams(location.search).get('tag');
@@ -352,49 +399,42 @@ function setupFilterBanner() {
   }
 }
 
-function setupComposer() {
-  const form = $('#composer');
+// Wires up a composer form (timeline OR reply): paste/drop/file-input/submit.
+// Each composer gets its own pending Map so attachments don't leak.
+function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted }) {
   if (!form) return;
-  const text = $('#text');
-  const preview = $('#mediaPreview');
-  const fileInput = $('#fileInput');
+  const pending = new Map();
 
   fileInput.addEventListener('change', async (e) => {
-    for (const f of e.target.files) await attachFile(f, preview);
+    for (const f of e.target.files) await attachFile(f, preview, pending);
     fileInput.value = '';
   });
 
   document.addEventListener('paste', async (e) => {
     if (!IS_AUTHED || !e.clipboardData) return;
-    let attachedAny = false;
+    let any = false;
     for (const item of e.clipboardData.items) {
       if (item.kind === 'file') {
         const file = item.getAsFile();
         if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
           e.preventDefault();
-          await attachFile(file, preview);
-          attachedAny = true;
+          await attachFile(file, preview, pending);
+          any = true;
         }
       }
     }
-    if (attachedAny) text.focus();
+    if (any) text.focus();
   });
 
   ['dragenter', 'dragover'].forEach((ev) =>
-    form.addEventListener(ev, (e) => {
-      e.preventDefault();
-      form.classList.add('drag-over');
-    }),
+    form.addEventListener(ev, (e) => { e.preventDefault(); form.classList.add('drag-over'); }),
   );
   ['dragleave', 'drop'].forEach((ev) =>
-    form.addEventListener(ev, (e) => {
-      e.preventDefault();
-      form.classList.remove('drag-over');
-    }),
+    form.addEventListener(ev, (e) => { e.preventDefault(); form.classList.remove('drag-over'); }),
   );
   form.addEventListener('drop', async (e) => {
     if (!IS_AUTHED || !e.dataTransfer) return;
-    for (const f of e.dataTransfer.files) await attachFile(f, preview);
+    for (const f of e.dataTransfer.files) await attachFile(f, preview, pending);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -402,40 +442,52 @@ function setupComposer() {
     const t = text.value.trim();
     const media = [...pending.values()]
       .filter((m) => m.status === 'ready')
-      .map(({ kind, r2_key, thumb_key, width, height }) => ({
-        kind, r2_key, thumb_key, width, height,
-      }));
+      .map(({ kind, r2_key, thumb_key, width, height }) => ({ kind, r2_key, thumb_key, width, height }));
     if (!t && media.length === 0) return;
-
     if ([...pending.values()].some((m) => m.status === 'uploading')) {
-      alert('espera a que terminen de subir los archivos');
+      toast('espera a que terminen de subir los archivos', 'warn');
       return;
     }
-
-    const btn = $('#btnPost');
-    btn.disabled = true;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       const res = await fetch('/api/posts', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: t || null, media }),
+        headers: { 'content-type': 'application/json', ...CSRF_HEADERS },
+        body: JSON.stringify({ text: t || null, media, parent_id: parentId }),
       });
       if (!res.ok) throw new Error('post failed');
       const post = await res.json();
       text.value = '';
       preview.innerHTML = '';
       pending.clear();
-      $('#timeline').prepend(renderPost(post));
-      loadHashtags();
+      onPosted(post);
     } catch (err) {
       console.error(err);
-      alert('error al publicar');
+      toast('error al publicar', 'error');
     } finally {
-      btn.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
+}
 
+function setupTimelineComposer() {
+  wireComposer({
+    form: $('#composer'),
+    text: $('#text'),
+    preview: $('#mediaPreview'),
+    fileInput: $('#fileInput'),
+    parentId: null,
+    onPosted: (post) => {
+      // wrap in thread + prepend
+      const wrap = document.createElement('div');
+      wrap.className = 'thread';
+      wrap.appendChild(renderPost(post));
+      $('#timeline').prepend(wrap);
+      maybeRefreshHashtags(post);
+    },
+  });
   const lm = $('#loadMore');
   if (lm) lm.addEventListener('click', () => loadTimeline(false));
 }
@@ -459,57 +511,25 @@ async function loadSinglePost() {
 }
 
 function setupReplyForm() {
-  const form = $('#replyForm');
-  if (!form) return;
-  const text = $('#replyText');
-  const preview = $('#replyMediaPreview');
-  const fileInput = $('#replyFileInput');
-
-  fileInput.addEventListener('change', async (e) => {
-    for (const f of e.target.files) await attachFile(f, preview);
-    fileInput.value = '';
+  wireComposer({
+    form: $('#replyForm'),
+    text: $('#replyText'),
+    preview: $('#replyMediaPreview'),
+    fileInput: $('#replyFileInput'),
+    parentId: POST_ID,
+    onPosted: (reply) => {
+      $('#repliesHeader').hidden = false;
+      $('#replies').appendChild(renderPost(reply));
+    },
   });
+}
 
-  document.addEventListener('paste', async (e) => {
-    if (!IS_AUTHED || !e.clipboardData) return;
-    for (const item of e.clipboardData.items) {
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-          e.preventDefault();
-          await attachFile(file, preview);
-        }
-      }
-    }
-  });
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const t = text.value.trim();
-    const media = [...pending.values()]
-      .filter((m) => m.status === 'ready')
-      .map(({ kind, r2_key, thumb_key, width, height }) => ({
-        kind, r2_key, thumb_key, width, height,
-      }));
-    if (!t && media.length === 0) return;
-    if ([...pending.values()].some((m) => m.status === 'uploading')) {
-      alert('espera a que terminen de subir los archivos');
-      return;
-    }
-    const res = await fetch('/api/posts', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: t || null, media, parent_id: POST_ID }),
-    });
-    if (!res.ok) { alert('error al responder'); return; }
-    const reply = await res.json();
-    text.value = '';
-    preview.innerHTML = '';
-    pending.clear();
-    $('#repliesHeader').hidden = false;
-    $('#replies').appendChild(renderPost(reply));
-  });
+// Solo recarga el sidebar si el post introdujo un tag nuevo.
+function maybeRefreshHashtags(post) {
+  const fresh = (post.hashtags || []).filter((t) => !knownTags.has(t));
+  if (!fresh.length) return;
+  for (const t of fresh) knownTags.add(t);
+  loadHashtags();
 }
 
 // ----- init -----
@@ -519,7 +539,7 @@ function setupReplyForm() {
   setupMenu();
 
   if (PAGE === 'timeline') {
-    setupComposer();
+    setupTimelineComposer();
     setupFilterBanner();
     loadTimeline(true);
     if (IS_AUTHED && !document.body.classList.contains('sidebar-hidden')) {

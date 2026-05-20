@@ -60,14 +60,15 @@ function linkify(text) {
   return out;
 }
 
-function timeAgo(iso) {
+// formato europeo: 1032 → "1.032", 1032456 → "1.032.456"
+const NUM_FMT = new Intl.NumberFormat('es-ES');
+const fmt = (n) => NUM_FMT.format(n);
+
+// siempre en horas, con separador de millares (0h para < 1h)
+function hoursAgo(iso) {
   const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime();
-  const diff = (Date.now() - t) / 1000;
-  if (diff < 60) return `${Math.floor(diff)}s`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)}d`;
-  return new Date(iso).toISOString().slice(0, 10);
+  const hours = Math.floor((Date.now() - t) / 3600_000);
+  return `${fmt(hours)}h`;
 }
 
 function uuid() {
@@ -288,14 +289,21 @@ function renderPost(p, { single = false } = {}) {
           })
           .join('')}</div>`;
 
+  // inline reply button: not on single (main post already has its own composer)
+  const replyBtnHtml =
+    IS_AUTHED && !single
+      ? '<button class="reply-btn" type="button">responder</button>'
+      : '';
+
   el.innerHTML = `
     <div class="post-body">
       <div class="post-text">${linkify(p.text || '')}</div>
       ${mediaHtml}
       <div class="post-foot">
-        <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}">${timeAgo(p.created_at)}</a>
-        ${p.reply_count ? `<a href="/post/${p.id}">${p.reply_count} resp</a>` : ''}
+        <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
+        ${p.reply_count ? `<a href="/post/${p.id}">${fmt(p.reply_count)} resp</a>` : ''}
         <span class="grow"></span>
+        ${replyBtnHtml}
         ${IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : ''}
       </div>
     </div>
@@ -303,10 +311,26 @@ function renderPost(p, { single = false } = {}) {
 
   if (!single) {
     el.addEventListener('click', (e) => {
-      if (e.target.closest('a, button, video, .post-media')) return;
+      if (e.target.closest('a, button, video, .post-media, .composer')) return;
+      // con anidado, el handler del padre también recibe el evento: solo el .post
+      // más cercano al click debe responder
+      if (e.target.closest('.post') !== el) return;
       location.href = `/post/${p.id}`;
     });
     el.classList.add('clickable');
+  }
+
+  const reply = el.querySelector('.reply-btn');
+  if (reply) {
+    reply.onclick = (e) => {
+      e.stopPropagation();
+      const existing = el.querySelector(':scope > .reply-inline');
+      if (existing) { existing.remove(); return; }
+      const composer = makeInlineComposer(el, p.id);
+      const nested = el.querySelector(':scope > .thread-replies');
+      if (nested) el.insertBefore(composer, nested);
+      else el.appendChild(composer);
+    };
   }
 
   const del = el.querySelector('.delete-btn');
@@ -323,7 +347,7 @@ function renderPost(p, { single = false } = {}) {
         if (single) {
           location.href = '/';
         } else if (el.closest('.thread-replies')) {
-          // reply: solo el post, no el thread entero
+          // reply (cualquier profundidad): borra solo este nodo (y su subárbol DOM)
           el.remove();
         } else {
           // root: borra el thread completo
@@ -336,6 +360,63 @@ function renderPost(p, { single = false } = {}) {
   }
 
   return el;
+}
+
+// Recursive: renders a post + its nested replies inside the same .post element.
+function renderThread(p) {
+  const el = renderPost(p);
+  if (p.replies && p.replies.length) {
+    const nested = document.createElement('div');
+    nested.className = 'thread-replies';
+    for (const child of p.replies) nested.appendChild(renderThread(child));
+    el.appendChild(nested);
+  }
+  return el;
+}
+
+// Inline composer that posts a reply to `parentId` and inserts it nested in `parentPostEl`.
+function makeInlineComposer(parentPostEl, parentId) {
+  const form = document.createElement('form');
+  form.className = 'composer reply-inline';
+  form.innerHTML = `
+    <textarea placeholder="responder..." rows="2"></textarea>
+    <div class="media-preview"></div>
+    <div class="composer-foot">
+      <label class="file-btn">
+        adjuntar
+        <input type="file" accept="image/*,video/*" multiple hidden />
+      </label>
+      <span class="grow"></span>
+      <button type="button" class="link-btn cancel">cancelar</button>
+      <button type="submit" class="btn-primary">responder</button>
+    </div>
+  `;
+  const text = form.querySelector('textarea');
+  const preview = form.querySelector('.media-preview');
+  const fileInput = form.querySelector('input[type="file"]');
+  form.querySelector('.cancel').onclick = () => form.remove();
+
+  wireComposer({
+    form,
+    text,
+    preview,
+    fileInput,
+    parentId,
+    paste: false, // evita N listeners en document si hay varios inline abiertos
+    onPosted: (post) => {
+      let nested = parentPostEl.querySelector(':scope > .thread-replies');
+      if (!nested) {
+        nested = document.createElement('div');
+        nested.className = 'thread-replies';
+        parentPostEl.appendChild(nested);
+      }
+      nested.appendChild(renderThread(post));
+      form.remove();
+    },
+  });
+
+  setTimeout(() => text.focus(), 0);
+  return form;
 }
 
 // ----- TIMELINE PAGE -----
@@ -357,13 +438,7 @@ async function loadTimeline(reset = false) {
   for (const p of data.posts) {
     const wrap = document.createElement('div');
     wrap.className = 'thread';
-    wrap.appendChild(renderPost(p));
-    if (p.replies && p.replies.length) {
-      const repliesEl = document.createElement('div');
-      repliesEl.className = 'thread-replies';
-      for (const r of p.replies) repliesEl.appendChild(renderPost(r));
-      wrap.appendChild(repliesEl);
-    }
+    wrap.appendChild(renderThread(p));
     timeline.appendChild(wrap);
   }
   nextCursor = data.nextCursor;
@@ -401,7 +476,7 @@ function setupFilterBanner() {
 
 // Wires up a composer form (timeline OR reply): paste/drop/file-input/submit.
 // Each composer gets its own pending Map so attachments don't leak.
-function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted }) {
+function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted, paste = true }) {
   if (!form) return;
   const pending = new Map();
 
@@ -410,21 +485,23 @@ function wireComposer({ form, text, preview, fileInput, parentId = null, onPoste
     fileInput.value = '';
   });
 
-  document.addEventListener('paste', async (e) => {
-    if (!IS_AUTHED || !e.clipboardData) return;
-    let any = false;
-    for (const item of e.clipboardData.items) {
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-          e.preventDefault();
-          await attachFile(file, preview, pending);
-          any = true;
+  if (paste) {
+    document.addEventListener('paste', async (e) => {
+      if (!IS_AUTHED || !e.clipboardData) return;
+      let any = false;
+      for (const item of e.clipboardData.items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+            e.preventDefault();
+            await attachFile(file, preview, pending);
+            any = true;
+          }
         }
       }
-    }
-    if (any) text.focus();
-  });
+      if (any) text.focus();
+    });
+  }
 
   ['dragenter', 'dragover'].forEach((ev) =>
     form.addEventListener(ev, (e) => { e.preventDefault(); form.classList.add('drag-over'); }),
@@ -483,7 +560,7 @@ function setupTimelineComposer() {
       // wrap in thread + prepend
       const wrap = document.createElement('div');
       wrap.className = 'thread';
-      wrap.appendChild(renderPost(post));
+      wrap.appendChild(renderThread(post));
       $('#timeline').prepend(wrap);
       maybeRefreshHashtags(post);
     },
@@ -506,7 +583,7 @@ async function loadSinglePost() {
 
   if (replies.length) {
     $('#repliesHeader').hidden = false;
-    for (const r of replies) $('#replies').appendChild(renderPost(r));
+    for (const r of replies) $('#replies').appendChild(renderThread(r));
   }
 }
 
@@ -519,7 +596,7 @@ function setupReplyForm() {
     parentId: POST_ID,
     onPosted: (reply) => {
       $('#repliesHeader').hidden = false;
-      $('#replies').appendChild(renderPost(reply));
+      $('#replies').appendChild(renderThread(reply));
     },
   });
 }

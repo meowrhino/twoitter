@@ -332,6 +332,8 @@ body.sidebar-hidden .side-col { display: none; }
   .tag-list li { padding: 0; }
   .menu-btn { top: 12px; right: 12px; }
   .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
+  .thread-replies { padding-left: 12px; }
+  .thread-replies::before { left: 4px; }
 }
 
 /* ---------- composer ---------- */
@@ -447,7 +449,8 @@ body.sidebar-hidden .side-col { display: none; }
 
 .post-text {
   font-family: var(--mono);
-  font-size: 0.92rem;
+  /* em (no rem) → each nesting level compounds via .thread-replies font-size */
+  font-size: 0.92em;
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -457,24 +460,25 @@ body.sidebar-hidden .side-col { display: none; }
 .post-text:empty { display: none; }
 
 .thread { margin-bottom: 28px; }
+/* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño */
 .thread-replies {
-  padding-left: 22px;
+  padding-left: 18px;
   position: relative;
+  font-size: 0.96em;
 }
 .thread-replies::before {
   content: '';
   position: absolute;
-  left: 9px;
+  left: 7px;
   top: 4px;
   bottom: 14px;
   width: 1px;
   background: var(--border);
 }
-.thread-replies .post {
+.thread-replies > .post {
   padding-top: 12px;
   padding-bottom: 12px;
 }
-.thread-replies .post-text { font-size: 0.88rem; }
 .post-text .hashtag {
   color: var(--accent);
   font-family: var(--mono);
@@ -521,7 +525,14 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-foot a:hover { color: var(--accent); }
 .post-foot .grow { flex: 1; }
-.post-foot .delete-btn {
+.post-foot .post-id {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  letter-spacing: -0.02em;
+}
+.post-foot .permalink:hover .post-id { color: var(--accent-dim); }
+.post-foot .delete-btn,
+.post-foot .reply-btn {
   background: none;
   border: none;
   color: var(--muted);
@@ -530,7 +541,24 @@ body.sidebar-hidden .side-col { display: none; }
   font-family: inherit;
   font-size: inherit;
 }
+.post-foot .reply-btn:hover { color: var(--accent); }
 .post-foot .delete-btn:hover { color: var(--danger); }
+
+/* inline composer abierto dentro de un post */
+.reply-inline {
+  margin: 8px 0 12px;
+  font-size: 0.95em;
+}
+.reply-inline textarea { min-height: 44px; }
+.reply-inline .composer-foot .grow { flex: 1; }
+.reply-inline .link-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+.reply-inline .link-btn:hover { color: var(--accent); }
 
 .load-more {
   width: 100%;
@@ -551,7 +579,7 @@ body.sidebar-hidden .side-col { display: none; }
   padding: 24px 4px 28px;
   border-bottom: 2px solid var(--hairline);
 }
-.single-post .post-text { font-size: 1.08rem; }
+.single-post > #postContainer > .post > .post-body > .post-text { font-size: 1.08em; }
 .replies-header {
   font-family: var(--mono);
   font-size: 0.8rem;

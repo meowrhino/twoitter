@@ -129,14 +129,10 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
 
   if (body.parent_id != null) {
     const parent = await c.env.DB
-      .prepare("SELECT parent_id FROM posts WHERE id = ?")
+      .prepare("SELECT id FROM posts WHERE id = ?")
       .bind(body.parent_id)
-      .first<{ parent_id: number | null }>();
+      .first<{ id: number }>();
     if (!parent) return c.json({ error: "parent no existe" }, 404);
-    // replies-of-replies serían invisibles en la TL y romperían deletePost
-    if (parent.parent_id !== null) {
-      return c.json({ error: "solo se permite responder a posts raíz" }, 400);
-    }
   }
 
   const post = await createPost(c.env.DB, text, body.parent_id ?? null);

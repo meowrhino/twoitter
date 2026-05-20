@@ -77,6 +77,19 @@ async function attachMediaAndTags(
   }));
 }
 
+function buildReplyTree(all: Post[]): void {
+  const byParent = new Map<number, Post[]>();
+  for (const p of all) {
+    if (p.parent_id == null) continue;
+    const arr = byParent.get(p.parent_id) || [];
+    arr.push(p);
+    byParent.set(p.parent_id, arr);
+  }
+  for (const p of all) {
+    p.replies = byParent.get(p.id) || [];
+  }
+}
+
 export async function listPosts(
   db: D1Database,
   opts: { cursor?: string; tag?: string; q?: string; limit: number },
@@ -117,33 +130,39 @@ export async function listPosts(
   const rows = res.results;
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  const posts = await attachMediaAndTags(db, page);
 
-  // attach replies for each root post (single batch)
-  if (posts.length) {
-    const ids = posts.map((p) => p.id);
-    const placeholders = ids.map(() => "?").join(",");
-    const replyRows = await db
-      .prepare(
-        `SELECT * FROM posts WHERE parent_id IN (${placeholders}) ORDER BY created_at ASC`,
-      )
-      .bind(...ids)
-      .all<PostRow>();
-    const replies = await attachMediaAndTags(db, replyRows.results);
-    const repliesByParent = new Map<number, Post[]>();
-    for (const r of replies) {
-      const arr = repliesByParent.get(r.parent_id!) || [];
-      arr.push(r);
-      repliesByParent.set(r.parent_id!, arr);
-    }
-    for (const p of posts) {
-      p.replies = repliesByParent.get(p.id) || [];
-    }
+  if (page.length === 0) {
+    return { posts: [], nextCursor: null };
   }
+
+  // fetch every descendant of the roots in this page (any depth) with a recursive CTE
+  const rootIds = page.map((p) => p.id);
+  const placeholders = rootIds.map(() => "?").join(",");
+  const descRes = await db
+    .prepare(
+      `WITH RECURSIVE descendants AS (
+         SELECT p.* FROM posts p WHERE p.parent_id IN (${placeholders})
+         UNION ALL
+         SELECT c.* FROM posts c JOIN descendants d ON c.parent_id = d.id
+       )
+       SELECT * FROM descendants ORDER BY created_at ASC`,
+    )
+    .bind(...rootIds)
+    .all<PostRow>();
+
+  const allWithExtras = await attachMediaAndTags(db, [
+    ...page,
+    ...descRes.results,
+  ]);
+  buildReplyTree(allWithExtras);
+
+  // preserve the ordered roots (created_at DESC) from the paginated query
+  const byId = new Map(allWithExtras.map((p) => [p.id, p]));
+  const roots = page.map((r) => byId.get(r.id)!).filter(Boolean);
 
   const last = page[page.length - 1];
   const nextCursor = hasMore && last ? `${last.created_at}|${last.id}` : null;
-  return { posts, nextCursor };
+  return { posts: roots, nextCursor };
 }
 
 export async function getPost(
@@ -165,11 +184,18 @@ export async function getReplies(
 ): Promise<Post[]> {
   const res = await db
     .prepare(
-      "SELECT * FROM posts WHERE parent_id = ? ORDER BY created_at ASC",
+      `WITH RECURSIVE descendants AS (
+         SELECT p.* FROM posts p WHERE p.parent_id = ?
+         UNION ALL
+         SELECT c.* FROM posts c JOIN descendants d ON c.parent_id = d.id
+       )
+       SELECT * FROM descendants ORDER BY created_at ASC`,
     )
     .bind(parentId)
     .all<PostRow>();
-  return attachMediaAndTags(db, res.results);
+  const all = await attachMediaAndTags(db, res.results);
+  buildReplyTree(all);
+  return all.filter((p) => p.parent_id === parentId);
 }
 
 export async function createPost(
@@ -213,31 +239,49 @@ export async function deletePost(
   storage: R2Bucket,
   id: number,
 ): Promise<{ deletedKeys: string[] } | null> {
-  const post = await getPost(db, id);
-  if (!post) return null;
+  const exists = await db
+    .prepare("SELECT id FROM posts WHERE id = ?")
+    .bind(id)
+    .first<{ id: number }>();
+  if (!exists) return null;
 
-  // collect r2 keys from this post and all its descendants (1-level: replies of replies are rare here)
-  const replies = await getReplies(db, id);
-  const allMedia = [...post.media, ...replies.flatMap((r) => r.media)];
-  const keys = allMedia.flatMap((m) =>
+  // gather every descendant id (any depth), including self
+  const idsRes = await db
+    .prepare(
+      `WITH RECURSIVE descendants AS (
+         SELECT id FROM posts WHERE id = ?
+         UNION ALL
+         SELECT p.id FROM posts p JOIN descendants d ON p.parent_id = d.id
+       )
+       SELECT id FROM descendants`,
+    )
+    .bind(id)
+    .all<{ id: number }>();
+  const ids = idsRes.results.map((r) => r.id);
+  if (ids.length === 0) return { deletedKeys: [] };
+  const placeholders = ids.map(() => "?").join(",");
+
+  const mediaRes = await db
+    .prepare(
+      `SELECT r2_key, thumb_key FROM media WHERE post_id IN (${placeholders})`,
+    )
+    .bind(...ids)
+    .all<{ r2_key: string; thumb_key: string | null }>();
+  const keys = mediaRes.results.flatMap((m) =>
     m.thumb_key ? [m.r2_key, m.thumb_key] : [m.r2_key],
   );
 
+  // delete in a single posts statement so parent_id FK is satisfied at statement end
   await db.batch([
-    db.prepare("DELETE FROM hashtags WHERE post_id = ?").bind(id),
-    db.prepare("DELETE FROM media WHERE post_id = ?").bind(id),
     db
-      .prepare(
-        "DELETE FROM hashtags WHERE post_id IN (SELECT id FROM posts WHERE parent_id = ?)",
-      )
-      .bind(id),
+      .prepare(`DELETE FROM hashtags WHERE post_id IN (${placeholders})`)
+      .bind(...ids),
     db
-      .prepare(
-        "DELETE FROM media WHERE post_id IN (SELECT id FROM posts WHERE parent_id = ?)",
-      )
-      .bind(id),
-    db.prepare("DELETE FROM posts WHERE parent_id = ?").bind(id),
-    db.prepare("DELETE FROM posts WHERE id = ?").bind(id),
+      .prepare(`DELETE FROM media WHERE post_id IN (${placeholders})`)
+      .bind(...ids),
+    db
+      .prepare(`DELETE FROM posts WHERE id IN (${placeholders})`)
+      .bind(...ids),
   ]);
 
   await Promise.all(keys.map((k) => storage.delete(k)));

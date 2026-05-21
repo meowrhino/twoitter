@@ -18,6 +18,7 @@ import { checkAuth } from './js/auth.js';
 import { setupMenu, setupFilterBanner } from './js/menu.js';
 import { setupGlobalPasteHandler } from './js/composer.js';
 import { setupTapToActivate } from './js/render.js';
+import { setupGallery } from './js/gallery.js';
 import { setupResizeRailRecalc } from './js/rails.js';
 import { loadHashtags } from './js/hashtags.js';
 import {
@@ -30,6 +31,7 @@ import {
   setupMenu();
   setupGlobalPasteHandler();
   setupTapToActivate();
+  setupGallery();
   setupResizeRailRecalc();
 
   if (PAGE === 'timeline') {

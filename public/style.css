@@ -585,43 +585,150 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-text .hashtag:hover { border-bottom: 1px dotted var(--accent); }
 
-.post-media {
-  display: grid;
-  gap: 4px;
+/* ---------- gallery (stage + thumbs) ----------
+   Reemplaza el grid antiguo. Stage muestra siempre media[index] al
+   completo; thumbs sólo aparecen si hay más de un item. */
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 12px;
+}
+.gallery > .stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
   border-radius: 6px;
   overflow: hidden;
+  max-height: 480px;
 }
-.post-media.count-1 { grid-template-columns: 1fr; }
-.post-media.count-2 { grid-template-columns: 1fr 1fr; }
-.post-media.count-3, .post-media.count-4 { grid-template-columns: 1fr 1fr; }
-.post-media .item {
+.gallery > .stage > img,
+.gallery > .stage > video {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+.gallery > .stage > img { cursor: zoom-in; }
+
+.gallery > .thumbs {
+  display: flex;
+  flex-wrap: nowrap;
+  /* safe center: cuando las thumbs caben, se centran; cuando desbordan
+     (viewports estrechos), se anclan al inicio en vez de empujar la primera
+     fuera del scroll. */
+  justify-content: safe center;
+  gap: 6px;
+  padding: 2px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--faint) transparent;
+}
+.gallery > .thumbs::-webkit-scrollbar { height: 6px; }
+.gallery > .thumbs::-webkit-scrollbar-thumb {
+  background: var(--faint);
+  border-radius: 3px;
+}
+.gallery > .thumbs > .thumb {
   position: relative;
-  /* transparente para que vídeos/imágenes con alpha dejen ver el fondo */
-  background: transparent;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
   overflow: hidden;
+  scroll-snap-align: center;
 }
-/* alturas por cantidad: uno solo grande, varios más bajos para que el
-   post no se coma media pantalla */
-.post-media.count-1 .item,
-.post-media.count-1 .item img,
-.post-media.count-1 .item video { max-height: 480px; }
-.post-media.count-2 .item,
-.post-media.count-2 .item img,
-.post-media.count-2 .item video { max-height: 260px; }
-.post-media.count-3 .item,
-.post-media.count-4 .item,
-.post-media.count-3 .item img,
-.post-media.count-4 .item img,
-.post-media.count-3 .item video,
-.post-media.count-4 .item video { max-height: 200px; }
-.post-media .item img,
-.post-media .item video {
+.gallery > .thumbs > .thumb:hover { border-color: var(--accent-dim); }
+.gallery > .thumbs > .thumb.is-active { border-color: var(--accent); }
+.gallery > .thumbs > .thumb > img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
+.gallery > .thumbs > .thumb .thumb-placeholder {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+}
+.gallery > .thumbs > .thumb .play-badge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: #fff;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* ---------- lightbox ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox-stage {
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox-stage > img,
+.lightbox-stage > video {
+  max-width: 95vw;
+  max-height: 90vh;
+  display: block;
+  object-fit: contain;
+}
+.lightbox-close,
+.lightbox-prev,
+.lightbox-next {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  font-size: 1.8rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.lightbox-close:hover,
+.lightbox-prev:hover,
+.lightbox-next:hover { background: rgba(0, 0, 0, 0.75); }
+.lightbox-close { top: 12px; right: 12px; }
+.lightbox-prev { left: 12px; top: 50%; transform: translateY(-50%); }
+.lightbox-next { right: 12px; top: 50%; transform: translateY(-50%); }
+.lightbox-counter {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+body.lightbox-open { overflow: hidden; }
 
 .post-foot {
   display: flex;

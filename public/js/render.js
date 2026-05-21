@@ -5,20 +5,7 @@ import { fmt, hoursAgo, escapeHtml, linkify, toast } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot } from './rails.js';
 import { makeInlineComposer } from './composer.js';
-
-// ----- templates puros (sin side effects, sin DOM) -----
-
-function renderPostMedia(p) {
-  if (p.media.length === 0) return '';
-  const items = p.media.map((m) => {
-    if (m.kind === 'image') {
-      return `<div class="item"><img src="/r2/${m.r2_key}" loading="lazy"></div>`;
-    }
-    const poster = m.thumb_key ? ` poster="/r2/${m.thumb_key}"` : '';
-    return `<div class="item"><video src="/r2/${m.r2_key}" controls preload="metadata"${poster}></video></div>`;
-  }).join('');
-  return `<div class="post-media count-${Math.min(p.media.length, 4)}">${items}</div>`;
-}
+import { renderPostGallery } from './gallery.js';
 
 // Wrapper de "responder/borrar". Vive FUERA de .post-body, como hijo directo
 // de .post: CSS lo ancla absoluto a la derecha del .post, alineado con el
@@ -57,7 +44,7 @@ function bindPostClickToNavigate(postEl, p) {
   postEl.setAttribute('tabindex', '0');
   postEl.setAttribute('aria-label', `abrir post #${p.id}`);
   const go = (e) => {
-    if (e.target.closest('a, button, video, .composer')) return;
+    if (e.target.closest('a, button, video, .composer, .gallery')) return;
     if (e.target.closest('.post') !== postEl) return;
     // En dispositivos sin hover, primer tap activa, segundo navega.
     const isTouch = matchMedia('(hover: none)').matches;
@@ -154,7 +141,7 @@ export function renderPost(p, { single = false } = {}) {
   el.innerHTML = `
     <div class="post-body">
       <div class="post-text">${linkify(p.text || '')}</div>
-      ${renderPostMedia(p)}
+      ${renderPostGallery(p.media)}
       ${renderPostFoot(p)}
     </div>
     ${renderPostActions(single)}

@@ -822,12 +822,16 @@ function setupGlobalPasteHandler() {
 
 // debounced resize: re-extiende todos los rails cuando el viewport cambia
 // y los heights de los posts pueden haberse modificado (text reflow).
+// load: safety net por si imágenes/vídeos cargaban async tras la medida
+// inicial; el ResizeObserver del .thread también lo pilla, pero esto se
+// dispara aunque el RO no esté disponible.
 function setupResizeRailRecalc() {
   let t;
   window.addEventListener('resize', () => {
     clearTimeout(t);
     t = setTimeout(extendAllRails, 100);
   });
+  window.addEventListener('load', extendAllRails);
 }
 
 function setupTimelineComposer() {

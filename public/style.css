@@ -331,13 +331,16 @@ body.sidebar-hidden .side-col { display: none; }
 .tag-list .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 720px) {
+  /* override de --indent-x: la sangría de cada nivel pasa a 10px en móvil
+     para que los niveles profundos sigan cabiendo. propaga automáticamente
+     porque .thread-replies usa var(--indent-x). */
+  :root { --indent-x: 10px; }
   .layout { grid-template-columns: minmax(0, 1fr); padding: 0 18px; }
   .side-col { position: static; max-height: none; margin-top: 20px; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag-list li { padding: 0; }
   .menu-btn { top: 12px; right: 12px; }
   .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
-  .thread-replies { padding-left: 10px; }
 }
 
 /* ---------- composer ---------- */

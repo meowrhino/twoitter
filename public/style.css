@@ -440,16 +440,62 @@ body.sidebar-hidden .side-col { display: none; }
   font-size: 0.85rem;
   line-height: 1;
 }
+/* overlay de estado: barra de progreso + etiqueta sobre el thumbnail.
+   Hidden por defecto, .visible al activar. Indeterminada anima el fill
+   por toda la barra cuando no hay percent (loading ffmpeg, upload). */
 .media-preview .item .status {
   position: absolute;
-  bottom: 4px;
-  left: 4px;
-  font-size: 0.7rem;
-  background: rgba(0,0,0,0.75);
-  padding: 2px 6px;
-  border-radius: 3px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
   font-family: var(--mono);
+  font-size: 0.7rem;
   color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.media-preview .item .status.visible { opacity: 1; }
+.media-preview .item .status-bar {
+  height: 3px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.media-preview .item .status-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.25s ease;
+}
+.media-preview .item .status.status-ok .status-bar-fill { background: var(--accent); }
+.media-preview .item .status.status-err .status-bar-fill { background: var(--danger); }
+.media-preview .item .status.indeterminate .status-bar-fill {
+  width: 35% !important;
+  animation: status-indeterminate 1.1s infinite linear;
+}
+@keyframes status-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(286%); } /* 100/35 ≈ 2.86 → recorre todo */
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-preview .item .status.indeterminate .status-bar-fill {
+    animation: none;
+    width: 100% !important;
+    opacity: 0.5;
+  }
+}
+.media-preview .item .status-label {
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- timeline ---------- */
@@ -597,10 +643,11 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
 
-/* responder/borrar — viven fuera de .post-body, anclados a la derecha del
-   .post y alineados verticalmente con el final del rail (--rail-bottom lo
-   mantiene extendRails: rail termina en el bottom del último descendiente,
-   o en el propio bottom si no hay). Siempre visibles cuando hay sesión. */
+/* responder/borrar — anclados a la derecha del .post, alineados con el
+   final del rail (--rail-bottom). Aparecen solo cuando el .post está
+   activo: hover en desktop, tap en touch, siempre en single-view.
+   Sin esto, posts encadenados (padre con un único hijo terminal) mostraban
+   los dos sets de botones en el mismo Y y se solapaban como "rresppoondderr". */
 .post-actions {
   position: absolute;
   right: 0;
@@ -611,6 +658,9 @@ body.sidebar-hidden .side-col { display: none; }
   font-size: 0.75rem;
   line-height: 1;
   padding-bottom: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
 }
 .post-actions button {
   background: none;
@@ -623,6 +673,29 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-actions .reply-btn:hover { color: var(--accent); }
 .post-actions .delete-btn:hover { color: var(--danger); }
+
+/* desktop: hover sobre el .post más interno bajo el cursor → mostrar.
+   :not(:has(.post:hover)) garantiza que solo el más profundo muestra
+   sus botones, así nunca aparecen 2 sets al mismo Y. */
+@media (hover: hover) {
+  .post.clickable:hover:not(:has(.post:hover)) > .post-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* touch: tap en el .post añade .tapped (en JS), retap fuera lo quita.
+   En clickable solo el tapped muestra sus botones. */
+.post.clickable.tapped > .post-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* single-view: el post principal no es .clickable, los botones siempre */
+.single-post #postContainer > .post > .post-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
 
 /* inline composer abierto dentro de un post */
 .reply-inline {

@@ -47,6 +47,11 @@ function renderPostFoot(p) {
 
 // click + keyboard navegan al permalink. role=link + tabindex=0 + aria-label
 // hacen el post alcanzable por teclado y lectores de pantalla.
+//
+// En touch, el primer tap activa el post (clase .tapped → CSS muestra
+// post-actions). Re-tap del mismo post navega al permalink. Tap fuera
+// desactiva (listener global en setupTapToActivate). Hover (desktop)
+// muestra los botones sin necesidad de tap.
 function bindPostClickToNavigate(postEl, p) {
   postEl.setAttribute('role', 'link');
   postEl.setAttribute('tabindex', '0');
@@ -54,6 +59,15 @@ function bindPostClickToNavigate(postEl, p) {
   const go = (e) => {
     if (e.target.closest('a, button, video, .composer')) return;
     if (e.target.closest('.post') !== postEl) return;
+    // En dispositivos sin hover, primer tap activa, segundo navega.
+    const isTouch = matchMedia('(hover: none)').matches;
+    if (isTouch && !postEl.classList.contains('tapped')) {
+      document.querySelectorAll('.post.tapped').forEach((el) => {
+        if (el !== postEl) el.classList.remove('tapped');
+      });
+      postEl.classList.add('tapped');
+      return;
+    }
     location.href = `/post/${p.id}`;
   };
   postEl.addEventListener('click', go);
@@ -64,6 +78,19 @@ function bindPostClickToNavigate(postEl, p) {
     location.href = `/post/${p.id}`;
   });
   postEl.classList.add('clickable');
+}
+
+// Global: tap fuera de cualquier .post o tap en un .post distinto al
+// .tapped actual → quitar la clase para que esconda sus post-actions.
+// Se llama una sola vez desde el entry point.
+export function setupTapToActivate() {
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.post-actions')) return; // dejar que el botón actúe
+    const post = e.target.closest?.('.post.clickable');
+    document.querySelectorAll('.post.tapped').forEach((el) => {
+      if (el !== post) el.classList.remove('tapped');
+    });
+  }, true);
 }
 
 function bindReplyButton(postEl, p) {

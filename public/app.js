@@ -311,7 +311,8 @@ function renderPost(p, { single = false } = {}) {
 
   if (!single) {
     el.addEventListener('click', (e) => {
-      if (e.target.closest('a, button, video, .post-media, .composer')) return;
+      // video sigue excluido (controles play/volumen). imágenes ahora navegan.
+      if (e.target.closest('a, button, video, .composer')) return;
       // con anidado, el handler del padre también recibe el evento: solo el .post
       // más cercano al click debe responder
       if (e.target.closest('.post') !== el) return;

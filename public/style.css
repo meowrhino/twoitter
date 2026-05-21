@@ -455,8 +455,10 @@ body.sidebar-hidden .side-col { display: none; }
   background: var(--hairline);
 }
 .post.clickable { cursor: pointer; }
-.post.clickable:hover { background: rgba(232, 176, 74, 0.02); }
-.post.clickable:hover::before { background: var(--border); }
+/* :not(:has(.post:hover)) → solo el .post más interno bajo el cursor se
+   resalta; sin esto los ancestros también se ponen amarillos en hover. */
+.post.clickable:hover:not(:has(.post:hover)) { background: rgba(232, 176, 74, 0.04); }
+.post.clickable:hover:not(:has(.post:hover))::before { background: var(--accent); }
 
 .post-text {
   font-family: var(--mono);
@@ -506,14 +508,26 @@ body.sidebar-hidden .side-col { display: none; }
   position: relative;
   /* transparente para que vídeos/imágenes con alpha dejen ver el fondo */
   background: transparent;
-  max-height: 480px;
   overflow: hidden;
 }
+/* alturas por cantidad: uno solo grande, varios más bajos para que el
+   post no se coma media pantalla */
+.post-media.count-1 .item,
+.post-media.count-1 .item img,
+.post-media.count-1 .item video { max-height: 480px; }
+.post-media.count-2 .item,
+.post-media.count-2 .item img,
+.post-media.count-2 .item video { max-height: 260px; }
+.post-media.count-3 .item,
+.post-media.count-4 .item,
+.post-media.count-3 .item img,
+.post-media.count-4 .item img,
+.post-media.count-3 .item video,
+.post-media.count-4 .item video { max-height: 200px; }
 .post-media .item img,
 .post-media .item video {
   width: 100%;
   height: 100%;
-  max-height: 480px;
   object-fit: contain;
   display: block;
 }

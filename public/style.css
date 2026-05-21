@@ -601,7 +601,9 @@ body.sidebar-hidden .side-col { display: none; }
   background: transparent;
   border-radius: 6px;
   overflow: hidden;
-  max-height: 480px;
+  /* sin max-height: las verticales toman su altura natural en lugar de
+     achicarse y dejar bandas a los lados. Si la imagen es muy larga,
+     pues será larga — preferimos eso al letterboxing. */
   /* Fade entre medios: cuando JS añade .is-fading, opacity → 0 durante
      ~160ms (sincronizado con FADE_MS en gallery.js). El swap del innerHTML
      ocurre con la opacity ya a 0, así que no se ve el cambio brusco. */
@@ -613,8 +615,7 @@ body.sidebar-hidden .side-col { display: none; }
 .gallery > .stage > video {
   display: block;
   max-width: 100%;
-  max-height: 480px;
-  object-fit: contain;
+  height: auto;
 }
 .gallery > .stage > img { cursor: zoom-in; }
 

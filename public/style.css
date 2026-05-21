@@ -470,16 +470,20 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-text:empty { display: none; }
 
-.thread { margin-bottom: 28px; }
+.thread { margin-bottom: 56px; }
 /* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño.
    ya no necesitamos línea aquí — cada .post lleva su propio rail. */
 .thread-replies {
   padding-left: 14px;
   font-size: 0.96em;
 }
+/* padding-right: 0 hace que el footer de cada nivel quede alineado en la
+   misma columna X derecha que el root, en vez de irse 4px hacia dentro
+   por cada nivel de anidamiento. */
 .thread-replies > .post {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  padding-right: 0;
 }
 .post-text .hashtag {
   color: var(--accent);

@@ -569,6 +569,29 @@ body.sidebar-hidden .side-col { display: none; }
 .post-foot .reply-btn:hover { color: var(--accent); }
 .post-foot .delete-btn:hover { color: var(--danger); }
 
+/* responder/borrar solo visibles cuando estás encima del post — para que
+   la timeline respire. en touch (sin hover) se quedan visibles siempre.
+   single-post principal no es .clickable, así que sus botones se ven
+   permanentemente (es lo que queremos). */
+.post.clickable .post-foot .reply-btn,
+.post.clickable .post-foot .delete-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot .reply-btn,
+.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot .delete-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .post.clickable .post-foot .reply-btn,
+  .post.clickable .post-foot .delete-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* inline composer abierto dentro de un post */
 .reply-inline {
   margin: 8px 0 12px;

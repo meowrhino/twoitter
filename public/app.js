@@ -5,7 +5,6 @@ const POST_ID = PAGE === 'post' ? parseInt(location.pathname.split('/')[2]) : nu
 let IS_AUTHED = false;
 let nextCursor = null;
 let loading = false;
-let knownTags = new Set();
 
 const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
 const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
@@ -73,6 +72,43 @@ function hoursAgo(iso) {
 
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
+// Ajusta el contador "N resp" del .post pasado, sin recargar.
+// delta: +1 al añadir un reply, -1 al borrar uno. El contador se guarda
+// en dataset.replyCount (no se parsea del texto, que va con formato es-ES).
+function updateReplyCount(postEl, delta) {
+  if (!postEl) return;
+  const current = parseInt(postEl.dataset.replyCount || '0') || 0;
+  const next = Math.max(0, current + delta);
+  postEl.dataset.replyCount = String(next);
+
+  const foot = postEl.querySelector(':scope > .post-body > .post-foot');
+  if (!foot) return;
+  const permalink = foot.querySelector('.permalink');
+  let countLink = foot.querySelector('a.resp-count');
+
+  if (next === 0) {
+    countLink?.remove();
+    return;
+  }
+  if (countLink) {
+    countLink.textContent = `${fmt(next)} resp`;
+  } else if (permalink) {
+    countLink = document.createElement('a');
+    countLink.className = 'resp-count';
+    countLink.href = permalink.getAttribute('href');
+    countLink.textContent = `${fmt(next)} resp`;
+    permalink.after(countLink);
+  }
+}
+
+// Recarga el sidebar #tags si está visible. Llamar tras crear/borrar
+// posts para que los counts y la lista no queden obsoletos.
+function refreshHashtags() {
+  if (document.body.classList.contains('sidebar-hidden')) return;
+  if (!$('#tagList')) return;
+  loadHashtags();
 }
 
 // ----- auth check & visibility -----
@@ -276,6 +312,8 @@ function renderPost(p, { single = false } = {}) {
   const el = document.createElement('article');
   el.className = 'post';
   el.dataset.id = p.id;
+  // se mantiene como source of truth para updateReplyCount tras add/delete
+  el.dataset.replyCount = String(p.reply_count || 0);
 
   const mediaHtml =
     p.media.length === 0
@@ -301,7 +339,7 @@ function renderPost(p, { single = false } = {}) {
       ${mediaHtml}
       <div class="post-foot">
         <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
-        ${p.reply_count ? `<a href="/post/${p.id}">${fmt(p.reply_count)} resp</a>` : ''}
+        ${p.reply_count ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>` : ''}
         <span class="grow"></span>
         ${replyBtnHtml}
         ${IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : ''}
@@ -339,24 +377,33 @@ function renderPost(p, { single = false } = {}) {
     del.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm('¿borrar este post?')) return;
+      // capturar el .post padre antes de tocar el DOM, para decrementar
+      // su contador "N resp" tras éxito. en single, los replies de nivel 1
+      // cuelgan de #replies (no de un .post): el padre lógico es el principal.
+      let parentPost = el.parentElement?.closest('.post');
+      if (!parentPost && el.closest('#replies')) {
+        parentPost = document.querySelector('#postContainer > .post');
+      }
       const res = await fetch(`/api/posts/${p.id}`, {
         method: 'DELETE',
         credentials: 'same-origin',
         headers: CSRF_HEADERS,
       });
-      if (res.ok) {
-        if (single) {
-          location.href = '/';
-        } else if (el.closest('.thread-replies')) {
-          // reply (cualquier profundidad): borra solo este nodo (y su subárbol DOM)
-          el.remove();
-        } else {
-          // root: borra el thread completo
-          el.closest('.thread')?.remove() || el.remove();
-        }
-      } else {
+      if (!res.ok) {
         toast('error al borrar', 'error');
+        return;
       }
+      if (single) {
+        location.href = '/';
+        return;
+      }
+      if (el.closest('.thread-replies') || el.closest('#replies')) {
+        el.remove();
+      } else {
+        el.closest('.thread')?.remove() || el.remove();
+      }
+      if (parentPost) updateReplyCount(parentPost, -1);
+      refreshHashtags();
     };
   }
 
@@ -395,7 +442,10 @@ function makeInlineComposer(parentPostEl, parentId) {
   const text = form.querySelector('textarea');
   const preview = form.querySelector('.media-preview');
   const fileInput = form.querySelector('input[type="file"]');
-  form.querySelector('.cancel').onclick = () => form.remove();
+  form.querySelector('.cancel').onclick = () => {
+    if (form._pending) revokePendingUrls(form._pending);
+    form.remove();
+  };
 
   wireComposer({
     form,
@@ -403,7 +453,6 @@ function makeInlineComposer(parentPostEl, parentId) {
     preview,
     fileInput,
     parentId,
-    paste: false, // evita N listeners en document si hay varios inline abiertos
     onPosted: (post) => {
       let nested = parentPostEl.querySelector(':scope > .thread-replies');
       if (!nested) {
@@ -412,6 +461,8 @@ function makeInlineComposer(parentPostEl, parentId) {
         parentPostEl.appendChild(nested);
       }
       nested.appendChild(renderThread(post));
+      updateReplyCount(parentPostEl, +1);
+      refreshHashtags();
       form.remove();
     },
   });
@@ -425,32 +476,37 @@ function makeInlineComposer(parentPostEl, parentId) {
 async function loadTimeline(reset = false) {
   if (loading) return;
   loading = true;
-  const params = new URLSearchParams();
-  const tag = new URLSearchParams(location.search).get('tag');
-  const q = new URLSearchParams(location.search).get('q');
-  if (tag) params.set('tag', tag);
-  if (q) params.set('q', q);
-  if (!reset && nextCursor) params.set('cursor', nextCursor);
+  try {
+    const params = new URLSearchParams();
+    const tag = new URLSearchParams(location.search).get('tag');
+    const q = new URLSearchParams(location.search).get('q');
+    if (tag) params.set('tag', tag);
+    if (q) params.set('q', q);
+    if (!reset && nextCursor) params.set('cursor', nextCursor);
 
-  const res = await fetch('/api/posts?' + params);
-  const data = await res.json();
-  const timeline = $('#timeline');
-  if (reset) timeline.innerHTML = '';
-  for (const p of data.posts) {
-    const wrap = document.createElement('div');
-    wrap.className = 'thread';
-    wrap.appendChild(renderThread(p));
-    timeline.appendChild(wrap);
+    const res = await fetch('/api/posts?' + params);
+    const data = await res.json();
+    const timeline = $('#timeline');
+    if (reset) timeline.innerHTML = '';
+    for (const p of data.posts) {
+      const wrap = document.createElement('div');
+      wrap.className = 'thread';
+      wrap.appendChild(renderThread(p));
+      timeline.appendChild(wrap);
+    }
+    nextCursor = data.nextCursor;
+    $('#loadMore').hidden = !nextCursor;
+  } catch (err) {
+    console.error('loadTimeline failed', err);
+    toast('error al cargar timeline', 'error');
+  } finally {
+    loading = false;
   }
-  nextCursor = data.nextCursor;
-  $('#loadMore').hidden = !nextCursor;
-  loading = false;
 }
 
 async function loadHashtags() {
   const res = await fetch('/api/hashtags');
   const tags = await res.json();
-  knownTags = new Set(tags.map((t) => t.tag));
   const ul = $('#tagList');
   if (!ul) return;
   const currentTag = new URLSearchParams(location.search).get('tag');
@@ -475,34 +531,20 @@ function setupFilterBanner() {
   }
 }
 
-// Wires up a composer form (timeline OR reply): paste/drop/file-input/submit.
-// Each composer gets its own pending Map so attachments don't leak.
-function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted, paste = true }) {
+// Wires up a composer form (timeline OR reply): drop/file-input/submit.
+// Paste se gestiona globalmente (setupGlobalPasteHandler) y enruta al
+// composer con foco. Cada composer guarda su pending/preview en el form
+// node para que el paste handler global pueda alcanzarlo.
+function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted }) {
   if (!form) return;
   const pending = new Map();
+  form._pending = pending;
+  form._preview = preview;
 
   fileInput.addEventListener('change', async (e) => {
     for (const f of e.target.files) await attachFile(f, preview, pending);
     fileInput.value = '';
   });
-
-  if (paste) {
-    document.addEventListener('paste', async (e) => {
-      if (!IS_AUTHED || !e.clipboardData) return;
-      let any = false;
-      for (const item of e.clipboardData.items) {
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-            e.preventDefault();
-            await attachFile(file, preview, pending);
-            any = true;
-          }
-        }
-      }
-      if (any) text.focus();
-    });
-  }
 
   ['dragenter', 'dragover'].forEach((ev) =>
     form.addEventListener(ev, (e) => { e.preventDefault(); form.classList.add('drag-over'); }),
@@ -538,6 +580,7 @@ function wireComposer({ form, text, preview, fileInput, parentId = null, onPoste
       if (!res.ok) throw new Error('post failed');
       const post = await res.json();
       text.value = '';
+      revokePendingUrls(pending);
       preview.innerHTML = '';
       pending.clear();
       onPosted(post);
@@ -547,6 +590,37 @@ function wireComposer({ form, text, preview, fileInput, parentId = null, onPoste
     } finally {
       if (submitBtn) submitBtn.disabled = false;
     }
+  });
+}
+
+// Libera todos los blob URLs creados con URL.createObjectURL para los
+// items aún en pending. Sin esto, los blobs quedan en memoria hasta
+// recargar la página — significativo con vídeos.
+function revokePendingUrls(pending) {
+  for (const m of pending.values()) {
+    if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
+  }
+}
+
+// Único listener de paste para toda la página: dirige el archivo al
+// composer con foco (form._pending / form._preview). Antes había un
+// listener por composer cerrado sobre su propio preview, así que pegar
+// dentro de un reply-inline iba al composer principal por error.
+function setupGlobalPasteHandler() {
+  document.addEventListener('paste', async (e) => {
+    if (!IS_AUTHED || !e.clipboardData) return;
+    const formEl = document.activeElement?.closest('.composer');
+    if (!formEl || !formEl._pending) return;
+    let any = false;
+    for (const item of e.clipboardData.items) {
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) continue;
+      e.preventDefault();
+      await attachFile(file, formEl._preview, formEl._pending);
+      any = true;
+    }
+    if (any) formEl.querySelector('textarea')?.focus();
   });
 }
 
@@ -563,7 +637,7 @@ function setupTimelineComposer() {
       wrap.className = 'thread';
       wrap.appendChild(renderThread(post));
       $('#timeline').prepend(wrap);
-      maybeRefreshHashtags(post);
+      refreshHashtags();
     },
   });
   const lm = $('#loadMore');
@@ -598,16 +672,10 @@ function setupReplyForm() {
     onPosted: (reply) => {
       $('#repliesHeader').hidden = false;
       $('#replies').appendChild(renderThread(reply));
+      const mainPost = document.querySelector('#postContainer > .post');
+      if (mainPost) updateReplyCount(mainPost, +1);
     },
   });
-}
-
-// Solo recarga el sidebar si el post introdujo un tag nuevo.
-function maybeRefreshHashtags(post) {
-  const fresh = (post.hashtags || []).filter((t) => !knownTags.has(t));
-  if (!fresh.length) return;
-  for (const t of fresh) knownTags.add(t);
-  loadHashtags();
 }
 
 // ----- init -----
@@ -615,6 +683,7 @@ function maybeRefreshHashtags(post) {
 (async () => {
   await checkAuth();
   setupMenu();
+  setupGlobalPasteHandler();
 
   if (PAGE === 'timeline') {
     setupTimelineComposer();

@@ -9,6 +9,12 @@ let loading = false;
 const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
 const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
 
+// Estado por composer (no se mete en el nodo DOM, así no pollutea el form
+// con props ad-hoc). WeakMap permite GC automático: cuando el <form> sale
+// del DOM y nadie más lo referencia, su entrada aquí se libera sola.
+// shape: { pending: Map<localId, mediaState>, preview: HTMLElement }
+const composerState = new WeakMap();
+
 // ----- toast -----
 
 function toast(msg, type = 'info') {
@@ -254,6 +260,59 @@ async function uploadBlob(blob, folder) {
   return res.json();
 }
 
+// Lee width/height de una imagen creando una URL temporal propia, así no
+// depende de previewUrl externos (que pueden revocarse por separado).
+function readImageDims(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const dims = { w: img.naturalWidth, h: img.naturalHeight };
+      URL.revokeObjectURL(url);
+      resolve(dims);
+    };
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      reject(e);
+    };
+    img.src = url;
+  });
+}
+
+// Sube un archivo (imagen o vídeo) y devuelve la metadata completa que el
+// backend espera en /api/posts. Lógica pura — no toca DOM, testeable con
+// mock de fetch. attachFile() la usa para orquestar la subida.
+async function uploadMedia(file) {
+  const isVideo = file.type.startsWith('video/');
+  const main = await uploadBlob(file, isVideo ? 'videos' : 'images');
+  let thumb_key = null;
+  let width = null;
+  let height = null;
+  if (isVideo) {
+    try {
+      const t = await generateVideoThumb(file);
+      width = t.width;
+      height = t.height;
+      thumb_key = (await uploadBlob(t.blob, 'thumbs')).key;
+    } catch (e) {
+      console.warn('thumb failed', e);
+    }
+  } else {
+    try {
+      const dims = await readImageDims(file);
+      width = dims.w;
+      height = dims.h;
+    } catch {}
+  }
+  return {
+    kind: isVideo ? 'video' : 'image',
+    r2_key: main.key,
+    thumb_key,
+    width,
+    height,
+  };
+}
+
 async function generateVideoThumb(file) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
@@ -293,19 +352,39 @@ async function generateVideoThumb(file) {
   });
 }
 
+// DOM puro: construye el item de preview con preview local + status + ×
+function createPreviewItem({ localId, previewUrl, isImage }) {
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.dataset.localId = localId;
+  el.innerHTML = isImage
+    ? `<img src="${previewUrl}"><span class="status">subiendo…</span><button class="remove" type="button">×</button>`
+    : `<video src="${previewUrl}" muted></video><span class="status">subiendo…</span><button class="remove" type="button">×</button>`;
+  return el;
+}
+
+// Cambia el indicador de estado de un item. 'ok' se desvanece a los 800ms.
+function setItemStatus(itemEl, kind) {
+  const s = itemEl.querySelector('.status');
+  if (!s) return;
+  if (kind === 'ok') {
+    s.textContent = 'ok';
+    setTimeout(() => s.remove(), 800);
+  } else if (kind === 'error') {
+    s.textContent = 'error';
+  }
+}
+
+// Orquesta: crea preview en el DOM, lanza uploadMedia y actualiza estado.
+// La lógica de red vive en uploadMedia(); aquí solo hay UI y bookkeeping.
 async function attachFile(file, previewRoot, pending) {
-  const localId = uuid();
-  const previewUrl = URL.createObjectURL(file);
   const isImage = file.type.startsWith('image/');
   const isVideo = file.type.startsWith('video/');
   if (!isImage && !isVideo) return;
 
-  const itemEl = document.createElement('div');
-  itemEl.className = 'item';
-  itemEl.dataset.localId = localId;
-  itemEl.innerHTML = isImage
-    ? `<img src="${previewUrl}"><span class="status">subiendo…</span><button class="remove" type="button">×</button>`
-    : `<video src="${previewUrl}" muted></video><span class="status">subiendo…</span><button class="remove" type="button">×</button>`;
+  const localId = uuid();
+  const previewUrl = URL.createObjectURL(file);
+  const itemEl = createPreviewItem({ localId, previewUrl, isImage });
   previewRoot.appendChild(itemEl);
 
   itemEl.querySelector('.remove').onclick = () => {
@@ -313,51 +392,15 @@ async function attachFile(file, previewRoot, pending) {
     itemEl.remove();
     URL.revokeObjectURL(previewUrl);
   };
-
   pending.set(localId, { status: 'uploading', previewUrl });
 
   try {
-    const main = await uploadBlob(file, isImage ? 'images' : 'videos');
-    let thumb_key = null;
-    let width = null;
-    let height = null;
-    if (isVideo) {
-      try {
-        const t = await generateVideoThumb(file);
-        width = t.width;
-        height = t.height;
-        const thumbRes = await uploadBlob(t.blob, 'thumbs');
-        thumb_key = thumbRes.key;
-      } catch (e) {
-        console.warn('thumb failed', e);
-      }
-    } else {
-      try {
-        const dims = await new Promise((res, rej) => {
-          const img = new Image();
-          img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
-          img.onerror = rej;
-          img.src = previewUrl;
-        });
-        width = dims.w;
-        height = dims.h;
-      } catch {}
-    }
-    pending.set(localId, {
-      kind: isImage ? 'image' : 'video',
-      r2_key: main.key,
-      thumb_key,
-      width,
-      height,
-      status: 'ready',
-      previewUrl,
-    });
-    itemEl.querySelector('.status').textContent = 'ok';
-    setTimeout(() => itemEl.querySelector('.status')?.remove(), 800);
+    const meta = await uploadMedia(file);
+    pending.set(localId, { ...meta, status: 'ready', previewUrl });
+    setItemStatus(itemEl, 'ok');
   } catch (e) {
     console.error(e);
-    const s = itemEl.querySelector('.status');
-    if (s) s.textContent = 'error';
+    setItemStatus(itemEl, 'error');
     pending.delete(localId);
   }
 }
@@ -510,7 +553,8 @@ function makeInlineComposer(parentPostEl, parentId) {
   const preview = form.querySelector('.media-preview');
   const fileInput = form.querySelector('input[type="file"]');
   form.querySelector('.cancel').onclick = () => {
-    if (form._pending) revokePendingUrls(form._pending);
+    const state = composerState.get(form);
+    if (state) revokePendingUrls(state.pending);
     form.remove();
   };
 
@@ -606,13 +650,12 @@ function setupFilterBanner() {
 
 // Wires up a composer form (timeline OR reply): drop/file-input/submit.
 // Paste se gestiona globalmente (setupGlobalPasteHandler) y enruta al
-// composer con foco. Cada composer guarda su pending/preview en el form
-// node para que el paste handler global pueda alcanzarlo.
+// composer con foco. El estado por composer vive en composerState (WeakMap)
+// para no contaminar el nodo DOM con props ad-hoc.
 function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted }) {
   if (!form) return;
   const pending = new Map();
-  form._pending = pending;
-  form._preview = preview;
+  composerState.set(form, { pending, preview });
 
   fileInput.addEventListener('change', async (e) => {
     for (const f of e.target.files) await attachFile(f, preview, pending);
@@ -696,14 +739,15 @@ function setupGlobalPasteHandler() {
     if (!formEl && lastFocusedComposer?.isConnected) {
       formEl = lastFocusedComposer;
     }
-    if (!formEl || !formEl._pending) return;
+    const state = formEl && composerState.get(formEl);
+    if (!state) return;
     let any = false;
     for (const item of e.clipboardData.items) {
       if (item.kind !== 'file') continue;
       const file = item.getAsFile();
       if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) continue;
       e.preventDefault();
-      await attachFile(file, formEl._preview, formEl._pending);
+      await attachFile(file, state.preview, state.pending);
       any = true;
     }
     if (any) formEl.querySelector('textarea')?.focus();

@@ -495,12 +495,15 @@ function renderPostFoot(p, single) {
 
 // bindings (encadenan eventos a un .post ya pintado) ----------------------
 
-// click en .post-body navega al permalink. .post-body no contiene los
-// .thread-replies anidados, así que descendientes no propagan eventos aquí.
+// click handler en el .post entero (no solo .post-body) — así clicar
+// sobre el rail vertical (que es .post::before, fuera del .post-body)
+// también navega al permalink, consistente con el hover. el check de
+// closest('.post') === postEl evita que clicks en .post descendientes
+// se propaguen al ancestro y naveguen al permalink incorrecto.
 function bindPostClickToNavigate(postEl, p) {
-  const body = postEl.querySelector(':scope > .post-body');
-  body.addEventListener('click', (e) => {
+  postEl.addEventListener('click', (e) => {
     if (e.target.closest('a, button, video, .composer')) return;
+    if (e.target.closest('.post') !== postEl) return;
     location.href = `/post/${p.id}`;
   });
   postEl.classList.add('clickable');

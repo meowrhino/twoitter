@@ -465,29 +465,21 @@ body.sidebar-hidden .side-col { display: none; }
   width: 1px;
   background: var(--hairline);
 }
-/* hover y click viven en .post-body, no en .post — así el hover area no
-   cubre los descendientes anidados (que viven en .thread-replies, hermano
-   de .post-body dentro del .post).
-   .post::before sigue siendo el rail "estructural" gris extendido al
-   bottom del thread; .post-body::before es el rail amarillo que solo
-   aparece en hover, limitado al alto del contenido propio. */
-.post.clickable > .post-body { cursor: pointer; position: relative; }
-.post.clickable > .post-body:hover { background: rgba(232, 176, 74, 0.04); }
-.post.clickable > .post-body::before {
-  content: '';
-  position: absolute;
-  /* alineado con el rail del .post: éste está en left: var(--rail-x) del
-     .post, y el .post-body empieza en padding-left: var(--post-pad-x) → la
-     diferencia (negativa) recoloca el mini-rail justo sobre el estructural. */
-  left: calc(var(--rail-x) - var(--post-pad-x));
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: transparent;
-  pointer-events: none;
+/* hover y click viven en el .post, pero limitados al más interno con
+   :not(:has(.post:hover)) para que pasar el cursor por un descendiente no
+   ilumine también al ancestro. el área incluye el rail estructural (::before
+   del .post): pasar el cursor por la línea vertical también dispara el
+   hover, sin tener que estar dentro del .post-body. */
+.post.clickable { cursor: pointer; }
+.post.clickable > .post-body { position: relative; }
+.post.clickable:hover:not(:has(.post:hover)) > .post-body {
+  background: rgba(232, 176, 74, 0.04);
+}
+/* el rail estructural cambia a amarillo en hover del .post más interno */
+.post.clickable:hover:not(:has(.post:hover))::before {
+  background: var(--accent);
   transition: background 0.15s ease;
 }
-.post.clickable > .post-body:hover::before { background: var(--accent); }
 
 .post-text {
   font-family: var(--mono);
@@ -618,7 +610,7 @@ body.sidebar-hidden .side-col { display: none; }
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
-.post.clickable > .post-body:hover .post-actions {
+.post.clickable:hover:not(:has(.post:hover)) > .post-body .post-actions {
   opacity: 1;
   pointer-events: auto;
 }

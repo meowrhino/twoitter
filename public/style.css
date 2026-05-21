@@ -597,12 +597,13 @@ body.sidebar-hidden .side-col { display: none; }
   padding: 0 24px;
 }
 /* solo el post principal (hijo directo de #postContainer) recibe el padding
-   y el border-bottom de cabecera. los replies de abajo siguen con el .post
-   base — si no, hereda padding-left 4px y el rail pisa el texto. */
+   especial. los replies de abajo siguen con el .post base — si no, hereda
+   padding-left 4px y el rail pisa el texto. en single ocultamos rail y
+   border-bottom para que el post protagonista quede limpio. */
 .single-post > #postContainer > .post {
   padding: 24px 4px 28px 16px;
-  border-bottom: 2px solid var(--hairline);
 }
+.single-post > #postContainer > .post::before { display: none; }
 .single-post > #postContainer > .post > .post-body > .post-text { font-size: 1.08em; }
 .replies-header {
   font-family: var(--mono);

@@ -481,8 +481,12 @@ body.sidebar-hidden .side-col { display: none; }
 }
 /* padding-right: 0 hace que el footer de cada nivel quede alineado en la
    misma columna X derecha que el root, en vez de irse 4px hacia dentro
-   por cada nivel de anidamiento. */
-.thread-replies > .post {
+   por cada nivel de anidamiento.
+   también aplica a los replies de nivel 1 en /post/:id (van directos a
+   #replies sin envoltura .thread-replies) para que se alineen con los
+   anidados de niveles 2+. */
+.thread-replies > .post,
+.single-post #replies > .post {
   padding-top: 14px;
   padding-bottom: 14px;
   padding-right: 0;

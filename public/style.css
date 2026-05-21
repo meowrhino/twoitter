@@ -590,7 +590,6 @@ body.sidebar-hidden .side-col { display: none; }
   border-bottom: none;
 }
 .post-foot a:hover { color: var(--accent); }
-.post-foot .grow { flex: 1; }
 .post-foot .post-id {
   font-variant-numeric: tabular-nums;
   color: var(--faint);

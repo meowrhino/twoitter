@@ -596,8 +596,11 @@ body.sidebar-hidden .side-col { display: none; }
   margin: 64px auto 80px;
   padding: 0 24px;
 }
-.single-post .post {
-  padding: 24px 4px 28px;
+/* solo el post principal (hijo directo de #postContainer) recibe el padding
+   y el border-bottom de cabecera. los replies de abajo siguen con el .post
+   base — si no, hereda padding-left 4px y el rail pisa el texto. */
+.single-post > #postContainer > .post {
+  padding: 24px 4px 28px 16px;
   border-bottom: 2px solid var(--hairline);
 }
 .single-post > #postContainer > .post > .post-body > .post-text { font-size: 1.08em; }

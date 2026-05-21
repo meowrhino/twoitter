@@ -128,11 +128,13 @@ export function setItemStatus(itemEl, kind, extra = {}) {
     fill.style.width = '';
     label.textContent = 'subiendo a R2…';
   } else if (kind === 'ok') {
+    // No usamos setTimeout para ocultar: el preview se vacía justo después
+    // en composer.js (preview.innerHTML = ''), y el feedback real es el
+    // post nuevo apareciendo arriba en el timeline.
     status.classList.remove('indeterminate');
     status.classList.add('status-ok');
     fill.style.width = '100%';
     label.textContent = 'publicado';
-    setTimeout(() => status.classList.remove('visible'), 900);
   } else if (kind === 'error') {
     status.classList.remove('indeterminate');
     status.classList.add('status-err');

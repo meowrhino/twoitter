@@ -444,13 +444,16 @@ body.sidebar-hidden .side-col { display: none; }
   padding: 18px 4px 18px 16px;
   position: relative;
 }
-/* cada post lleva su propio rail vertical a la izquierda — root o anidado */
+/* cada post lleva su propio rail vertical a la izquierda — root o anidado.
+   --rail-bottom lo ajusta extendRails() en JS para que todos los rails del
+   mismo thread acaben al mismo Y (el bottom del último post). Valor por
+   defecto 14px = comportamiento previo si JS no ha corrido aún. */
 .post::before {
   content: '';
   position: absolute;
   left: 6px;
   top: 14px;
-  bottom: 14px;
+  bottom: var(--rail-bottom, 14px);
   width: 1px;
   background: var(--hairline);
 }
@@ -484,11 +487,12 @@ body.sidebar-hidden .side-col { display: none; }
    por cada nivel de anidamiento.
    también aplica a los replies de nivel 1 en /post/:id (van directos a
    #replies sin envoltura .thread-replies) para que se alineen con los
-   anidados de niveles 2+. */
+   anidados de niveles 2+.
+   padding-bottom lo decide .post.clickable (más abajo) para reservar
+   espacio a los botones absolutos. */
 .thread-replies > .post,
 .single-post #replies > .post {
   padding-top: 14px;
-  padding-bottom: 14px;
   padding-right: 0;
 }
 .post-text .hashtag {
@@ -569,24 +573,32 @@ body.sidebar-hidden .side-col { display: none; }
 .post-foot .reply-btn:hover { color: var(--accent); }
 .post-foot .delete-btn:hover { color: var(--danger); }
 
-/* responder/borrar solo visibles cuando estás encima del post — para que
-   la timeline respire. en touch (sin hover) se quedan visibles siempre.
-   single-post principal no es .clickable, así que sus botones se ven
-   permanentemente (es lo que queremos). */
-.post.clickable .post-foot .reply-btn,
-.post.clickable .post-foot .delete-btn {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
+/* wrapper de responder/borrar. en el post principal (no .clickable) se
+   queda en línea con el resto del footer. en .clickable se ancla a la
+   esquina inferior derecha del .post y solo aparece en hover. */
+.post-foot .post-actions {
+  display: inline-flex;
+  gap: 16px;
 }
-.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot .reply-btn,
-.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot .delete-btn {
+.post.clickable {
+  /* espacio reservado para los botones absolutos abajo, no se solapan
+     con la última línea del .post-body. */
+  padding-bottom: 36px;
+}
+.post.clickable .post-foot .post-actions {
+  position: absolute;
+  right: 0;
+  bottom: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot > .post-actions {
   opacity: 1;
   pointer-events: auto;
 }
 @media (hover: none) {
-  .post.clickable .post-foot .reply-btn,
-  .post.clickable .post-foot .delete-btn {
+  .post.clickable .post-foot .post-actions {
     opacity: 1;
     pointer-events: auto;
   }

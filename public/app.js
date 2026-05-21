@@ -111,6 +111,43 @@ function refreshHashtags() {
   loadHashtags();
 }
 
+// Iguala el bottom de todos los rails verticales (::before) de un thread
+// al bottom del último .post. Sin esto, cada rail termina en su propio
+// .post y los niveles más anidados quedan visiblemente más cortos.
+// Se llama tras render inicial, tras add/delete, y vía ResizeObserver.
+function extendRails(rootEl) {
+  if (!rootEl) return;
+  const posts = rootEl.querySelectorAll('.post');
+  if (posts.length === 0) return;
+  // último en DOM order = último visualmente (replies se ordenan ASC en
+  // backend). su bottom marca dónde queremos que terminen todos los rails.
+  const last = posts[posts.length - 1];
+  const target = last.getBoundingClientRect().bottom;
+  for (const post of posts) {
+    const pb = post.getBoundingClientRect().bottom;
+    // CSS bottom es relativo al .post: positivo = sube; negativo = baja
+    // por debajo del .post. queremos rail.bottom (viewport) === target,
+    // así que rail.bottom (CSS) = post.bottom - target.
+    post.style.setProperty('--rail-bottom', `${pb - target}px`);
+  }
+}
+
+// devuelve el contenedor lógico del thread para un .post dado:
+// - timeline: el .thread ancestro
+// - single (replies anidados): el #replies ancestro
+// - single (post principal): no aplica (no tiene rail)
+function getThreadRoot(postEl) {
+  return postEl.closest('.thread') || postEl.closest('#replies');
+}
+
+// Recalcula los rails de todos los threads/replies visibles. Útil para
+// resize: el contenido reorganiza alturas, los rails quedan desfasados.
+function extendAllRails() {
+  for (const t of document.querySelectorAll('.thread, #replies')) {
+    extendRails(t);
+  }
+}
+
 // ----- auth check & visibility -----
 
 async function checkAuth() {
@@ -333,6 +370,13 @@ function renderPost(p, { single = false } = {}) {
       ? '<button class="reply-btn" type="button">responder</button>'
       : '';
 
+  const deleteBtnHtml = IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : '';
+  // wrapper para poder posicionar los botones absolutos en bottom-right
+  // cuando el post es .clickable (timeline / replies), o dejarlos en línea
+  // cuando no (post principal en single).
+  const actionsHtml = (replyBtnHtml || deleteBtnHtml)
+    ? `<span class="post-actions">${replyBtnHtml}${deleteBtnHtml}</span>`
+    : '';
   el.innerHTML = `
     <div class="post-body">
       <div class="post-text">${linkify(p.text || '')}</div>
@@ -341,8 +385,7 @@ function renderPost(p, { single = false } = {}) {
         <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
         ${p.reply_count ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>` : ''}
         <span class="grow"></span>
-        ${replyBtnHtml}
-        ${IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : ''}
+        ${actionsHtml}
       </div>
     </div>
   `;
@@ -397,12 +440,16 @@ function renderPost(p, { single = false } = {}) {
         location.href = '/';
         return;
       }
+      // capturamos el thread root antes del remove (closest no funciona
+      // sobre nodos detached)
+      const root = getThreadRoot(el);
       if (el.closest('.thread-replies') || el.closest('#replies')) {
         el.remove();
       } else {
         el.closest('.thread')?.remove() || el.remove();
       }
       if (parentPost) updateReplyCount(parentPost, -1);
+      if (root && root.isConnected) extendRails(root);
       refreshHashtags();
     };
   }
@@ -463,11 +510,16 @@ function makeInlineComposer(parentPostEl, parentId) {
       nested.appendChild(renderThread(post));
       updateReplyCount(parentPostEl, +1);
       refreshHashtags();
+      const root = getThreadRoot(parentPostEl);
+      if (root) extendRails(root);
       form.remove();
     },
   });
 
-  setTimeout(() => text.focus(), 0);
+  // foco síncrono — antes era setTimeout(0), pero queremos que un Cmd+V
+  // inmediatamente posterior a "responder" encuentre el textarea como
+  // activeElement (y como lastFocusedComposer).
+  queueMicrotask(() => text.focus());
   return form;
 }
 
@@ -496,6 +548,7 @@ async function loadTimeline(reset = false) {
     }
     nextCursor = data.nextCursor;
     $('#loadMore').hidden = !nextCursor;
+    extendAllRails();
   } catch (err) {
     console.error('loadTimeline failed', err);
     toast('error al cargar timeline', 'error');
@@ -602,14 +655,27 @@ function revokePendingUrls(pending) {
   }
 }
 
+// Tracking del último composer que recibió focus. Si el usuario abre un
+// reply-inline y luego pierde el focus (clic fuera, scroll, etc.), seguimos
+// recordando que ese era el composer "activo" para enrutar el paste.
+let lastFocusedComposer = null;
+
 // Único listener de paste para toda la página: dirige el archivo al
-// composer con foco (form._pending / form._preview). Antes había un
-// listener por composer cerrado sobre su propio preview, así que pegar
-// dentro de un reply-inline iba al composer principal por error.
+// composer con foco actual, o al último que tuvo foco si ya no lo tiene
+// pero sigue en el DOM. Antes había un listener por composer cerrado
+// sobre su propio preview, así que pegar dentro de un reply-inline iba
+// al composer principal por error.
 function setupGlobalPasteHandler() {
+  document.addEventListener('focusin', (e) => {
+    const c = e.target.closest?.('.composer');
+    if (c) lastFocusedComposer = c;
+  });
   document.addEventListener('paste', async (e) => {
     if (!IS_AUTHED || !e.clipboardData) return;
-    const formEl = document.activeElement?.closest('.composer');
+    let formEl = document.activeElement?.closest('.composer');
+    if (!formEl && lastFocusedComposer?.isConnected) {
+      formEl = lastFocusedComposer;
+    }
     if (!formEl || !formEl._pending) return;
     let any = false;
     for (const item of e.clipboardData.items) {
@@ -621,6 +687,16 @@ function setupGlobalPasteHandler() {
       any = true;
     }
     if (any) formEl.querySelector('textarea')?.focus();
+  });
+}
+
+// debounced resize: re-extiende todos los rails cuando el viewport cambia
+// y los heights de los posts pueden haberse modificado (text reflow).
+function setupResizeRailRecalc() {
+  let t;
+  window.addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(extendAllRails, 100);
   });
 }
 
@@ -637,6 +713,7 @@ function setupTimelineComposer() {
       wrap.className = 'thread';
       wrap.appendChild(renderThread(post));
       $('#timeline').prepend(wrap);
+      extendRails(wrap);
       refreshHashtags();
     },
   });
@@ -659,6 +736,7 @@ async function loadSinglePost() {
   if (replies.length) {
     $('#repliesHeader').hidden = false;
     for (const r of replies) $('#replies').appendChild(renderThread(r));
+    extendRails($('#replies'));
   }
 }
 
@@ -674,6 +752,7 @@ function setupReplyForm() {
       $('#replies').appendChild(renderThread(reply));
       const mainPost = document.querySelector('#postContainer > .post');
       if (mainPost) updateReplyCount(mainPost, +1);
+      extendRails($('#replies'));
     },
   });
 }
@@ -684,6 +763,7 @@ function setupReplyForm() {
   await checkAuth();
   setupMenu();
   setupGlobalPasteHandler();
+  setupResizeRailRecalc();
 
   if (PAGE === 'timeline') {
     setupTimelineComposer();

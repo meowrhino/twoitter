@@ -22,6 +22,12 @@ function toast(msg, type = 'info') {
   if (!host) {
     host = document.createElement('div');
     host.id = 'toastHost';
+    // aria-live region: los lectores de pantalla anuncian el contenido
+    // cuando aparece sin interrumpir lo que el usuario esté haciendo.
+    // role=status es apropiado para mensajes informativos.
+    host.setAttribute('role', 'status');
+    host.setAttribute('aria-live', 'polite');
+    host.setAttribute('aria-atomic', 'true');
     document.body.appendChild(host);
   }
   const el = document.createElement('div');
@@ -496,15 +502,26 @@ function renderPostFoot(p, single) {
 
 // bindings (encadenan eventos a un .post ya pintado) ----------------------
 
-// click handler en el .post entero (no solo .post-body) — así clicar
-// sobre el rail vertical (que es .post::before, fuera del .post-body)
-// también navega al permalink, consistente con el hover. el check de
-// closest('.post') === postEl evita que clicks en .post descendientes
-// se propaguen al ancestro y naveguen al permalink incorrecto.
+// click + keyboard navegan al permalink. role=link + tabindex=0 hacen
+// que lectores de pantalla y usuarios de teclado puedan acceder al post.
+// el check closest('.post') === postEl evita que eventos en .post
+// descendientes propaguen al ancestro y naveguen al permalink incorrecto.
 function bindPostClickToNavigate(postEl, p) {
-  postEl.addEventListener('click', (e) => {
+  postEl.setAttribute('role', 'link');
+  postEl.setAttribute('tabindex', '0');
+  postEl.setAttribute('aria-label', `abrir post #${p.id}`);
+  const go = (e) => {
     if (e.target.closest('a, button, video, .composer')) return;
     if (e.target.closest('.post') !== postEl) return;
+    location.href = `/post/${p.id}`;
+  };
+  postEl.addEventListener('click', go);
+  postEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    // solo si el focus está en el .post raíz, no en descendientes
+    // interactivos (buttons, links, video, composer).
+    if (e.target !== postEl) return;
+    e.preventDefault();
     location.href = `/post/${p.id}`;
   });
   postEl.classList.add('clickable');

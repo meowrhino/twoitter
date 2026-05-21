@@ -51,6 +51,26 @@ a {
 }
 a:hover { border-bottom-color: var(--accent-dim); }
 
+/* focus-visible: anillo de foco solo cuando se navega con teclado
+   (no aparece al hacer click), siguiendo el estándar UA pero con el
+   color de acento del sitio. esencial para a11y de los .post[role=link]. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* respeta prefers-reduced-motion: usuarios con sensibilidad al movimiento
+   o ahorro de batería ven la UI sin transiciones. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ---------- toast ---------- */
 
 #toastHost {

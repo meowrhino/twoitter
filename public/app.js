@@ -117,23 +117,24 @@ function refreshHashtags() {
   loadHashtags();
 }
 
-// Iguala el bottom de todos los rails verticales (::before) de un thread
-// al bottom del último .post. Sin esto, cada rail termina en su propio
-// .post y los niveles más anidados quedan visiblemente más cortos.
-// getBoundingClientRect() fuerza un sync reflow si es necesario, así que
-// las medidas son correctas justo después de las mutaciones del DOM
-// (no necesitamos rAF, que no dispara en tabs en background).
+// Ajusta el bottom del rail vertical (::before) de cada .post para que
+// termine al fin de SU PROPIO subtree (último .post descendiente, o el
+// propio .post si no tiene descendientes). Así el rail del nivel N
+// representa visualmente el alcance de ese post, no del thread completo:
+// si #18 tiene un único hijo #20 y un hermano #19 después, el rail de #18
+// termina con #20, no se extiende hasta #19.
 function extendRails(rootEl) {
   if (!rootEl) return;
   const posts = rootEl.querySelectorAll('.post');
   if (posts.length === 0) return;
-  // último en DOM order = último visualmente (replies ordenados ASC).
-  // su bottom marca dónde queremos que terminen todos los rails.
-  const last = posts[posts.length - 1];
-  const target = last.getBoundingClientRect().bottom;
   for (const post of posts) {
+    // descendientes en orden DOM; el último es el último visualmente
+    // (replies se renderizan en created_at ASC, así que DOM = visual).
+    const descendants = post.querySelectorAll('.post');
+    const last = descendants.length ? descendants[descendants.length - 1] : post;
+    const target = last.getBoundingClientRect().bottom;
     const pb = post.getBoundingClientRect().bottom;
-    // CSS bottom es relativo al .post: positivo = sube; negativo = baja
+    // CSS bottom es relativo al .post: positivo sube, negativo extiende
     // por debajo del .post. queremos rail.bottom (viewport) === target,
     // así que rail.bottom (CSS) = post.bottom - target.
     post.style.setProperty('--rail-bottom', `${pb - target}px`);

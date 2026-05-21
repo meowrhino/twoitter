@@ -1,0 +1,68 @@
+// ----- helpers genéricos: DOM, escape, formato, toast -----
+
+export const $ = (sel, root = document) => root.querySelector(sel);
+export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+export function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Hashtags + URLs → enlaces. El texto se HTML-escapa antes para evitar
+// inyección; el regex de URL excluye '<' para no romper el HTML ya escapado.
+export function linkify(text) {
+  const esc = escapeHtml(text);
+  let out = esc.replace(/#([\p{L}\p{N}_]+)/gu, (_, t) =>
+    `<a class="hashtag" href="/?tag=${encodeURIComponent(t.toLowerCase())}">#${escapeHtml(t)}</a>`,
+  );
+  out = out.replace(/(https?:\/\/[^\s<]+)/g, (u) => {
+    try {
+      const parsed = new URL(u.replace(/&amp;/g, '&'));
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return u;
+    } catch { return u; }
+    return `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`;
+  });
+  return out;
+}
+
+// formato europeo: 1032 → "1.032", 1032456 → "1.032.456"
+const NUM_FMT = new Intl.NumberFormat('es-ES');
+export const fmt = (n) => NUM_FMT.format(n);
+
+// siempre en horas, con separador de millares (0h para < 1h)
+export function hoursAgo(iso) {
+  const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime();
+  const hours = Math.floor((Date.now() - t) / 3600_000);
+  return `${fmt(hours)}h`;
+}
+
+export function uuid() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
+// Toast accesible: aria-live=polite anuncia el mensaje a lectores de
+// pantalla sin interrumpir lo que estén leyendo.
+export function toast(msg, type = 'info') {
+  let host = document.getElementById('toastHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toastHost';
+    host.setAttribute('role', 'status');
+    host.setAttribute('aria-live', 'polite');
+    host.setAttribute('aria-atomic', 'true');
+    document.body.appendChild(host);
+  }
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3200);
+}

@@ -67,45 +67,77 @@ async function compressItem(file, isVideo, onProgress) {
   return compressImage(file);
 }
 
-// DOM puro: construye el item de preview con preview local + ×.
+// DOM puro: construye el item de preview con preview local + × + overlay
+// para el estado (barra de progreso + etiqueta). El overlay se crea aquí,
+// vacío y sin .visible: setItemStatus lo activa cuando hace falta.
 export function createPreviewItem({ localId, previewUrl, isImage }) {
   const el = document.createElement('div');
   el.className = 'item';
   el.dataset.localId = localId;
-  el.innerHTML = isImage
-    ? `<img src="${previewUrl}"><button class="remove" type="button">×</button>`
-    : `<video src="${previewUrl}" muted></video><button class="remove" type="button">×</button>`;
+  const media = isImage
+    ? `<img src="${previewUrl}">`
+    : `<video src="${previewUrl}" muted></video>`;
+  el.innerHTML = `
+    ${media}
+    <button class="remove" type="button" aria-label="quitar">×</button>
+    <div class="status" aria-live="polite">
+      <div class="status-bar"><div class="status-bar-fill"></div></div>
+      <span class="status-label"></span>
+    </div>
+  `;
   return el;
 }
 
-// Inserta o actualiza el indicador de estado de un item del preview.
-// Estados: compressing-N, compressed-MB, uploading, ok (autodesvanece), error.
-export function setItemStatus(itemEl, kind, extra) {
-  let s = itemEl.querySelector('.status');
-  if (kind === 'clear') { s?.remove(); return; }
-  if (!s) {
-    s = document.createElement('span');
-    s.className = 'status';
-    const remove = itemEl.querySelector('.remove');
-    if (remove) itemEl.insertBefore(s, remove);
-    else itemEl.appendChild(s);
+// Actualiza el overlay de estado de un item. Maneja barra + etiqueta.
+// kinds: compressing | compressed | uploading | ok | error | clear.
+// extra: { percent, label, sizeMB, message } según el kind.
+export function setItemStatus(itemEl, kind, extra = {}) {
+  const status = itemEl.querySelector('.status');
+  const fill = itemEl.querySelector('.status-bar-fill');
+  const label = itemEl.querySelector('.status-label');
+  if (!status || !fill || !label) return;
+
+  if (kind === 'clear') {
+    status.classList.remove('visible', 'status-err', 'status-ok', 'indeterminate');
+    return;
   }
-  s.classList.remove('status-err');
+
+  status.classList.add('visible');
+  status.classList.remove('status-err', 'status-ok');
+
   if (kind === 'compressing') {
-    // extra: { percent, label } — percent puede ser null durante "loading"
-    if (extra?.percent != null) s.textContent = `comprimiendo ${extra.percent}%`;
-    else s.textContent = extra?.label || 'preparando…';
+    if (extra.percent != null) {
+      status.classList.remove('indeterminate');
+      fill.style.width = `${extra.percent}%`;
+      label.textContent = extra.label
+        ? `${extra.label} ${extra.percent}%`
+        : `comprimiendo ${extra.percent}%`;
+    } else {
+      // Sin percent: barra "indeterminada" (CSS anima un sliver)
+      status.classList.add('indeterminate');
+      fill.style.width = '';
+      label.textContent = extra.label || 'preparando…';
+    }
   } else if (kind === 'compressed') {
-    // extra: { sizeMB } — mostramos el peso final como confirmación
-    s.textContent = extra?.sizeMB ? `${extra.sizeMB} MB` : 'listo';
+    status.classList.remove('indeterminate');
+    status.classList.add('status-ok');
+    fill.style.width = '100%';
+    label.textContent = extra.sizeMB ? `${extra.sizeMB} MB · listo` : 'comprimido';
   } else if (kind === 'uploading') {
-    s.textContent = 'subiendo…';
+    status.classList.add('indeterminate');
+    fill.style.width = '';
+    label.textContent = 'subiendo a R2…';
   } else if (kind === 'ok') {
-    s.textContent = 'ok';
-    setTimeout(() => s.remove(), 800);
+    status.classList.remove('indeterminate');
+    status.classList.add('status-ok');
+    fill.style.width = '100%';
+    label.textContent = 'publicado';
+    setTimeout(() => status.classList.remove('visible'), 900);
   } else if (kind === 'error') {
-    s.textContent = extra?.message || 'error';
-    s.classList.add('status-err');
+    status.classList.remove('indeterminate');
+    status.classList.add('status-err');
+    fill.style.width = '100%';
+    label.textContent = extra.message || 'error';
   }
 }
 
@@ -143,13 +175,18 @@ export async function attachFile(file, previewRoot, pending) {
   pending.set(localId, item);
 
   // Lanza compresión async — no la await aquí. El submit la espera.
-  setItemStatus(itemEl, 'compressing', { label: isVideo ? 'preparando…' : 'comprimiendo…' });
+  setItemStatus(itemEl, 'compressing', {
+    label: isVideo ? 'preparando vídeo…' : 'comprimiendo imagen…',
+  });
   item.compressionPromise = compressItem(file, isVideo, (p) => {
     if (!pending.has(localId)) return; // el usuario quitó el item
     if (p.phase === 'loading') {
+      // 'descargando ffmpeg…' / 'inicializando ffmpeg…' — barra indeterminada
       setItemStatus(itemEl, 'compressing', { label: p.label });
     } else if (p.phase === 'compressing') {
-      setItemStatus(itemEl, 'compressing', { percent: p.percent, label: p.label });
+      // percent real desde ffmpeg.on('progress')
+      const verb = isVideo ? 'comprimiendo vídeo' : 'comprimiendo';
+      setItemStatus(itemEl, 'compressing', { percent: p.percent, label: verb });
     }
   })
     .then((result) => {

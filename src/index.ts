@@ -171,8 +171,18 @@ app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
   const classified = classifyContentType(ct);
   if (!classified) return c.json({ error: "tipo no permitido" }, 400);
 
+  // Rechazo temprano si el Content-Length declarado ya supera el cap: evita
+  // bufferizar el body entero antes de descubrir que es demasiado grande.
+  // Cliente puede mentir, pero la doble validación tras .arrayBuffer() lo
+  // pilla igual.
+  const cap = maxBytesFor(classified.kind);
+  const declared = parseInt(c.req.header("content-length") || "0");
+  if (Number.isFinite(declared) && declared > cap) {
+    return c.json({ error: "archivo demasiado grande" }, 413);
+  }
+
   const body = await c.req.arrayBuffer();
-  if (body.byteLength > maxBytesFor(classified.kind)) {
+  if (body.byteLength > cap) {
     return c.json({ error: "archivo demasiado grande" }, 413);
   }
 

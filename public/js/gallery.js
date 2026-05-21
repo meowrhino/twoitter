@@ -5,16 +5,24 @@
 // Click en thumb → swap del stage. Click en imagen del stage → lightbox.
 // Los vídeos van SIEMPRE con controls + play manual, jamás autoplay.
 //
+// El swap es asíncrono: precarga la imagen, hace fade-out, swapea, fade-in.
+// Un contador por galería actúa como race-guard para que clicks rápidos no
+// pinten frames de medios intermedios.
+//
 // Todo el wiring vive en setupGallery() y usa delegación global desde
 // document → sobrevive a re-renders del feed sin tener que rebindear.
 
 import { escapeHtml } from './utils.js';
 
+// Duración de cada media-fade (out y in). Debe coincidir con la CSS:
+// .gallery > .stage / .lightbox-stage  transition: opacity Xms ease.
+const FADE_MS = 160;
+
 // ----- templates (sin side effects) -----
 
 function mediaItemHtml(m) {
   if (m.kind === 'image') {
-    return `<img src="/r2/${m.r2_key}" alt="" loading="lazy">`;
+    return `<img src="/r2/${m.r2_key}" alt="">`;
   }
   const poster = m.thumb_key ? ` poster="/r2/${m.thumb_key}"` : '';
   return `<video src="/r2/${m.r2_key}" controls preload="metadata"${poster} playsinline></video>`;
@@ -58,25 +66,89 @@ function readMedia(galleryEl) {
   } catch { return []; }
 }
 
-// Reemplaza el contenido del stage. Exportado para tests.
-export function swapStage(galleryEl, index) {
+// ----- preload + helpers -----
+
+// Decodifica la imagen en caché antes de insertarla en el DOM. Así, cuando
+// el <img> aparezca, sus píxeles ya están listos y no hay flash de placeholder
+// ni de la imagen vecina. Si el navegador no soporta decode(), cae a un
+// onload/onerror con timeout de seguridad para no bloquear los tests.
+function preloadImage(url) {
+  if (typeof Image === 'undefined') return Promise.resolve();
+  const pre = new Image();
+  pre.src = url;
+  if (typeof pre.decode === 'function') {
+    return pre.decode().catch(() => {});
+  }
+  return new Promise((res) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; res(); } };
+    pre.onload = finish;
+    pre.onerror = finish;
+    setTimeout(finish, 2000);
+  });
+}
+
+function nextFrame() {
+  return new Promise((res) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => res());
+    else setTimeout(res, 16);
+  });
+}
+
+function wait(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+// ----- swap del stage (con preload + fade) -----
+
+// Por galería, un contador monotónico: cada llamada coge el suyo; cuando
+// vaya a pintar, si ya hay uno más nuevo en vuelo, abandona. Así clicks
+// rápidos sólo muestran el último frame, sin parpadeos intermedios.
+const galleryNav = new WeakMap();
+
+export async function swapStage(galleryEl, index) {
   const media = readMedia(galleryEl);
   if (index < 0 || index >= media.length) return;
   const stage = galleryEl.querySelector(':scope > .stage');
   if (!stage) return;
-  stage.dataset.index = String(index);
-  stage.innerHTML = mediaItemHtml(media[index]);
+
+  const myNav = (galleryNav.get(galleryEl) || 0) + 1;
+  galleryNav.set(galleryEl, myNav);
+
+  // Feedback inmediato en las thumbs (no esperar al fade).
   galleryEl.querySelectorAll(':scope > .thumbs > .thumb').forEach((b, i) => {
     const active = i === index;
     b.classList.toggle('is-active', active);
     b.setAttribute('aria-selected', active ? 'true' : 'false');
   });
+
+  const m = media[index];
+
+  // Fade-out + preload en paralelo. Si el preload va más rápido que el fade,
+  // esperamos al fade; si va más lento, esperamos al preload.
+  stage.classList.add('is-fading');
+  const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
+  await Promise.all([preloadP, wait(FADE_MS)]);
+
+  // Si llegó otro swap mientras estábamos esperando, dejar que ese pinte.
+  if (galleryNav.get(galleryEl) !== myNav) return;
+
+  // Pausar vídeo previo antes de reemplazar (audio fantasma).
+  stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
+
+  stage.dataset.index = String(index);
+  stage.innerHTML = mediaItemHtml(m);
+
+  // Un frame para que el navegador registre el estado fade=0, luego fade-in.
+  await nextFrame();
+  stage.classList.remove('is-fading');
 }
 
 // ----- lightbox (singleton, lazy) -----
 
 let lightboxEl = null;
 let lightboxState = { media: [], index: 0 };
+let lbNav = 0;
 
 function ensureLightbox() {
   if (lightboxEl && lightboxEl.isConnected) return lightboxEl;
@@ -98,31 +170,63 @@ function ensureLightbox() {
   return lightboxEl;
 }
 
-function renderLightbox() {
-  const lb = ensureLightbox();
+// Sincrónico: contador + flechas. La parte visual (preload + swap) se hace
+// async dentro de renderLightbox; los tests que comprueban contador/flechas
+// pueden hacerlo sin awaits.
+function syncLightboxChrome(lb) {
   const { media, index } = lightboxState;
-  lb.querySelector('.lightbox-stage').innerHTML = mediaItemHtml(media[index]);
-  const counter = lb.querySelector('.lightbox-counter');
-  counter.textContent = media.length > 1 ? `${index + 1} / ${media.length}` : '';
+  lb.querySelector('.lightbox-counter').textContent =
+    media.length > 1 ? `${index + 1} / ${media.length}` : '';
   const single = media.length <= 1;
   lb.querySelector('.lightbox-prev').hidden = single;
   lb.querySelector('.lightbox-next').hidden = single;
 }
 
-export function openLightbox(media, index = 0) {
+async function renderLightbox({ animate = true } = {}) {
+  const myNav = ++lbNav;
+  const lb = ensureLightbox();
+  const { media, index } = lightboxState;
+  if (!media[index]) return;
+  const m = media[index];
+  const stage = lb.querySelector('.lightbox-stage');
+
+  syncLightboxChrome(lb);
+
+  if (animate) stage.classList.add('is-fading');
+  const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
+  await Promise.all([preloadP, animate ? wait(FADE_MS) : Promise.resolve()]);
+
+  if (myNav !== lbNav) return; // superado por una navegación posterior
+
+  stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
+  stage.innerHTML = mediaItemHtml(m);
+
+  if (animate) {
+    await nextFrame();
+    if (myNav !== lbNav) return;
+    stage.classList.remove('is-fading');
+  }
+}
+
+export async function openLightbox(media, index = 0) {
   if (!media || media.length === 0) return;
   lightboxState = { media: media.slice(), index };
   const lb = ensureLightbox();
-  renderLightbox();
+  // Mostrar shell + sincronizar UI antes del preload para feedback inmediato.
+  syncLightboxChrome(lb);
   lb.hidden = false;
   document.body.classList.add('lightbox-open');
+  // primera carga: sin fade-out (no hay nada que ocultar), sólo preload.
+  await renderLightbox({ animate: false });
 }
 
 export function closeLightbox() {
   if (!lightboxEl) return;
-  // pausar vídeos antes de vaciar para evitar audio fantasma
+  // Bumpea el nav: si hay un render en vuelo, se descartará antes de pintar.
+  ++lbNav;
   lightboxEl.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
   lightboxEl.querySelector('.lightbox-stage').innerHTML = '';
+  lightboxEl.querySelector('.lightbox-stage').classList.remove('is-fading');
   lightboxEl.hidden = true;
   document.body.classList.remove('lightbox-open');
 }
@@ -131,6 +235,7 @@ function lightboxNav(delta) {
   const { media, index } = lightboxState;
   if (media.length <= 1) return;
   lightboxState.index = (index + delta + media.length) % media.length;
+  // fire-and-forget — race-guard interno se encarga del orden.
   renderLightbox();
 }
 

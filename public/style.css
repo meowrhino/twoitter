@@ -602,7 +602,13 @@ body.sidebar-hidden .side-col { display: none; }
   border-radius: 6px;
   overflow: hidden;
   max-height: 480px;
+  /* Fade entre medios: cuando JS añade .is-fading, opacity → 0 durante
+     ~160ms (sincronizado con FADE_MS en gallery.js). El swap del innerHTML
+     ocurre con la opacity ya a 0, así que no se ve el cambio brusco. */
+  opacity: 1;
+  transition: opacity 160ms ease;
 }
+.gallery > .stage.is-fading { opacity: 0; }
 .gallery > .stage > img,
 .gallery > .stage > video {
   display: block;
@@ -685,7 +691,11 @@ body.sidebar-hidden .side-col { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Mismo patrón de fade que el stage de la galería. */
+  opacity: 1;
+  transition: opacity 160ms ease;
 }
+.lightbox-stage.is-fading { opacity: 0; }
 .lightbox-stage > img,
 .lightbox-stage > video {
   max-width: 95vw;

@@ -75,12 +75,12 @@ describe('renderPostGallery', () => {
 describe('swapStage', () => {
   beforeEach(() => { document.body.innerHTML = ''; });
 
-  it('cambia el stage al índice pedido y mueve is-active', () => {
+  it('cambia el stage al índice pedido y mueve is-active', async () => {
     const el = mount(renderPostGallery([
       { kind: 'image', r2_key: 'a.jpg' },
       { kind: 'image', r2_key: 'b.jpg' },
     ] as any));
-    swapStage(el, 1);
+    await swapStage(el, 1);
     const stage = el.querySelector(':scope > .stage') as HTMLElement;
     expect(stage.dataset.index).toBe('1');
     expect((stage.querySelector('img') as HTMLImageElement).getAttribute('src')).toBe('/r2/b.jpg');
@@ -90,12 +90,24 @@ describe('swapStage', () => {
     expect(thumbs[1].getAttribute('aria-selected')).toBe('true');
   });
 
-  it('cambiar imagen → vídeo reemplaza la etiqueta sin tocar el wrapper', () => {
+  it('thumb feedback (is-active) es inmediato, sin esperar al fade', () => {
+    const el = mount(renderPostGallery([
+      { kind: 'image', r2_key: 'a.jpg' },
+      { kind: 'image', r2_key: 'b.jpg' },
+    ] as any));
+    // fire-and-forget; antes del await, el thumb activo ya debe haber cambiado.
+    void swapStage(el, 1);
+    const thumbs = el.querySelectorAll(':scope > .thumbs > .thumb');
+    expect(thumbs[1].classList.contains('is-active')).toBe(true);
+    expect(thumbs[0].classList.contains('is-active')).toBe(false);
+  });
+
+  it('cambiar imagen → vídeo reemplaza la etiqueta sin tocar el wrapper', async () => {
     const el = mount(renderPostGallery([
       { kind: 'image', r2_key: 'a.jpg' },
       { kind: 'video', r2_key: 'v.mp4', thumb_key: 't.jpg' },
     ] as any));
-    swapStage(el, 1);
+    await swapStage(el, 1);
     const stage = el.querySelector(':scope > .stage')!;
     expect(stage.querySelector('img')).toBeNull();
     const vid = stage.querySelector('video') as HTMLVideoElement;
@@ -104,13 +116,31 @@ describe('swapStage', () => {
     expect(vid.hasAttribute('autoplay')).toBe(false);
   });
 
-  it('índice fuera de rango → no toca el stage', () => {
+  it('índice fuera de rango → no toca el stage', async () => {
     const el = mount(renderPostGallery([
       { kind: 'image', r2_key: 'a.jpg' },
       { kind: 'image', r2_key: 'b.jpg' },
     ] as any));
-    swapStage(el, 99);
-    swapStage(el, -1);
+    await swapStage(el, 99);
+    await swapStage(el, -1);
+    const stage = el.querySelector(':scope > .stage') as HTMLElement;
+    expect(stage.dataset.index).toBe('0');
+    expect((stage.querySelector('img') as HTMLImageElement).getAttribute('src')).toBe('/r2/a.jpg');
+  });
+
+  it('clicks rápidos: sólo el último gana (race-guard)', async () => {
+    const el = mount(renderPostGallery([
+      { kind: 'image', r2_key: 'a.jpg' },
+      { kind: 'image', r2_key: 'b.jpg' },
+      { kind: 'image', r2_key: 'c.jpg' },
+    ] as any));
+    // tres swaps en seguida, sólo esperamos a que termine el último.
+    void swapStage(el, 1);
+    void swapStage(el, 2);
+    const last = swapStage(el, 0);
+    await last;
+    // pequeño respiro para que los otros (en vuelo) intenten pintar y aborten.
+    await new Promise((r) => setTimeout(r, 50));
     const stage = el.querySelector(':scope > .stage') as HTMLElement;
     expect(stage.dataset.index).toBe('0');
     expect((stage.querySelector('img') as HTMLImageElement).getAttribute('src')).toBe('/r2/a.jpg');
@@ -123,8 +153,9 @@ describe('lightbox', () => {
     closeLightbox();
   });
 
-  it('openLightbox con N>1 muestra contador y flechas', () => {
-    openLightbox([
+  it('openLightbox con N>1 muestra contador y flechas (sincrónicamente)', () => {
+    // contador/flechas se setean sincrónicamente; no hace falta await.
+    void openLightbox([
       { kind: 'image', r2_key: 'a.jpg' },
       { kind: 'image', r2_key: 'b.jpg' },
     ] as any, 0);
@@ -137,16 +168,27 @@ describe('lightbox', () => {
   });
 
   it('openLightbox con 1 item oculta flechas y contador', () => {
-    openLightbox([{ kind: 'image', r2_key: 'solo.jpg' }] as any, 0);
+    void openLightbox([{ kind: 'image', r2_key: 'solo.jpg' }] as any, 0);
     const lb = document.querySelector('.lightbox') as HTMLElement;
     expect((lb.querySelector('.lightbox-prev') as HTMLElement).hidden).toBe(true);
     expect((lb.querySelector('.lightbox-next') as HTMLElement).hidden).toBe(true);
     expect(lb.querySelector('.lightbox-counter')!.textContent).toBe('');
   });
 
-  it('closeLightbox vacía el stage y libera el body', () => {
-    openLightbox([{ kind: 'image', r2_key: 'a.jpg' }] as any, 0);
+  it('openLightbox pinta el media tras el preload', async () => {
+    await openLightbox([{ kind: 'image', r2_key: 'a.jpg' }] as any, 0);
+    const stage = document.querySelector('.lightbox-stage') as HTMLElement;
+    const img = stage.querySelector('img') as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.getAttribute('src')).toBe('/r2/a.jpg');
+  });
+
+  it('closeLightbox cancela cualquier render en vuelo y vacía el stage', async () => {
+    // fire-and-forget el open; cerrar antes de que el preload resuelva.
+    void openLightbox([{ kind: 'image', r2_key: 'a.jpg' }] as any, 0);
     closeLightbox();
+    // dejar que el openLightbox en vuelo termine (debería abortar por el ++lbNav)
+    await new Promise((r) => setTimeout(r, 30));
     const lb = document.querySelector('.lightbox') as HTMLElement;
     expect(lb.hidden).toBe(true);
     expect(lb.querySelector('.lightbox-stage')!.innerHTML).toBe('');

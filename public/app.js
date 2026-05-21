@@ -172,6 +172,18 @@ function extendAllRails() {
   }
 }
 
+// Único punto de entrada para "algo cambió en este thread": actualiza el
+// contador del padre, reextiende los rails y refresca el sidebar de tags.
+// Antes este bloque se repetía literal en delete + 3 onPosted distintos.
+//   parentPost  → ancestro cuyo "N resp" hay que ajustar (null si root nuevo)
+//   threadRoot  → .thread o #replies a re-medir (null para skip)
+//   delta       → +1 al añadir, -1 al borrar, 0 si solo es reorder
+function notifyThreadChanged({ parentPost = null, threadRoot = null, delta = 0 } = {}) {
+  if (parentPost && delta) updateReplyCount(parentPost, delta);
+  if (threadRoot && threadRoot.isConnected) extendRails(threadRoot);
+  refreshHashtags();
+}
+
 // ----- auth check & visibility -----
 
 async function checkAuth() {
@@ -406,116 +418,127 @@ async function attachFile(file, previewRoot, pending) {
 
 // ----- render -----
 
+// templates (puros, sin side effects ni DOM) -------------------------------
+
+function renderPostMedia(p) {
+  if (p.media.length === 0) return '';
+  const items = p.media.map((m) => {
+    if (m.kind === 'image') {
+      return `<div class="item"><img src="/r2/${m.r2_key}" loading="lazy"></div>`;
+    }
+    const poster = m.thumb_key ? ` poster="/r2/${m.thumb_key}"` : '';
+    return `<div class="item"><video src="/r2/${m.r2_key}" controls preload="metadata"${poster}></video></div>`;
+  }).join('');
+  return `<div class="post-media count-${Math.min(p.media.length, 4)}">${items}</div>`;
+}
+
+// Wrapper de "responder/borrar". Existe siempre que haya algún botón; vacío
+// si no hay ninguno (anon, single sin auth, etc.). CSS lo posiciona absoluto
+// en .post.clickable y en línea en el resto.
+function renderPostActions(single) {
+  const reply = IS_AUTHED && !single ? '<button class="reply-btn" type="button">responder</button>' : '';
+  const del = IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : '';
+  if (!reply && !del) return '';
+  return `<span class="post-actions">${reply}${del}</span>`;
+}
+
+function renderPostFoot(p, single) {
+  const respLink = p.reply_count
+    ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>`
+    : '';
+  return `
+    <div class="post-foot">
+      <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
+      ${respLink}
+      <span class="grow"></span>
+      ${renderPostActions(single)}
+    </div>
+  `;
+}
+
+// bindings (encadenan eventos a un .post ya pintado) ----------------------
+
+// click en .post-body navega al permalink. .post-body no contiene los
+// .thread-replies anidados, así que descendientes no propagan eventos aquí.
+function bindPostClickToNavigate(postEl, p) {
+  const body = postEl.querySelector(':scope > .post-body');
+  body.addEventListener('click', (e) => {
+    if (e.target.closest('a, button, video, .composer')) return;
+    location.href = `/post/${p.id}`;
+  });
+  postEl.classList.add('clickable');
+}
+
+// toggle del composer inline. si ya hay uno, lo cierra (y revoca sus blob
+// URLs via makeInlineComposer.cancel handler).
+function bindReplyButton(postEl, p) {
+  const reply = postEl.querySelector(':scope > .post-body .reply-btn');
+  if (!reply) return;
+  reply.onclick = (e) => {
+    e.stopPropagation();
+    const existing = postEl.querySelector(':scope > .reply-inline');
+    if (existing) { existing.remove(); return; }
+    const composer = makeInlineComposer(postEl, p.id);
+    const nested = postEl.querySelector(':scope > .thread-replies');
+    if (nested) postEl.insertBefore(composer, nested);
+    else postEl.appendChild(composer);
+  };
+}
+
+// borra el post + actualiza counter del padre + reextiende rails + refresca tags
+function bindDeleteButton(postEl, p, single) {
+  const del = postEl.querySelector(':scope > .post-body .delete-btn');
+  if (!del) return;
+  del.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('¿borrar este post?')) return;
+    // capturar parent + thread root ANTES del DOM removal — closest() no
+    // funciona en nodos detached. en single, replies de nivel 1 cuelgan
+    // de #replies; su padre lógico es el post principal.
+    const parentPost = findLogicalParentPost(postEl);
+    const root = getThreadRoot(postEl);
+    const res = await fetch(`/api/posts/${p.id}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: CSRF_HEADERS,
+    });
+    if (!res.ok) { toast('error al borrar', 'error'); return; }
+    if (single) { location.href = '/'; return; }
+    if (postEl.closest('.thread-replies') || postEl.closest('#replies')) {
+      postEl.remove();
+    } else {
+      postEl.closest('.thread')?.remove() || postEl.remove();
+    }
+    notifyThreadChanged({ parentPost, threadRoot: root, delta: -1 });
+  };
+}
+
+function findLogicalParentPost(postEl) {
+  let parent = postEl.parentElement?.closest('.post');
+  if (!parent && postEl.closest('#replies')) {
+    parent = document.querySelector('#postContainer > .post');
+  }
+  return parent;
+}
+
+// renderPost: estructura, datos, bindings. Sin lógica de UI inline ya. ------
+
 function renderPost(p, { single = false } = {}) {
   const el = document.createElement('article');
   el.className = 'post';
   el.dataset.id = p.id;
   // se mantiene como source of truth para updateReplyCount tras add/delete
   el.dataset.replyCount = String(p.reply_count || 0);
-
-  const mediaHtml =
-    p.media.length === 0
-      ? ''
-      : `<div class="post-media count-${Math.min(p.media.length, 4)}">${p.media
-          .map((m) => {
-            if (m.kind === 'image') {
-              return `<div class="item"><img src="/r2/${m.r2_key}" loading="lazy"></div>`;
-            }
-            return `<div class="item"><video src="/r2/${m.r2_key}" controls preload="metadata"${m.thumb_key ? ` poster="/r2/${m.thumb_key}"` : ''}></video></div>`;
-          })
-          .join('')}</div>`;
-
-  // inline reply button: not on single (main post already has its own composer)
-  const replyBtnHtml =
-    IS_AUTHED && !single
-      ? '<button class="reply-btn" type="button">responder</button>'
-      : '';
-
-  const deleteBtnHtml = IS_AUTHED ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  // wrapper para poder posicionar los botones absolutos en bottom-right
-  // cuando el post es .clickable (timeline / replies), o dejarlos en línea
-  // cuando no (post principal en single).
-  const actionsHtml = (replyBtnHtml || deleteBtnHtml)
-    ? `<span class="post-actions">${replyBtnHtml}${deleteBtnHtml}</span>`
-    : '';
   el.innerHTML = `
     <div class="post-body">
       <div class="post-text">${linkify(p.text || '')}</div>
-      ${mediaHtml}
-      <div class="post-foot">
-        <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
-        ${p.reply_count ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>` : ''}
-        <span class="grow"></span>
-        ${actionsHtml}
-      </div>
+      ${renderPostMedia(p)}
+      ${renderPostFoot(p, single)}
     </div>
   `;
-
-  if (!single) {
-    // click handler en .post-body (no en .post) — el .post-body no contiene
-    // los .thread-replies anidados, así que el evento solo se dispara desde
-    // el contenido propio del post. esto elimina la necesidad del check
-    // closest('.post') !== el que filtraba clicks de descendientes.
-    const body = el.querySelector(':scope > .post-body');
-    body.addEventListener('click', (e) => {
-      if (e.target.closest('a, button, video, .composer')) return;
-      location.href = `/post/${p.id}`;
-    });
-    el.classList.add('clickable');
-  }
-
-  const reply = el.querySelector('.reply-btn');
-  if (reply) {
-    reply.onclick = (e) => {
-      e.stopPropagation();
-      const existing = el.querySelector(':scope > .reply-inline');
-      if (existing) { existing.remove(); return; }
-      const composer = makeInlineComposer(el, p.id);
-      const nested = el.querySelector(':scope > .thread-replies');
-      if (nested) el.insertBefore(composer, nested);
-      else el.appendChild(composer);
-    };
-  }
-
-  const del = el.querySelector('.delete-btn');
-  if (del) {
-    del.onclick = async (e) => {
-      e.stopPropagation();
-      if (!confirm('¿borrar este post?')) return;
-      // capturar el .post padre antes de tocar el DOM, para decrementar
-      // su contador "N resp" tras éxito. en single, los replies de nivel 1
-      // cuelgan de #replies (no de un .post): el padre lógico es el principal.
-      let parentPost = el.parentElement?.closest('.post');
-      if (!parentPost && el.closest('#replies')) {
-        parentPost = document.querySelector('#postContainer > .post');
-      }
-      const res = await fetch(`/api/posts/${p.id}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-        headers: CSRF_HEADERS,
-      });
-      if (!res.ok) {
-        toast('error al borrar', 'error');
-        return;
-      }
-      if (single) {
-        location.href = '/';
-        return;
-      }
-      // capturamos el thread root antes del remove (closest no funciona
-      // sobre nodos detached)
-      const root = getThreadRoot(el);
-      if (el.closest('.thread-replies') || el.closest('#replies')) {
-        el.remove();
-      } else {
-        el.closest('.thread')?.remove() || el.remove();
-      }
-      if (parentPost) updateReplyCount(parentPost, -1);
-      if (root && root.isConnected) extendRails(root);
-      refreshHashtags();
-    };
-  }
-
+  if (!single) bindPostClickToNavigate(el, p);
+  bindReplyButton(el, p);
+  bindDeleteButton(el, p, single);
   return el;
 }
 
@@ -571,10 +594,11 @@ function makeInlineComposer(parentPostEl, parentId) {
         parentPostEl.appendChild(nested);
       }
       nested.appendChild(renderThread(post));
-      updateReplyCount(parentPostEl, +1);
-      refreshHashtags();
-      const root = getThreadRoot(parentPostEl);
-      if (root) extendRails(root);
+      notifyThreadChanged({
+        parentPost: parentPostEl,
+        threadRoot: getThreadRoot(parentPostEl),
+        delta: +1,
+      });
       form.remove();
     },
   });
@@ -776,8 +800,7 @@ function setupTimelineComposer() {
       wrap.className = 'thread';
       wrap.appendChild(renderThread(post));
       $('#timeline').prepend(wrap);
-      extendRails(wrap);
-      refreshHashtags();
+      notifyThreadChanged({ threadRoot: wrap });
     },
   });
   const lm = $('#loadMore');
@@ -813,9 +836,11 @@ function setupReplyForm() {
     onPosted: (reply) => {
       $('#repliesHeader').hidden = false;
       $('#replies').appendChild(renderThread(reply));
-      const mainPost = document.querySelector('#postContainer > .post');
-      if (mainPost) updateReplyCount(mainPost, +1);
-      extendRails($('#replies'));
+      notifyThreadChanged({
+        parentPost: document.querySelector('#postContainer > .post'),
+        threadRoot: $('#replies'),
+        delta: +1,
+      });
     },
   });
 }

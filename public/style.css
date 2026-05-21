@@ -16,6 +16,11 @@
   --dots: #1a1612;
   --serif: 'Merriweather', Georgia, serif;
   --mono: 'JetBrains Mono', 'Menlo', monospace;
+  /* geometría del rail vertical y la sangría — cualquier cambio aquí
+     propaga automáticamente al mini-rail amarillo (que usa calc()). */
+  --post-pad-x: 16px;   /* padding-left del .post */
+  --rail-x: 6px;        /* X del rail dentro del .post */
+  --indent-x: 14px;     /* sangría que añade cada .thread-replies */
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -441,7 +446,7 @@ body.sidebar-hidden .side-col { display: none; }
 
 .post {
   /* padding-left extra para que entre la guía vertical sin pisar el texto */
-  padding: 18px 4px 18px 16px;
+  padding: 18px 4px 18px var(--post-pad-x);
   position: relative;
 }
 /* cada post lleva su propio rail vertical a la izquierda — root o anidado.
@@ -451,7 +456,7 @@ body.sidebar-hidden .side-col { display: none; }
 .post::before {
   content: '';
   position: absolute;
-  left: 6px;
+  left: var(--rail-x);
   top: 14px;
   bottom: var(--rail-bottom, 14px);
   width: 1px;
@@ -468,9 +473,10 @@ body.sidebar-hidden .side-col { display: none; }
 .post.clickable > .post-body::before {
   content: '';
   position: absolute;
-  /* -10px alinea con el rail del .post (que está en left: 6px del .post,
-     y .post-body empieza en padding-left: 16px del .post → diferencia 10) */
-  left: -10px;
+  /* alineado con el rail del .post: éste está en left: var(--rail-x) del
+     .post, y el .post-body empieza en padding-left: var(--post-pad-x) → la
+     diferencia (negativa) recoloca el mini-rail justo sobre el estructural. */
+  left: calc(var(--rail-x) - var(--post-pad-x));
   top: 0;
   bottom: 0;
   width: 1px;
@@ -496,7 +502,7 @@ body.sidebar-hidden .side-col { display: none; }
 /* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño.
    ya no necesitamos línea aquí — cada .post lleva su propio rail. */
 .thread-replies {
-  padding-left: 14px;
+  padding-left: var(--indent-x);
   font-size: 0.96em;
 }
 /* padding-right: 0 hace que el footer de cada nivel quede alineado en la

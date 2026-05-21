@@ -604,11 +604,14 @@ body.sidebar-hidden .side-col { display: none; }
   /* sin max-height: las verticales toman su altura natural en lugar de
      achicarse y dejar bandas a los lados. Si la imagen es muy larga,
      pues será larga — preferimos eso al letterboxing. */
-  /* Fade entre medios: cuando JS añade .is-fading, opacity → 0 durante
-     ~160ms (sincronizado con FADE_MS en gallery.js). El swap del innerHTML
-     ocurre con la opacity ya a 0, así que no se ve el cambio brusco. */
+  /* Fade entre medios + animación de altura cuando el siguiente media
+     tiene aspect ratio distinto. La duración (240ms) está sincronizada
+     con FADE_MS en gallery.js; el easing es la curva "standard" de
+     Material — suave en ambas direcciones sin sentir lento. */
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition:
+    opacity 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    height 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .gallery > .stage.is-fading { opacity: 0; }
 .gallery > .stage > img,
@@ -692,9 +695,11 @@ body.sidebar-hidden .side-col { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Mismo patrón de fade que el stage de la galería. */
+  /* Mismo patrón de fade+altura que el stage del feed. */
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition:
+    opacity 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    height 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .lightbox-stage.is-fading { opacity: 0; }
 .lightbox-stage > img,

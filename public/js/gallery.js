@@ -14,9 +14,10 @@
 
 import { escapeHtml } from './utils.js';
 
-// Duración de cada media-fade (out y in). Debe coincidir con la CSS:
-// .gallery > .stage / .lightbox-stage  transition: opacity Xms ease.
-const FADE_MS = 160;
+// Duración de cada fase (fade-out y fade-in/altura). Debe coincidir con
+// la CSS: .gallery > .stage / .lightbox-stage  transition: ... Xms ...
+// 240ms con cubic-bezier(0.4, 0, 0.2, 1) — suave sin sentirse lento.
+const FADE_MS = 240;
 
 // ----- templates (sin side effects) -----
 
@@ -99,6 +100,20 @@ function wait(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+// Mide la altura natural del contenido del stage SIN su transición visible
+// (la opacity ya está a 0 durante el swap). Quita el lock de altura, fuerza
+// reflow y captura la nueva altura. Devuelve la medición; el caller decide
+// cómo aplicarla.
+function measureNaturalHeight(stage) {
+  const prev = stage.style.height;
+  stage.style.height = '';
+  // forzar reflow tocando offsetHeight (lee → flush)
+  void stage.offsetHeight;
+  const h = stage.getBoundingClientRect().height;
+  stage.style.height = prev;
+  return h;
+}
+
 // ----- swap del stage (con preload + fade) -----
 
 // Por galería, un contador monotónico: cada llamada coge el suyo; cuando
@@ -124,14 +139,27 @@ export async function swapStage(galleryEl, index) {
 
   const m = media[index];
 
+  // Snapshot de altura ACTUAL para anclar el FLIP de height: from → to.
+  // getBoundingClientRect funciona en feed (offsetHeight serviría también
+  // pero queremos el rect real con sub-pixel).
+  const fromH = stage.getBoundingClientRect().height;
+
   // Fade-out + preload en paralelo. Si el preload va más rápido que el fade,
   // esperamos al fade; si va más lento, esperamos al preload.
+  // Lockeamos la altura a fromH durante la fase de fade-out: así, aunque
+  // el contenido nuevo entre en el DOM con otra altura, no hay saltos.
+  stage.style.height = `${fromH}px`;
   stage.classList.add('is-fading');
   const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
   await Promise.all([preloadP, wait(FADE_MS)]);
 
   // Si llegó otro swap mientras estábamos esperando, dejar que ese pinte.
-  if (galleryNav.get(galleryEl) !== myNav) return;
+  if (galleryNav.get(galleryEl) !== myNav) {
+    // Importante: no limpiamos el height aquí — el swap que nos superó
+    // lo gestionará. Si por algún motivo no lo hace, el setTimeout final
+    // de aquel se encargará.
+    return;
+  }
 
   // Pausar vídeo previo antes de reemplazar (audio fantasma).
   stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
@@ -139,9 +167,25 @@ export async function swapStage(galleryEl, index) {
   stage.dataset.index = String(index);
   stage.innerHTML = mediaItemHtml(m);
 
-  // Un frame para que el navegador registre el estado fade=0, luego fade-in.
+  // Medir altura natural del nuevo contenido, restaurar el lock a fromH
+  // (para que la transición arranque de fromH y no salte) y forzar reflow.
+  const toH = measureNaturalHeight(stage);
+  stage.style.height = `${fromH}px`;
   await nextFrame();
+
+  if (galleryNav.get(galleryEl) !== myNav) return;
+
+  // Disparar a la vez: height fromH → toH y opacity 0 → 1.
+  stage.style.height = `${toH}px`;
   stage.classList.remove('is-fading');
+
+  // Limpiar el lock de altura tras la transición para que la galería siga
+  // siendo responsive (resize del viewport, video que mueve sus dims, etc).
+  setTimeout(() => {
+    if (galleryNav.get(galleryEl) === myNav) {
+      stage.style.height = '';
+    }
+  }, FADE_MS + 80);
 }
 
 // ----- lightbox (singleton, lazy) -----
@@ -192,7 +236,14 @@ async function renderLightbox({ animate = true } = {}) {
 
   syncLightboxChrome(lb);
 
-  if (animate) stage.classList.add('is-fading');
+  // Snapshot de altura (sólo si vamos a animar; en el primer open no hay
+  // nada que medir todavía y la altura natural será la final).
+  const fromH = animate ? stage.getBoundingClientRect().height : 0;
+
+  if (animate) {
+    stage.style.height = `${fromH}px`;
+    stage.classList.add('is-fading');
+  }
   const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
   await Promise.all([preloadP, animate ? wait(FADE_MS) : Promise.resolve()]);
 
@@ -202,9 +253,15 @@ async function renderLightbox({ animate = true } = {}) {
   stage.innerHTML = mediaItemHtml(m);
 
   if (animate) {
+    const toH = measureNaturalHeight(stage);
+    stage.style.height = `${fromH}px`;
     await nextFrame();
     if (myNav !== lbNav) return;
+    stage.style.height = `${toH}px`;
     stage.classList.remove('is-fading');
+    setTimeout(() => {
+      if (myNav === lbNav) stage.style.height = '';
+    }, FADE_MS + 80);
   }
 }
 
@@ -225,8 +282,10 @@ export function closeLightbox() {
   // Bumpea el nav: si hay un render en vuelo, se descartará antes de pintar.
   ++lbNav;
   lightboxEl.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
-  lightboxEl.querySelector('.lightbox-stage').innerHTML = '';
-  lightboxEl.querySelector('.lightbox-stage').classList.remove('is-fading');
+  const stage = lightboxEl.querySelector('.lightbox-stage');
+  stage.innerHTML = '';
+  stage.classList.remove('is-fading');
+  stage.style.height = '';
   lightboxEl.hidden = true;
   document.body.classList.remove('lightbox-open');
 }

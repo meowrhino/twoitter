@@ -491,7 +491,6 @@ body.sidebar-hidden .side-col { display: none; }
    del .post): pasar el cursor por la línea vertical también dispara el
    hover, sin tener que estar dentro del .post-body. */
 .post.clickable { cursor: pointer; }
-.post.clickable > .post-body { position: relative; }
 .post.clickable:hover:not(:has(.post:hover)) > .post-body {
   background: rgba(232, 176, 74, 0.04);
 }
@@ -598,8 +597,23 @@ body.sidebar-hidden .side-col { display: none; }
   letter-spacing: -0.02em;
 }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
-.post-foot .delete-btn,
-.post-foot .reply-btn {
+
+/* responder/borrar — viven fuera de .post-body, anclados a la derecha del
+   .post y alineados verticalmente con el final del rail (--rail-bottom lo
+   mantiene extendRails: rail termina en el bottom del último descendiente,
+   o en el propio bottom si no hay). Siempre visibles cuando hay sesión. */
+.post-actions {
+  position: absolute;
+  right: 0;
+  bottom: var(--rail-bottom, 0);
+  display: inline-flex;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding-bottom: 4px;
+}
+.post-actions button {
   background: none;
   border: none;
   color: var(--muted);
@@ -608,39 +622,8 @@ body.sidebar-hidden .side-col { display: none; }
   font-family: inherit;
   font-size: inherit;
 }
-.post-foot .reply-btn:hover { color: var(--accent); }
-.post-foot .delete-btn:hover { color: var(--danger); }
-
-/* wrapper de responder/borrar. en el post principal (no .clickable) se
-   queda en línea con el resto del footer. en .clickable se ancla a la
-   esquina inferior derecha del .post-body y solo aparece en hover. */
-.post-foot .post-actions {
-  display: inline-flex;
-  gap: 16px;
-}
-.post.clickable > .post-body {
-  /* espacio para los botones absolutos abajo, no se solapan con .post-foot */
-  padding-bottom: 28px;
-}
-.post.clickable .post-foot .post-actions {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-.post.clickable:hover:not(:has(.post:hover)) > .post-body .post-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-@media (hover: none) {
-  .post.clickable .post-foot .post-actions {
-    position: static;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
+.post-actions .reply-btn:hover { color: var(--accent); }
+.post-actions .delete-btn:hover { color: var(--danger); }
 
 /* inline composer abierto dentro de un post */
 .reply-inline {

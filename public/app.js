@@ -410,12 +410,13 @@ function renderPost(p, { single = false } = {}) {
   `;
 
   if (!single) {
-    el.addEventListener('click', (e) => {
-      // video sigue excluido (controles play/volumen). imágenes ahora navegan.
+    // click handler en .post-body (no en .post) — el .post-body no contiene
+    // los .thread-replies anidados, así que el evento solo se dispara desde
+    // el contenido propio del post. esto elimina la necesidad del check
+    // closest('.post') !== el que filtraba clicks de descendientes.
+    const body = el.querySelector(':scope > .post-body');
+    body.addEventListener('click', (e) => {
       if (e.target.closest('a, button, video, .composer')) return;
-      // con anidado, el handler del padre también recibe el evento: solo el .post
-      // más cercano al click debe responder
-      if (e.target.closest('.post') !== el) return;
       location.href = `/post/${p.id}`;
     });
     el.classList.add('clickable');

@@ -457,11 +457,28 @@ body.sidebar-hidden .side-col { display: none; }
   width: 1px;
   background: var(--hairline);
 }
-.post.clickable { cursor: pointer; }
-/* :not(:has(.post:hover)) → solo el .post más interno bajo el cursor se
-   resalta; sin esto los ancestros también se ponen amarillos en hover. */
-.post.clickable:hover:not(:has(.post:hover)) { background: rgba(232, 176, 74, 0.04); }
-.post.clickable:hover:not(:has(.post:hover))::before { background: var(--accent); }
+/* hover y click viven en .post-body, no en .post — así el hover area no
+   cubre los descendientes anidados (que viven en .thread-replies, hermano
+   de .post-body dentro del .post).
+   .post::before sigue siendo el rail "estructural" gris extendido al
+   bottom del thread; .post-body::before es el rail amarillo que solo
+   aparece en hover, limitado al alto del contenido propio. */
+.post.clickable > .post-body { cursor: pointer; position: relative; }
+.post.clickable > .post-body:hover { background: rgba(232, 176, 74, 0.04); }
+.post.clickable > .post-body::before {
+  content: '';
+  position: absolute;
+  /* -10px alinea con el rail del .post (que está en left: 6px del .post,
+     y .post-body empieza en padding-left: 16px del .post → diferencia 10) */
+  left: -10px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  pointer-events: none;
+  transition: background 0.15s ease;
+}
+.post.clickable > .post-body:hover::before { background: var(--accent); }
 
 .post-text {
   font-family: var(--mono);
@@ -575,30 +592,30 @@ body.sidebar-hidden .side-col { display: none; }
 
 /* wrapper de responder/borrar. en el post principal (no .clickable) se
    queda en línea con el resto del footer. en .clickable se ancla a la
-   esquina inferior derecha del .post y solo aparece en hover. */
+   esquina inferior derecha del .post-body y solo aparece en hover. */
 .post-foot .post-actions {
   display: inline-flex;
   gap: 16px;
 }
-.post.clickable {
-  /* espacio reservado para los botones absolutos abajo, no se solapan
-     con la última línea del .post-body. */
-  padding-bottom: 36px;
+.post.clickable > .post-body {
+  /* espacio para los botones absolutos abajo, no se solapan con .post-foot */
+  padding-bottom: 28px;
 }
 .post.clickable .post-foot .post-actions {
   position: absolute;
   right: 0;
-  bottom: 10px;
+  bottom: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
-.post.clickable:hover:not(:has(.post:hover)) > .post-body > .post-foot > .post-actions {
+.post.clickable > .post-body:hover .post-actions {
   opacity: 1;
   pointer-events: auto;
 }
 @media (hover: none) {
   .post.clickable .post-foot .post-actions {
+    position: static;
     opacity: 1;
     pointer-events: auto;
   }

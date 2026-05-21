@@ -120,26 +120,25 @@ function refreshHashtags() {
 // Iguala el bottom de todos los rails verticales (::before) de un thread
 // al bottom del último .post. Sin esto, cada rail termina en su propio
 // .post y los niveles más anidados quedan visiblemente más cortos.
-// Se ejecuta en rAF para asegurar que el layout esté asentado antes de
-// medir (sino los getBoundingClientRect serían valores pre-layout).
+// getBoundingClientRect() fuerza un sync reflow si es necesario, así que
+// las medidas son correctas justo después de las mutaciones del DOM
+// (no necesitamos rAF, que no dispara en tabs en background).
 function extendRails(rootEl) {
   if (!rootEl) return;
-  requestAnimationFrame(() => {
-    const posts = rootEl.querySelectorAll('.post');
-    if (posts.length === 0) return;
-    // último en DOM order = último visualmente (replies ordenados ASC).
-    // su bottom marca dónde queremos que terminen todos los rails.
-    const last = posts[posts.length - 1];
-    const target = last.getBoundingClientRect().bottom;
-    for (const post of posts) {
-      const pb = post.getBoundingClientRect().bottom;
-      // CSS bottom es relativo al .post: positivo = sube; negativo = baja
-      // por debajo del .post. queremos rail.bottom (viewport) === target,
-      // así que rail.bottom (CSS) = post.bottom - target.
-      post.style.setProperty('--rail-bottom', `${pb - target}px`);
-    }
-    ensureRailObserver(rootEl);
-  });
+  const posts = rootEl.querySelectorAll('.post');
+  if (posts.length === 0) return;
+  // último en DOM order = último visualmente (replies ordenados ASC).
+  // su bottom marca dónde queremos que terminen todos los rails.
+  const last = posts[posts.length - 1];
+  const target = last.getBoundingClientRect().bottom;
+  for (const post of posts) {
+    const pb = post.getBoundingClientRect().bottom;
+    // CSS bottom es relativo al .post: positivo = sube; negativo = baja
+    // por debajo del .post. queremos rail.bottom (viewport) === target,
+    // así que rail.bottom (CSS) = post.bottom - target.
+    post.style.setProperty('--rail-bottom', `${pb - target}px`);
+  }
+  ensureRailObserver(rootEl);
 }
 
 // ResizeObserver compartido: cuando un .thread cambia de altura (por

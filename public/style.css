@@ -651,13 +651,16 @@ body.sidebar-hidden .side-col { display: none; }
 .post-actions {
   position: absolute;
   right: 0;
-  bottom: var(--rail-bottom, 0);
+  /* Sube los botones 10px del final del rail para que el aire arriba y
+     abajo sea similar (sin esto, los botones quedaban pegados al bottom
+     del .post terminal y solo había espacio por arriba). */
+  bottom: calc(var(--rail-bottom, 0px) + 10px);
   display: inline-flex;
   gap: 16px;
   font-family: var(--mono);
   font-size: 0.75rem;
   line-height: 1;
-  padding-bottom: 4px;
+  padding: 4px 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;

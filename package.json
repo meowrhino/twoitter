@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:create": "wrangler d1 create twoitter-db",
     "db:migrate": "wrangler d1 execute twoitter-db --local --file=schema.sql",
     "db:migrate:remote": "wrangler d1 execute twoitter-db --remote --file=schema.sql",
@@ -16,6 +18,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240620.0",
     "typescript": "^5.5.0",
+    "vitest": "^4.1.7",
     "wrangler": "^4.69.0"
   }
 }

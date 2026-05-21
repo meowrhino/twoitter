@@ -1,7 +1,17 @@
-// ----- subida de imágenes/vídeos a R2 + preview local -----
+// ----- compresión + subida + preview local -----
+//
+// Flujo:
+//   attachFile()  → guarda File en pending y lanza compresión async
+//   submit        → uploadPendingFiles() espera a la compresión y sube
+//                   el blob comprimido + thumbnail a R2
+//
+// Política "siempre comprimir": vídeo via ffmpeg.wasm (lanza si no hay SAB),
+// imagen via canvas WebP. La compresión arranca al adjuntar para aprovechar
+// el tiempo que el usuario tarda escribiendo el post.
 
 import { CSRF_HEADERS } from './state.js';
 import { uuid } from './utils.js';
+import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
 
 async function uploadBlob(blob, folder) {
   const res = await fetch('/api/upload', {
@@ -19,85 +29,42 @@ async function uploadBlob(blob, folder) {
   return res.json();
 }
 
-// Lee width/height de una imagen con su propia ObjectURL (revoca al final).
-function readImageDims(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const dims = { w: img.naturalWidth, h: img.naturalHeight };
-      URL.revokeObjectURL(url);
-      resolve(dims);
-    };
-    img.onerror = (e) => {
-      URL.revokeObjectURL(url);
-      reject(e);
-    };
-    img.src = url;
-  });
-}
-
-function generateVideoThumb(file) {
-  return new Promise((resolve, reject) => {
-    const v = document.createElement('video');
-    v.preload = 'metadata';
-    v.muted = true;
-    v.playsInline = true;
-    v.src = URL.createObjectURL(file);
-    let settled = false;
-    const finish = (fn, val) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      URL.revokeObjectURL(v.src);
-      fn(val);
-    };
-    const timer = setTimeout(() => finish(reject, new Error('thumb timeout')), 10_000);
-    v.onloadeddata = () => {
-      v.currentTime = Math.min(0.5, (v.duration || 1) / 4);
-    };
-    v.onseeked = () => {
-      const c = document.createElement('canvas');
-      const w = v.videoWidth || 640;
-      const h = v.videoHeight || 360;
-      c.width = w;
-      c.height = h;
-      c.getContext('2d').drawImage(v, 0, 0, w, h);
-      c.toBlob(
-        (b) => finish(b ? resolve : reject, b ? { blob: b, width: w, height: h } : new Error('thumb blob null')),
-        'image/jpeg',
-        0.8,
-      );
-    };
-    v.onerror = () => finish(reject, new Error('video load error'));
-  });
-}
-
-// Lógica pura: sube y devuelve la metadata que espera /api/posts.
-// Sin DOM → testeable con mock de fetch.
-export async function uploadMedia(file) {
-  const isVideo = file.type.startsWith('video/');
-  const main = await uploadBlob(file, isVideo ? 'videos' : 'images');
+// Sube los blobs ya comprimidos + (si es vídeo) thumbnail.
+async function uploadCompressed(compressed, isVideo) {
+  const folder = isVideo ? 'videos' : 'images';
+  const main = await uploadBlob(compressed.blob, folder);
   let thumb_key = null;
-  let width = null;
-  let height = null;
+  if (isVideo && compressed.thumbBlob) {
+    try {
+      thumb_key = (await uploadBlob(compressed.thumbBlob, 'thumbs')).key;
+    } catch (e) {
+      console.warn('thumb upload failed', e);
+    }
+  }
+  return {
+    kind: isVideo ? 'video' : 'image',
+    r2_key: main.key,
+    thumb_key,
+    width: compressed.width ?? null,
+    height: compressed.height ?? null,
+  };
+}
+
+// Orquesta compresión + thumb. Para vídeo, el thumb se genera del File
+// original (canvas decoder fiable) en paralelo al output ffmpeg.
+async function compressItem(file, isVideo, onProgress) {
   if (isVideo) {
+    const result = await compressVideo(file, onProgress);
+    let thumbBlob = null;
     try {
       const t = await generateVideoThumb(file);
-      width = t.width;
-      height = t.height;
-      thumb_key = (await uploadBlob(t.blob, 'thumbs')).key;
+      thumbBlob = t.blob;
     } catch (e) {
       console.warn('thumb failed', e);
     }
-  } else {
-    try {
-      const dims = await readImageDims(file);
-      width = dims.w;
-      height = dims.h;
-    } catch {}
+    return { ...result, thumbBlob };
   }
-  return { kind: isVideo ? 'video' : 'image', r2_key: main.key, thumb_key, width, height };
+  return compressImage(file);
 }
 
 // DOM puro: construye el item de preview con preview local + ×.
@@ -112,7 +79,8 @@ export function createPreviewItem({ localId, previewUrl, isImage }) {
 }
 
 // Inserta o actualiza el indicador de estado de un item del preview.
-export function setItemStatus(itemEl, kind) {
+// Estados: compressing-N, compressed-MB, uploading, ok (autodesvanece), error.
+export function setItemStatus(itemEl, kind, extra) {
   let s = itemEl.querySelector('.status');
   if (kind === 'clear') { s?.remove(); return; }
   if (!s) {
@@ -122,16 +90,31 @@ export function setItemStatus(itemEl, kind) {
     if (remove) itemEl.insertBefore(s, remove);
     else itemEl.appendChild(s);
   }
-  if (kind === 'uploading') s.textContent = 'subiendo…';
-  else if (kind === 'ok') {
+  s.classList.remove('status-err');
+  if (kind === 'compressing') {
+    // extra: { percent, label } — percent puede ser null durante "loading"
+    if (extra?.percent != null) s.textContent = `comprimiendo ${extra.percent}%`;
+    else s.textContent = extra?.label || 'preparando…';
+  } else if (kind === 'compressed') {
+    // extra: { sizeMB } — mostramos el peso final como confirmación
+    s.textContent = extra?.sizeMB ? `${extra.sizeMB} MB` : 'listo';
+  } else if (kind === 'uploading') {
+    s.textContent = 'subiendo…';
+  } else if (kind === 'ok') {
     s.textContent = 'ok';
     setTimeout(() => s.remove(), 800);
-  } else if (kind === 'error') s.textContent = 'error';
+  } else if (kind === 'error') {
+    s.textContent = extra?.message || 'error';
+    s.classList.add('status-err');
+  }
 }
 
-// Adjunta un archivo al composer: SOLO guarda el File en pending y lo
-// previsualiza. NADA se sube a R2 hasta el submit (uploadPendingFiles).
-// Así, si el usuario cancela o cierra, no quedan archivos huérfanos en R2.
+// Adjunta un archivo al composer: guarda el File en pending, lo previsualiza
+// y lanza la compresión en background. Nada se sube a R2 hasta el submit.
+//
+// El estado del item evoluciona: pending → compressing → compressed → uploading → ready.
+// La promise de compresión se guarda en `compressionPromise` para que submit
+// la pueda esperar si todavía está en marcha.
 export async function attachFile(file, previewRoot, pending) {
   const isImage = file.type.startsWith('image/');
   const isVideo = file.type.startsWith('video/');
@@ -147,17 +130,49 @@ export async function attachFile(file, previewRoot, pending) {
     itemEl.remove();
     URL.revokeObjectURL(previewUrl);
   };
-  pending.set(localId, {
+
+  const item = {
     file,
     previewUrl,
     kind: isImage ? 'image' : 'video',
-    status: 'pending', // sube al hacer submit
-  });
+    status: 'compressing',
+    compressed: null,
+    compressionPromise: null,
+    compressionError: null,
+  };
+  pending.set(localId, item);
+
+  // Lanza compresión async — no la await aquí. El submit la espera.
+  setItemStatus(itemEl, 'compressing', { label: isVideo ? 'preparando…' : 'comprimiendo…' });
+  item.compressionPromise = compressItem(file, isVideo, (p) => {
+    if (!pending.has(localId)) return; // el usuario quitó el item
+    if (p.phase === 'loading') {
+      setItemStatus(itemEl, 'compressing', { label: p.label });
+    } else if (p.phase === 'compressing') {
+      setItemStatus(itemEl, 'compressing', { percent: p.percent, label: p.label });
+    }
+  })
+    .then((result) => {
+      if (!pending.has(localId)) return null;
+      item.compressed = result;
+      item.status = 'compressed';
+      const sizeMB = (result.blob.size / (1024 * 1024)).toFixed(2);
+      setItemStatus(itemEl, 'compressed', { sizeMB });
+      return result;
+    })
+    .catch((err) => {
+      if (!pending.has(localId)) return null;
+      console.error('compression failed', err);
+      item.status = 'error';
+      item.compressionError = err;
+      setItemStatus(itemEl, 'error', { message: err.message || 'error al comprimir' });
+      throw err;
+    });
 }
 
-// Sube todos los items 'pending' a R2 y devuelve el array de metadata listo
-// para POST /api/posts. Si alguno falla, re-lanza el error pero deja los
-// 'ready' con su metadata cacheada: el usuario reintenta sin re-subir.
+// Sube todos los items 'compressed' a R2 (esperando antes a que termine
+// la compresión de cada uno si aún no acabó). Devuelve metadata para
+// POST /api/posts. Si alguno falla, los 'ready' conservan r2_key cacheado.
 export async function uploadPendingFiles(pending, previewRoot) {
   const media = [];
   for (const [localId, item] of pending.entries()) {
@@ -166,9 +181,24 @@ export async function uploadPendingFiles(pending, previewRoot) {
       continue;
     }
     const itemEl = previewRoot.querySelector(`[data-local-id="${CSS.escape(localId)}"]`);
+
+    // Esperar a que termine la compresión si todavía no acabó. Si la
+    // promise se rejected, esto re-lanza el mismo error.
+    if (item.compressionPromise && item.status === 'compressing') {
+      try {
+        await item.compressionPromise;
+      } catch (err) {
+        throw err;
+      }
+    }
+    if (item.status === 'error' || !item.compressed) {
+      throw item.compressionError || new Error('item sin comprimir');
+    }
+
     if (itemEl) setItemStatus(itemEl, 'uploading');
     try {
-      const meta = await uploadMedia(item.file);
+      const isVideo = item.kind === 'video';
+      const meta = await uploadCompressed(item.compressed, isVideo);
       pending.set(localId, { ...item, ...meta, status: 'ready' });
       if (itemEl) setItemStatus(itemEl, 'ok');
       media.push(pickMediaFields(meta));

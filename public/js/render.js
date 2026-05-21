@@ -20,16 +20,18 @@ function renderPostMedia(p) {
   return `<div class="post-media count-${Math.min(p.media.length, 4)}">${items}</div>`;
 }
 
-// Wrapper de "responder/borrar". CSS lo posiciona absoluto en .post.clickable
-// y en línea en el post principal de single (no .clickable).
+// Wrapper de "responder/borrar". Vive FUERA de .post-body, como hijo directo
+// de .post: CSS lo ancla absoluto a la derecha del .post, alineado con el
+// final del rail vertical (via --rail-bottom, que mantiene extendRails()).
+// Siempre visible cuando hay sesión — no depende de hover.
 function renderPostActions(single) {
   const reply = isAuthed() && !single ? '<button class="reply-btn" type="button">responder</button>' : '';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
   if (!reply && !del) return '';
-  return `<span class="post-actions">${reply}${del}</span>`;
+  return `<div class="post-actions">${reply}${del}</div>`;
 }
 
-function renderPostFoot(p, single) {
+function renderPostFoot(p) {
   const respLink = p.reply_count
     ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>`
     : '';
@@ -37,8 +39,6 @@ function renderPostFoot(p, single) {
     <div class="post-foot">
       <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
       ${respLink}
-      <span class="grow"></span>
-      ${renderPostActions(single)}
     </div>
   `;
 }
@@ -67,7 +67,7 @@ function bindPostClickToNavigate(postEl, p) {
 }
 
 function bindReplyButton(postEl, p) {
-  const reply = postEl.querySelector(':scope > .post-body .reply-btn');
+  const reply = postEl.querySelector(':scope > .post-actions .reply-btn');
   if (!reply) return;
   reply.onclick = (e) => {
     e.stopPropagation();
@@ -81,7 +81,7 @@ function bindReplyButton(postEl, p) {
 }
 
 function bindDeleteButton(postEl, p, single) {
-  const del = postEl.querySelector(':scope > .post-body .delete-btn');
+  const del = postEl.querySelector(':scope > .post-actions .delete-btn');
   if (!del) return;
   del.onclick = async (e) => {
     e.stopPropagation();
@@ -128,8 +128,9 @@ export function renderPost(p, { single = false } = {}) {
     <div class="post-body">
       <div class="post-text">${linkify(p.text || '')}</div>
       ${renderPostMedia(p)}
-      ${renderPostFoot(p, single)}
+      ${renderPostFoot(p)}
     </div>
+    ${renderPostActions(single)}
   `;
   if (!single) bindPostClickToNavigate(el, p);
   bindReplyButton(el, p);

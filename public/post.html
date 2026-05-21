@@ -6,6 +6,7 @@
   <title>twoitter — post</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
   <link rel="stylesheet" href="/style.css" />
+  <script src="/coi-serviceworker.js"></script>
 </head>
 <body>
   <button id="menuBtn" class="menu-btn" aria-label="menu" aria-expanded="false">
@@ -21,6 +22,8 @@
     <form method="post" action="/logout" class="menu-form" data-authed-only hidden>
       <button type="submit" class="menu-link as-btn">salir</button>
     </form>
+    <div class="menu-divider"></div>
+    <a href="/aviso-legal.html" class="menu-link">aviso legal</a>
   </div>
 
   <main class="main-col single-post">
@@ -42,6 +45,7 @@
     <div id="replies" class="timeline"></div>
   </main>
 
+  <script src="/ffmpeg.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

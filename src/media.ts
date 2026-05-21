@@ -34,8 +34,10 @@ const ALLOWED_VIDEO = new Set([
   "video/quicktime",
 ]);
 
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024; // 200 MB
+// Tras la compresión cliente (WebP 0.85 / VP8 720p) estos límites sobran.
+// Si llega algo más grande es señal de que la compresión no se aplicó.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;  // 10 MB
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // 50 MB
 
 export function classifyContentType(
   ct: string,

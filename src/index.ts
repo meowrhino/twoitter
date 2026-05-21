@@ -85,7 +85,7 @@ app.get("/api/posts", async (c) => {
 });
 
 app.get("/api/posts/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
+  const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
   const post = await getPost(c.env.DB, id);
   if (!post) return c.json({ error: "no encontrado" }, 404);
@@ -154,7 +154,7 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
 });
 
 app.delete("/api/posts/:id", requireAuth(), requireCsrf(), async (c) => {
-  const id = parseInt(c.req.param("id"));
+  const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
   const result = await deletePost(c.env.DB, c.env.STORAGE, id);
   if (!result) return c.json({ error: "no encontrado" }, 404);

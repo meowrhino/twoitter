@@ -4,7 +4,11 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 const COOKIE_NAME = "twoitter_auth";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 60; // 60 days
 
-type Env = { PASSWORD: string; AUTH_SECRET: string };
+// Bindings mínimas que auth necesita. Cualquier Hono Context con un Bindings
+// que contenga estas dos claves (más extras) es compatible — usamos un
+// genérico con constraint en lugar de un tipo fijo para no chocar con el
+// Bindings completo de la app (que añade DB, STORAGE, ASSETS).
+type AuthEnv = { PASSWORD: string; AUTH_SECRET: string };
 
 async function hmac(secret: string, msg: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -67,13 +71,15 @@ export function clearAuthCookie(c: Context) {
   deleteCookie(c, COOKIE_NAME, { path: "/" });
 }
 
-export async function isAuthed(c: Context<{ Bindings: Env }>): Promise<boolean> {
+export async function isAuthed<E extends AuthEnv>(
+  c: Context<{ Bindings: E }>,
+): Promise<boolean> {
   const token = getCookie(c, COOKIE_NAME);
   return verifyToken(c.env.AUTH_SECRET, token);
 }
 
-export function requireAuth() {
-  return async (c: Context<{ Bindings: Env }>, next: Next) => {
+export function requireAuth<E extends AuthEnv>() {
+  return async (c: Context<{ Bindings: E }>, next: Next) => {
     if (!(await isAuthed(c))) {
       const accepts = c.req.header("accept") || "";
       if (accepts.includes("application/json") || c.req.path.startsWith("/api/")) {

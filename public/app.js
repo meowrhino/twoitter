@@ -363,31 +363,42 @@ async function generateVideoThumb(file) {
   });
 }
 
-// DOM puro: construye el item de preview con preview local + status + ×
+// DOM puro: construye el item de preview con preview local + ×. El status
+// (subiendo/ok/error) se inserta solo durante el submit (upload-on-submit).
 function createPreviewItem({ localId, previewUrl, isImage }) {
   const el = document.createElement('div');
   el.className = 'item';
   el.dataset.localId = localId;
   el.innerHTML = isImage
-    ? `<img src="${previewUrl}"><span class="status">subiendo…</span><button class="remove" type="button">×</button>`
-    : `<video src="${previewUrl}" muted></video><span class="status">subiendo…</span><button class="remove" type="button">×</button>`;
+    ? `<img src="${previewUrl}"><button class="remove" type="button">×</button>`
+    : `<video src="${previewUrl}" muted></video><button class="remove" type="button">×</button>`;
   return el;
 }
 
-// Cambia el indicador de estado de un item. 'ok' se desvanece a los 800ms.
+// Inserta o actualiza el indicador de estado en un item del preview.
+// 'uploading' lo muestra, 'ok' lo muestra y desvanece a los 800ms, 'error'
+// se queda. 'clear' lo elimina.
 function setItemStatus(itemEl, kind) {
-  const s = itemEl.querySelector('.status');
-  if (!s) return;
-  if (kind === 'ok') {
+  let s = itemEl.querySelector('.status');
+  if (kind === 'clear') { s?.remove(); return; }
+  if (!s) {
+    s = document.createElement('span');
+    s.className = 'status';
+    // antes del botón remove, para que no se solape
+    const remove = itemEl.querySelector('.remove');
+    if (remove) itemEl.insertBefore(s, remove);
+    else itemEl.appendChild(s);
+  }
+  if (kind === 'uploading') s.textContent = 'subiendo…';
+  else if (kind === 'ok') {
     s.textContent = 'ok';
     setTimeout(() => s.remove(), 800);
-  } else if (kind === 'error') {
-    s.textContent = 'error';
-  }
+  } else if (kind === 'error') s.textContent = 'error';
 }
 
-// Orquesta: crea preview en el DOM, lanza uploadMedia y actualiza estado.
-// La lógica de red vive en uploadMedia(); aquí solo hay UI y bookkeeping.
+// Adjunta un archivo al composer: SOLO guarda el File en pending y lo
+// previsualiza localmente. NADA se sube a R2 hasta el submit. Esto evita
+// archivos huérfanos en R2 si el usuario cancela o cierra la pestaña.
 async function attachFile(file, previewRoot, pending) {
   const isImage = file.type.startsWith('image/');
   const isVideo = file.type.startsWith('video/');
@@ -403,17 +414,43 @@ async function attachFile(file, previewRoot, pending) {
     itemEl.remove();
     URL.revokeObjectURL(previewUrl);
   };
-  pending.set(localId, { status: 'uploading', previewUrl });
+  pending.set(localId, {
+    file,
+    previewUrl,
+    kind: isImage ? 'image' : 'video',
+    status: 'pending', // sube al hacer submit
+  });
+}
 
-  try {
-    const meta = await uploadMedia(file);
-    pending.set(localId, { ...meta, status: 'ready', previewUrl });
-    setItemStatus(itemEl, 'ok');
-  } catch (e) {
-    console.error(e);
-    setItemStatus(itemEl, 'error');
-    pending.delete(localId);
+// Sube todos los items 'pending' a R2 (uno por uno con feedback visual) y
+// devuelve el array de metadata listo para POST /api/posts. Si alguno falla
+// re-lanza el error y deja los items 'ready' con su metadata cacheada, así
+// el usuario puede reintentar sin re-subir lo que ya subió.
+async function uploadPendingFiles(pending, previewRoot) {
+  const media = [];
+  for (const [localId, item] of pending.entries()) {
+    if (item.status === 'ready') {
+      media.push(pickMediaFields(item));
+      continue;
+    }
+    const itemEl = previewRoot.querySelector(`[data-local-id="${CSS.escape(localId)}"]`);
+    if (itemEl) setItemStatus(itemEl, 'uploading');
+    try {
+      const meta = await uploadMedia(item.file);
+      pending.set(localId, { ...item, ...meta, status: 'ready' });
+      if (itemEl) setItemStatus(itemEl, 'ok');
+      media.push(pickMediaFields(meta));
+    } catch (err) {
+      if (itemEl) setItemStatus(itemEl, 'error');
+      pending.set(localId, { ...item, status: 'error' });
+      throw err;
+    }
   }
+  return media;
+}
+
+function pickMediaFields({ kind, r2_key, thumb_key, width, height }) {
+  return { kind, r2_key, thumb_key, width, height };
 }
 
 // ----- render -----
@@ -645,17 +682,23 @@ async function loadTimeline(reset = false) {
 }
 
 async function loadHashtags() {
-  const res = await fetch('/api/hashtags');
-  const tags = await res.json();
-  const ul = $('#tagList');
-  if (!ul) return;
-  const currentTag = new URLSearchParams(location.search).get('tag');
-  ul.innerHTML = tags
-    .map(
-      (t) =>
-        `<li><a href="/?tag=${encodeURIComponent(t.tag)}"${t.tag === currentTag ? ' class="active"' : ''}>#${escapeHtml(t.tag)}<span class="count">${t.count}</span></a></li>`,
-    )
-    .join('');
+  try {
+    const res = await fetch('/api/hashtags');
+    if (!res.ok) throw new Error('hashtags fetch ' + res.status);
+    const tags = await res.json();
+    const ul = $('#tagList');
+    if (!ul) return;
+    const currentTag = new URLSearchParams(location.search).get('tag');
+    ul.innerHTML = tags
+      .map(
+        (t) =>
+          `<li><a href="/?tag=${encodeURIComponent(t.tag)}"${t.tag === currentTag ? ' class="active"' : ''}>#${escapeHtml(t.tag)}<span class="count">${t.count}</span></a></li>`,
+      )
+      .join('');
+  } catch (err) {
+    // sidebar no crítico — log silencioso, sin toast para no molestar
+    console.warn('loadHashtags failed', err);
+  }
 }
 
 function setupFilterBanner() {
@@ -699,17 +742,15 @@ function wireComposer({ form, text, preview, fileInput, parentId = null, onPoste
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const t = text.value.trim();
-    const media = [...pending.values()]
-      .filter((m) => m.status === 'ready')
-      .map(({ kind, r2_key, thumb_key, width, height }) => ({ kind, r2_key, thumb_key, width, height }));
-    if (!t && media.length === 0) return;
-    if ([...pending.values()].some((m) => m.status === 'uploading')) {
-      toast('espera a que terminen de subir los archivos', 'warn');
-      return;
-    }
+    const hasFiles = pending.size > 0;
+    if (!t && !hasFiles) return;
+
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
+      // 1) subir archivos (si los hay). bloquea hasta que terminen.
+      const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
+      // 2) crear el post con la metadata recién obtenida.
       const res = await fetch('/api/posts', {
         method: 'POST',
         credentials: 'same-origin',
@@ -725,6 +766,8 @@ function wireComposer({ form, text, preview, fileInput, parentId = null, onPoste
       onPosted(post);
     } catch (err) {
       console.error(err);
+      // si la subida falla, los items 'ready' conservan su r2_key cacheado
+      // y el usuario puede reintentar pulsando publicar otra vez sin re-subir.
       toast('error al publicar', 'error');
     } finally {
       if (submitBtn) submitBtn.disabled = false;
@@ -810,7 +853,16 @@ function setupTimelineComposer() {
 // ----- POST PAGE -----
 
 async function loadSinglePost() {
-  const res = await fetch(`/api/posts/${POST_ID}`);
+  let res;
+  try {
+    res = await fetch(`/api/posts/${POST_ID}`);
+  } catch (err) {
+    // fallo de red — distinto de 404. damos pista al usuario.
+    console.error('loadSinglePost network', err);
+    $('#postContainer').innerHTML = '<p class="not-found">error de red al cargar el post</p>';
+    toast('error de red', 'error');
+    return;
+  }
   if (!res.ok) {
     $('#postContainer').innerHTML = '<p class="not-found">post no encontrado</p>';
     return;

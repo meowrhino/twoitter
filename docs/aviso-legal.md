@@ -56,7 +56,7 @@ transparencia y como escudo defensivo.
 | Campo | Valor actual | Aparece en |
 |---|---|---|
 | Alias del autor | `meowrhino` | `aviso-legal.html` §2 |
-| Email de contacto | `contacto@meowrhino.studio` | `aviso-legal.html` §2, §4, §6 |
+| Email de contacto | `hola@meowrhino.studio` | `aviso-legal.html` §2, §4, §6 |
 | Dominio referenciado | `twoitter.meowrhino.studio` | `aviso-legal.html` §2 |
 | Domicilio físico | **omitido** | — |
 | Fecha de última actualización | `mayo de 2026` | `aviso-legal.html` pie |
@@ -69,7 +69,7 @@ monetiza (publi, donaciones, ventas), **toca añadir nombre real + NIF
 ## 4. Pendiente / a revisar en la deep review
 
 ### Pendiente concreto
-- [ ] **Verificar que `contacto@meowrhino.studio` recibe correo de verdad**
+- [ ] **Verificar que `hola@meowrhino.studio` recibe correo de verdad**
   (MX records, alias en el dominio). Si no, cambiar a un email que sí
   funcione antes de desplegar — un takedown que no se contesta deja
   de proteger.

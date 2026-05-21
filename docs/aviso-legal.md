@@ -69,10 +69,8 @@ monetiza (publi, donaciones, ventas), **toca añadir nombre real + NIF
 ## 4. Pendiente / a revisar en la deep review
 
 ### Pendiente concreto
-- [ ] **Verificar que `hola@meowrhino.studio` recibe correo de verdad**
-  (MX records, alias en el dominio). Si no, cambiar a un email que sí
-  funcione antes de desplegar — un takedown que no se contesta deja
-  de proteger.
+- [x] ~~Verificar que `hola@meowrhino.studio` recibe correo~~ — confirmado
+  por el autor (mayo de 2026).
 - [ ] **Validar visualmente** la página en móvil y escritorio (tamaños,
   legibilidad, colores). Las `<style>` están inline en el `<head>` de
   `aviso-legal.html`; si te molesta tener CSS inline, moverlas a

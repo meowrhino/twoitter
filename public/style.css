@@ -332,8 +332,7 @@ body.sidebar-hidden .side-col { display: none; }
   .tag-list li { padding: 0; }
   .menu-btn { top: 12px; right: 12px; }
   .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
-  .thread-replies { padding-left: 12px; }
-  .thread-replies::before { left: 4px; }
+  .thread-replies { padding-left: 10px; }
 }
 
 /* ---------- composer ---------- */
@@ -441,11 +440,23 @@ body.sidebar-hidden .side-col { display: none; }
 .timeline { display: flex; flex-direction: column; }
 
 .post {
-  padding: 18px 4px;
+  /* padding-left extra para que entre la guía vertical sin pisar el texto */
+  padding: 18px 4px 18px 16px;
   position: relative;
+}
+/* cada post lleva su propio rail vertical a la izquierda — root o anidado */
+.post::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--hairline);
 }
 .post.clickable { cursor: pointer; }
 .post.clickable:hover { background: rgba(232, 176, 74, 0.02); }
+.post.clickable:hover::before { background: var(--border); }
 
 .post-text {
   font-family: var(--mono);
@@ -460,20 +471,11 @@ body.sidebar-hidden .side-col { display: none; }
 .post-text:empty { display: none; }
 
 .thread { margin-bottom: 28px; }
-/* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño */
+/* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño.
+   ya no necesitamos línea aquí — cada .post lleva su propio rail. */
 .thread-replies {
-  padding-left: 18px;
-  position: relative;
+  padding-left: 14px;
   font-size: 0.96em;
-}
-.thread-replies::before {
-  content: '';
-  position: absolute;
-  left: 7px;
-  top: 4px;
-  bottom: 14px;
-  width: 1px;
-  background: var(--border);
 }
 .thread-replies > .post {
   padding-top: 12px;
@@ -498,7 +500,8 @@ body.sidebar-hidden .side-col { display: none; }
 .post-media.count-3, .post-media.count-4 { grid-template-columns: 1fr 1fr; }
 .post-media .item {
   position: relative;
-  background: var(--bg);
+  /* transparente para que vídeos/imágenes con alpha dejen ver el fondo */
+  background: transparent;
   max-height: 480px;
   overflow: hidden;
 }

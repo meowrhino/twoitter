@@ -798,6 +798,7 @@ body.lightbox-open { overflow: hidden; }
   font-size: inherit;
 }
 .post-actions .reply-btn:hover { color: var(--accent); }
+.post-actions .hide-btn:hover { color: var(--text-dim); }
 .post-actions .delete-btn:hover { color: var(--danger); }
 
 /* desktop: hover sobre el .post más interno bajo el cursor → mostrar.

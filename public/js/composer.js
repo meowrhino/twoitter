@@ -117,7 +117,10 @@ export function makeInlineComposer(parentPostEl, parentId) {
         nested.className = 'thread-replies';
         parentPostEl.appendChild(nested);
       }
-      nested.appendChild(renderThread(post));
+      // renderThread filtra ocultos, pero un post recién creado por el
+      // usuario nunca lo estará — el guard es defensivo, no se espera null.
+      const el = renderThread(post);
+      if (el) nested.appendChild(el);
       notifyThreadChanged({
         parentPost: parentPostEl,
         threadRoot: getThreadRoot(parentPostEl),

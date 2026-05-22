@@ -16,6 +16,7 @@ import {
   getReplies,
   listHashtags,
   listPosts,
+  restorePost,
 } from "./db";
 import { syncHashtags } from "./hashtags";
 import {
@@ -156,9 +157,19 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
 app.delete("/api/posts/:id", requireAuth(), requireCsrf(), async (c) => {
   const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  // Soft delete: el post y sus descendientes se marcan con deleted_at pero
+  // los assets de R2 se conservan. Recuperable vía POST /api/posts/:id/restore.
   const result = await deletePost(c.env.DB, c.env.STORAGE, id);
   if (!result) return c.json({ error: "no encontrado" }, 404);
-  return c.json({ ok: true, deleted_keys: result.deletedKeys });
+  return c.json({ ok: true, soft_deleted_ids: result.softDeletedIds });
+});
+
+app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
+  const id = parseInt(c.req.param("id") ?? "");
+  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const result = await restorePost(c.env.DB, id);
+  if (!result) return c.json({ error: "no encontrado o no estaba borrado" }, 404);
+  return c.json({ ok: true, restored_ids: result.restoredIds });
 });
 
 app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {

@@ -23,16 +23,22 @@ export async function loadTimeline(reset = false) {
     if (!reset && nextCursor) params.set('cursor', nextCursor);
 
     const res = await fetch('/api/posts?' + params);
-    const data = await res.json();
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    // Defensa: si el server devuelve algo sin posts (5xx con JSON de error,
+    // body vacío, etc.) no queremos romper el feed. Tratamos como "sin más".
+    const posts = Array.isArray(data?.posts) ? data.posts : [];
     const timeline = $('#timeline');
     if (reset) timeline.innerHTML = '';
-    for (const p of data.posts) {
+    for (const p of posts) {
+      const threadEl = renderThread(p);
+      if (!threadEl) continue; // post root oculto en localStorage
       const wrap = document.createElement('div');
       wrap.className = 'thread';
-      wrap.appendChild(renderThread(p));
+      wrap.appendChild(threadEl);
       timeline.appendChild(wrap);
     }
-    nextCursor = data.nextCursor;
+    nextCursor = data?.nextCursor ?? null;
     $('#loadMore').hidden = !nextCursor;
     extendAllRails();
   } catch (err) {
@@ -51,9 +57,11 @@ export function setupTimelineComposer() {
     fileInput: $('#fileInput'),
     parentId: null,
     onPosted: (post) => {
+      const el = renderThread(post);
+      if (!el) return; // post oculto (no debería pasar para uno recién creado)
       const wrap = document.createElement('div');
       wrap.className = 'thread';
-      wrap.appendChild(renderThread(post));
+      wrap.appendChild(el);
       $('#timeline').prepend(wrap);
       notifyThreadChanged({ threadRoot: wrap });
     },
@@ -81,9 +89,16 @@ export async function loadSinglePost() {
   $('#postContainer').appendChild(renderPost(post, { single: true }));
 
   if (replies.length) {
-    $('#repliesHeader').hidden = false;
-    for (const r of replies) $('#replies').appendChild(renderThread(r));
-    extendRails($('#replies'));
+    const container = $('#replies');
+    let appended = 0;
+    for (const r of replies) {
+      const el = renderThread(r);
+      if (el) { container.appendChild(el); appended++; }
+    }
+    if (appended > 0) {
+      $('#repliesHeader').hidden = false;
+      extendRails(container);
+    }
   }
 }
 
@@ -95,8 +110,10 @@ export function setupReplyForm() {
     fileInput: $('#replyFileInput'),
     parentId: POST_ID,
     onPosted: (reply) => {
+      const el = renderThread(reply);
+      if (!el) return; // oculto (defensivo)
       $('#repliesHeader').hidden = false;
-      $('#replies').appendChild(renderThread(reply));
+      $('#replies').appendChild(el);
       notifyThreadChanged({
         parentPost: document.querySelector('#postContainer > .post'),
         threadRoot: $('#replies'),

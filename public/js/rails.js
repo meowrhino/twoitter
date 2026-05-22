@@ -54,14 +54,17 @@ export function extendAllRails() {
 
 // debounced resize + safety net en window.load (por si imágenes/vídeos
 // terminaron de cargar después de la medida inicial y el ResizeObserver
-// no llegó a disparar).
+// no llegó a disparar). app.js es type=module (defer), así que en
+// navegadores rápidos `load` ya disparó cuando llegamos aquí — en ese
+// caso lo ejecutamos inmediatamente; si no, registramos el listener.
 export function setupResizeRailRecalc() {
   let t;
   window.addEventListener('resize', () => {
     clearTimeout(t);
     t = setTimeout(extendAllRails, 100);
   });
-  window.addEventListener('load', extendAllRails);
+  if (document.readyState === 'complete') extendAllRails();
+  else window.addEventListener('load', extendAllRails, { once: true });
 }
 
 // Actualiza el contador "N resp" en el footer de un .post tras add/delete.
@@ -97,6 +100,15 @@ export function updateReplyCount(postEl, delta) {
 //   delta       → +1 al añadir, -1 al borrar, 0 si solo es reorder
 export function notifyThreadChanged({ parentPost = null, threadRoot = null, delta = 0 } = {}) {
   if (parentPost && delta) updateReplyCount(parentPost, delta);
-  if (threadRoot && threadRoot.isConnected) extendRails(threadRoot);
+  if (threadRoot) {
+    if (threadRoot.isConnected) {
+      extendRails(threadRoot);
+    } else if (_railObserver && threadRoot._railObserved) {
+      // Thread detached: liberar la referencia del ResizeObserver para que
+      // el nodo no quede retenido en sesiones largas con muchos delete.
+      _railObserver.unobserve(threadRoot);
+      threadRoot._railObserved = false;
+    }
+  }
   refreshHashtags();
 }

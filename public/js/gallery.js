@@ -17,28 +17,38 @@ import { escapeHtml } from './utils.js';
 // Duración de cada fase (fade-out y fade-in/altura). Debe coincidir con
 // la CSS: .gallery > .stage / .lightbox-stage  transition: ... Xms ...
 // 240ms con cubic-bezier(0.4, 0, 0.2, 1) — suave sin sentirse lento.
-const FADE_MS = 240;
+// Si el usuario tiene prefers-reduced-motion, saltamos toda la animación
+// para no quedarnos 240ms con el stage en blanco (la CSS también respeta
+// el flag y deja la transición instantánea).
+const REDUCED_MOTION =
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FADE_MS = REDUCED_MOTION ? 0 : 240;
 
 // ----- templates (sin side effects) -----
 
+// Defensa en profundidad: r2_key viene de BD pero se interpola en atributos
+// HTML. Si alguna vez se cuela un valor con comillas (manual, migración,
+// export-import), escaparlo evita inyección de atributos / XSS.
 function mediaItemHtml(m) {
+  const src = escapeHtml(m.r2_key);
   if (m.kind === 'image') {
-    return `<img src="/r2/${m.r2_key}" alt="">`;
+    return `<img src="/r2/${src}" alt="">`;
   }
-  const poster = m.thumb_key ? ` poster="/r2/${m.thumb_key}"` : '';
-  return `<video src="/r2/${m.r2_key}" controls preload="metadata"${poster} playsinline></video>`;
+  const poster = m.thumb_key ? ` poster="/r2/${escapeHtml(m.thumb_key)}"` : '';
+  return `<video src="/r2/${src}" controls preload="metadata"${poster} playsinline></video>`;
 }
 
 function thumbHtml(m, index, active) {
   const cls = `thumb${active ? ' is-active' : ''}`;
   const sel = active ? 'true' : 'false';
+  const src = escapeHtml(m.r2_key);
   if (m.kind === 'image') {
     return `<button class="${cls}" type="button" role="tab" aria-selected="${sel}" data-index="${index}" aria-label="ver imagen ${index + 1}">
-      <img src="/r2/${m.r2_key}" alt="" loading="lazy">
+      <img src="/r2/${src}" alt="" loading="lazy">
     </button>`;
   }
   const inner = m.thumb_key
-    ? `<img src="/r2/${m.thumb_key}" alt="" loading="lazy">`
+    ? `<img src="/r2/${escapeHtml(m.thumb_key)}" alt="" loading="lazy">`
     : `<span class="thumb-placeholder" aria-hidden="true"></span>`;
   return `<button class="${cls}" type="button" role="tab" aria-selected="${sel}" data-index="${index}" aria-label="ver vídeo ${index + 1}">
     ${inner}
@@ -193,6 +203,10 @@ export async function swapStage(galleryEl, index) {
 let lightboxEl = null;
 let lightboxState = { media: [], index: 0 };
 let lbNav = 0;
+// Foco previo: elemento que tenía el foco cuando se abrió el lightbox.
+// Al cerrar, devolvemos el foco ahí (típicamente la thumb/imagen clicada),
+// que es el contrato a11y esperado de un dialog modal.
+let lightboxPrevFocus = null;
 
 function ensureLightbox() {
   if (lightboxEl && lightboxEl.isConnected) return lightboxEl;
@@ -268,11 +282,16 @@ async function renderLightbox({ animate = true } = {}) {
 export async function openLightbox(media, index = 0) {
   if (!media || media.length === 0) return;
   lightboxState = { media: media.slice(), index };
+  // Guardar elemento focado para devolverle el foco al cerrar.
+  lightboxPrevFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement : null;
   const lb = ensureLightbox();
   // Mostrar shell + sincronizar UI antes del preload para feedback inmediato.
   syncLightboxChrome(lb);
   lb.hidden = false;
   document.body.classList.add('lightbox-open');
+  // Mover foco al botón de cerrar — punto de entrada al modal.
+  try { lb.querySelector('.lightbox-close').focus(); } catch {}
   // primera carga: sin fade-out (no hay nada que ocultar), sólo preload.
   await renderLightbox({ animate: false });
 }
@@ -288,6 +307,12 @@ export function closeLightbox() {
   stage.style.height = '';
   lightboxEl.hidden = true;
   document.body.classList.remove('lightbox-open');
+  // Devolver el foco al elemento que lo tenía antes de abrir (típicamente
+  // la thumb o la imagen del stage). Si ya no está en el DOM, fallback al body.
+  if (lightboxPrevFocus && lightboxPrevFocus.isConnected) {
+    try { lightboxPrevFocus.focus(); } catch {}
+  }
+  lightboxPrevFocus = null;
 }
 
 function lightboxNav(delta) {
@@ -337,7 +362,32 @@ export function setupGallery() {
     if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); lightboxNav(-1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); lightboxNav(1); }
+    else if (e.key === 'Tab') trapTab(e);
   });
+
+  // Focus trap: lista los focusables del lightbox y hace ciclo dentro de
+  // ellos al tabular (Shift+Tab al revés). Sin esto, Tab se va a elementos
+  // de detrás del overlay y rompe la promesa de aria-modal=true.
+  function trapTab(e) {
+    const focusables = lightboxEl.querySelectorAll(
+      'button:not([hidden]):not([disabled]), [href], video[controls], [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    } else if (!lightboxEl.contains(active)) {
+      // Foco se escapó por algún motivo — devolver al primero.
+      e.preventDefault();
+      first.focus();
+    }
+  }
 
   let touchStartX = null;
   document.addEventListener('touchstart', (e) => {

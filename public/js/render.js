@@ -6,16 +6,25 @@ import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot } from './rails.js';
 import { makeInlineComposer } from './composer.js';
 import { renderPostGallery } from './gallery.js';
+import { isHidden, hide } from './hidden.js';
 
-// Wrapper de "responder/borrar". Vive FUERA de .post-body, como hijo directo
+// Wrapper de acciones del post. Vive FUERA de .post-body, como hijo directo
 // de .post: CSS lo ancla absoluto a la derecha del .post, alineado con el
 // final del rail vertical (via --rail-bottom, que mantiene extendRails()).
 // Siempre visible cuando hay sesión — no depende de hover.
+//
+//   responder → composer inline (sólo en feed, no en single)
+//   ocultar   → localStorage por-navegador (no afecta a otros devices)
+//   borrar    → soft-delete server-side (recuperable desde papelera)
+//
+// "ocultar" está disponible incluso sin sesión: cualquiera puede esconder
+// posts molestos de su feed local. "borrar" requiere auth.
 function renderPostActions(single) {
   const reply = isAuthed() && !single ? '<button class="reply-btn" type="button">responder</button>' : '';
+  const hideBtn = !single ? '<button class="hide-btn" type="button">ocultar</button>' : '';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  if (!reply && !del) return '';
-  return `<div class="post-actions">${reply}${del}</div>`;
+  if (!reply && !hideBtn && !del) return '';
+  return `<div class="post-actions">${reply}${hideBtn}${del}</div>`;
 }
 
 function renderPostFoot(p) {
@@ -94,6 +103,26 @@ function bindReplyButton(postEl, p) {
   };
 }
 
+function bindHideButton(postEl, p, single) {
+  const hideBtn = postEl.querySelector(':scope > .post-actions .hide-btn');
+  if (!hideBtn) return;
+  hideBtn.onclick = (e) => {
+    e.stopPropagation();
+    hide(p.id);
+    // Mismo tratamiento al DOM que el delete: si es reply, sólo el .post;
+    // si es root, todo el .thread. Notificamos para rails + contador.
+    const parentPost = findLogicalParentPost(postEl);
+    const root = getThreadRoot(postEl);
+    if (postEl.closest('.thread-replies') || postEl.closest('#replies')) {
+      postEl.remove();
+    } else {
+      postEl.closest('.thread')?.remove() || postEl.remove();
+    }
+    notifyThreadChanged({ parentPost, threadRoot: root, delta: -1 });
+    toast('post ocultado en este navegador', 'info');
+  };
+}
+
 function bindDeleteButton(postEl, p, single) {
   const del = postEl.querySelector(':scope > .post-actions .delete-btn');
   if (!del) return;
@@ -148,18 +177,27 @@ export function renderPost(p, { single = false } = {}) {
   `;
   if (!single) bindPostClickToNavigate(el, p);
   bindReplyButton(el, p);
+  bindHideButton(el, p, single);
   bindDeleteButton(el, p, single);
   return el;
 }
 
 // Recursivo: renderiza un post + sus replies anidados.
+// Si el post raíz está oculto en localStorage, devolvemos null para que
+// el caller omita el thread entero (no renderiza ni los descendientes).
+// Si un descendiente está oculto, se salta SÓLO ese subtree.
 export function renderThread(p) {
+  if (isHidden(p.id)) return null;
   const el = renderPost(p);
   if (p.replies && p.replies.length) {
     const nested = document.createElement('div');
     nested.className = 'thread-replies';
-    for (const child of p.replies) nested.appendChild(renderThread(child));
-    el.appendChild(nested);
+    let appended = 0;
+    for (const child of p.replies) {
+      const childEl = renderThread(child);
+      if (childEl) { nested.appendChild(childEl); appended++; }
+    }
+    if (appended > 0) el.appendChild(nested);
   }
   return el;
 }

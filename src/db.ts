@@ -14,6 +14,7 @@ export interface PostRow {
   text: string | null;
   parent_id: number | null;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 export interface Post extends PostRow {
@@ -95,7 +96,9 @@ export async function listPosts(
   opts: { cursor?: string; tag?: string; q?: string; limit: number },
 ): Promise<{ posts: Post[]; nextCursor: string | null }> {
   const limit = Math.min(50, Math.max(1, opts.limit));
-  const conds: string[] = ["p.parent_id IS NULL"];
+  // deleted_at IS NULL en TODAS las queries de lectura: los borrados
+  // siguen en la BD para poder restaurar pero no aparecen en el feed.
+  const conds: string[] = ["p.parent_id IS NULL", "p.deleted_at IS NULL"];
   const args: unknown[] = [];
 
   if (opts.tag) {
@@ -135,17 +138,23 @@ export async function listPosts(
     return { posts: [], nextCursor: null };
   }
 
-  // fetch every descendant of the roots in this page (any depth) with a recursive CTE
+  // fetch every descendant of the roots in this page (any depth) with a recursive CTE.
+  // El level cap (256) es defensa contra ciclos accidentales en parent_id o threads
+  // patológicamente profundos — sin él, un bucle haría que SQLite recorra hasta
+  // agotar memoria. 256 niveles es muchísimo para conversaciones reales.
   const rootIds = page.map((p) => p.id);
   const placeholders = rootIds.map(() => "?").join(",");
   const descRes = await db
     .prepare(
-      `WITH RECURSIVE descendants AS (
-         SELECT p.* FROM posts p WHERE p.parent_id IN (${placeholders})
+      `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
+         SELECT p.id, p.text, p.parent_id, p.created_at, 1
+           FROM posts p WHERE p.parent_id IN (${placeholders}) AND p.deleted_at IS NULL
          UNION ALL
-         SELECT c.* FROM posts c JOIN descendants d ON c.parent_id = d.id
+         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
+           FROM posts c JOIN descendants d ON c.parent_id = d.id
+           WHERE d.level < 256 AND c.deleted_at IS NULL
        )
-       SELECT * FROM descendants ORDER BY created_at ASC`,
+       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
     )
     .bind(...rootIds)
     .all<PostRow>();
@@ -170,7 +179,7 @@ export async function getPost(
   id: number,
 ): Promise<Post | null> {
   const row = await db
-    .prepare("SELECT * FROM posts WHERE id = ?")
+    .prepare("SELECT * FROM posts WHERE id = ? AND deleted_at IS NULL")
     .bind(id)
     .first<PostRow>();
   if (!row) return null;
@@ -184,12 +193,15 @@ export async function getReplies(
 ): Promise<Post[]> {
   const res = await db
     .prepare(
-      `WITH RECURSIVE descendants AS (
-         SELECT p.* FROM posts p WHERE p.parent_id = ?
+      `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
+         SELECT p.id, p.text, p.parent_id, p.created_at, 1
+           FROM posts p WHERE p.parent_id = ? AND p.deleted_at IS NULL
          UNION ALL
-         SELECT c.* FROM posts c JOIN descendants d ON c.parent_id = d.id
+         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
+           FROM posts c JOIN descendants d ON c.parent_id = d.id
+           WHERE d.level < 256 AND c.deleted_at IS NULL
        )
-       SELECT * FROM descendants ORDER BY created_at ASC`,
+       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
     )
     .bind(parentId)
     .all<PostRow>();
@@ -236,57 +248,69 @@ export async function attachMedia(
 
 export async function deletePost(
   db: D1Database,
-  storage: R2Bucket,
+  _storage: R2Bucket,
   id: number,
-): Promise<{ deletedKeys: string[] } | null> {
+): Promise<{ softDeletedIds: number[] } | null> {
+  // Soft delete: marca deleted_at en el post y sus descendientes pero deja
+  // todo intacto (media, hashtags, assets de R2). Para restaurar, basta
+  // con NULL-ear deleted_at. Si en el futuro queremos vaciado de papelera
+  // físico, añadir una operación 'purge' separada que sí haga DELETE + R2.
   const exists = await db
-    .prepare("SELECT id FROM posts WHERE id = ?")
+    .prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL")
     .bind(id)
     .first<{ id: number }>();
   if (!exists) return null;
 
-  // gather every descendant id (any depth), including self
+  // Reunir todos los descendientes vivos (cualquier profundidad).
   const idsRes = await db
     .prepare(
-      `WITH RECURSIVE descendants AS (
-         SELECT id FROM posts WHERE id = ?
+      `WITH RECURSIVE descendants(id, level) AS (
+         SELECT id, 1 FROM posts WHERE id = ?
          UNION ALL
-         SELECT p.id FROM posts p JOIN descendants d ON p.parent_id = d.id
+         SELECT p.id, d.level + 1
+           FROM posts p JOIN descendants d ON p.parent_id = d.id
+           WHERE d.level < 256 AND p.deleted_at IS NULL
        )
        SELECT id FROM descendants`,
     )
     .bind(id)
     .all<{ id: number }>();
   const ids = idsRes.results.map((r) => r.id);
-  if (ids.length === 0) return { deletedKeys: [] };
+  if (ids.length === 0) return { softDeletedIds: [] };
   const placeholders = ids.map(() => "?").join(",");
 
-  const mediaRes = await db
+  await db
     .prepare(
-      `SELECT r2_key, thumb_key FROM media WHERE post_id IN (${placeholders})`,
+      `UPDATE posts SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id IN (${placeholders})`,
     )
     .bind(...ids)
-    .all<{ r2_key: string; thumb_key: string | null }>();
-  const keys = mediaRes.results.flatMap((m) =>
-    m.thumb_key ? [m.r2_key, m.thumb_key] : [m.r2_key],
-  );
+    .run();
 
-  // delete in a single posts statement so parent_id FK is satisfied at statement end
-  await db.batch([
-    db
-      .prepare(`DELETE FROM hashtags WHERE post_id IN (${placeholders})`)
-      .bind(...ids),
-    db
-      .prepare(`DELETE FROM media WHERE post_id IN (${placeholders})`)
-      .bind(...ids),
-    db
-      .prepare(`DELETE FROM posts WHERE id IN (${placeholders})`)
-      .bind(...ids),
-  ]);
+  return { softDeletedIds: ids };
+}
 
-  await Promise.all(keys.map((k) => storage.delete(k)));
-
-  return { deletedKeys: keys };
+// Restaurar un post (y sus descendientes que cayeron en el mismo borrado)
+// poniendo deleted_at = NULL. Útil para una futura vista /papelera.
+export async function restorePost(
+  db: D1Database,
+  id: number,
+): Promise<{ restoredIds: number[] } | null> {
+  const exists = await db
+    .prepare("SELECT id, deleted_at FROM posts WHERE id = ?")
+    .bind(id)
+    .first<{ id: number; deleted_at: string | null }>();
+  if (!exists || !exists.deleted_at) return null;
+  // Restaura sólo los que se borraron en el MISMO momento (mismo deleted_at)
+  // para no resucitar borrados anteriores cuando un subtree se restaura.
+  const res = await db
+    .prepare(
+      `UPDATE posts SET deleted_at = NULL
+         WHERE deleted_at = ?
+         RETURNING id`,
+    )
+    .bind(exists.deleted_at)
+    .all<{ id: number }>();
+  return { restoredIds: res.results.map((r) => r.id) };
 }
 
 export async function listHashtags(

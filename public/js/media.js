@@ -215,6 +215,10 @@ export async function attachFile(file, previewRoot, pending) {
 export async function uploadPendingFiles(pending, previewRoot) {
   const media = [];
   for (const [localId, item] of pending.entries()) {
+    // Tras cada await, si el usuario pulsó × y borró este item del Map,
+    // saltamos a la siguiente iteración. Sin esto, el upload se ejecutaría
+    // igualmente y el post saldría con un media que el usuario quitó.
+    if (!pending.has(localId)) continue;
     if (item.status === 'ready') {
       media.push(pickMediaFields(item));
       continue;
@@ -227,9 +231,11 @@ export async function uploadPendingFiles(pending, previewRoot) {
       try {
         await item.compressionPromise;
       } catch (err) {
+        if (!pending.has(localId)) continue; // borrado mientras comprimía
         throw err;
       }
     }
+    if (!pending.has(localId)) continue;
     if (item.status === 'error' || !item.compressed) {
       throw item.compressionError || new Error('item sin comprimir');
     }
@@ -238,10 +244,12 @@ export async function uploadPendingFiles(pending, previewRoot) {
     try {
       const isVideo = item.kind === 'video';
       const meta = await uploadCompressed(item.compressed, isVideo);
+      if (!pending.has(localId)) continue; // borrado durante el upload
       pending.set(localId, { ...item, ...meta, status: 'ready' });
       if (itemEl) setItemStatus(itemEl, 'ok');
       media.push(pickMediaFields(meta));
     } catch (err) {
+      if (!pending.has(localId)) continue;
       if (itemEl) setItemStatus(itemEl, 'error');
       pending.set(localId, { ...item, status: 'error' });
       throw err;

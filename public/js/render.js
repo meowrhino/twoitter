@@ -11,20 +11,22 @@ import { isHidden, hide } from './hidden.js';
 // Wrapper de acciones del post. Vive FUERA de .post-body, como hijo directo
 // de .post: CSS lo ancla absoluto a la derecha del .post, alineado con el
 // final del rail vertical (via --rail-bottom, que mantiene extendRails()).
-// Siempre visible cuando hay sesión — no depende de hover.
+// Aparecen al activar el post (click en el .post-body añade .active).
 //
-//   responder → composer inline (sólo en feed, no en single)
-//   ocultar   → localStorage por-navegador (no afecta a otros devices)
-//   borrar    → soft-delete server-side (recuperable desde papelera)
+//   ver twoitt → navega al permalink (sólo en feed, no en single)
+//   responder  → composer inline (sólo en feed, no en single)
+//   ocultar    → localStorage por-navegador (no afecta a otros devices)
+//   borrar     → soft-delete server-side (recuperable desde papelera)
 //
 // "ocultar" está disponible incluso sin sesión: cualquiera puede esconder
 // posts molestos de su feed local. "borrar" requiere auth.
 function renderPostActions(single) {
+  const view = !single ? '<button class="vertwoitt-btn" type="button">ver twoitt</button>' : '';
   const reply = isAuthed() && !single ? '<button class="reply-btn" type="button">responder</button>' : '';
   const hideBtn = !single ? '<button class="hide-btn" type="button">ocultar</button>' : '';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  if (!reply && !hideBtn && !del) return '';
-  return `<div class="post-actions">${reply}${hideBtn}${del}</div>`;
+  if (!view && !reply && !hideBtn && !del) return '';
+  return `<div class="post-actions">${view}${reply}${hideBtn}${del}</div>`;
 }
 
 function renderPostFoot(p) {
@@ -41,32 +43,29 @@ function renderPostFoot(p) {
 
 // ----- bindings (encadenan eventos a un .post ya pintado) -----
 
-// click + keyboard navegan al permalink. role=link + tabindex=0 + aria-label
-// hacen el post alcanzable por teclado y lectores de pantalla.
+// Modelo unificado desktop+touch: un click sobre el .post-body añade
+// .active al .post más interno bajo el cursor → CSS muestra .post-actions
+// con slide-in. Click fuera (o en otro .post) lo quita. Para navegar al
+// permalink, el usuario pulsa el botón "ver twoitt" (renderPostActions).
 //
-// En touch, el primer tap activa el post (clase .tapped → CSS muestra
-// post-actions). Re-tap del mismo post navega al permalink. Tap fuera
-// desactiva (listener global en setupTapToActivate). Hover (desktop)
-// muestra los botones sin necesidad de tap.
+// Enter / Space en el .post enfocado siguen navegando directamente, porque
+// el modelo de teclado no tiene "hover" ni "activo" — un sólo gesto debe
+// resolver la acción primaria (abrir el post).
 function bindPostClickToNavigate(postEl, p) {
   postEl.setAttribute('role', 'link');
   postEl.setAttribute('tabindex', '0');
   postEl.setAttribute('aria-label', `abrir post #${p.id}`);
-  const go = (e) => {
+  const activate = (e) => {
     if (e.target.closest('a, button, video, .composer, .gallery')) return;
+    // Si el click cae sobre un descendiente .post (otro post anidado), que
+    // lo gestione él — no marcar también al padre.
     if (e.target.closest('.post') !== postEl) return;
-    // En dispositivos sin hover, primer tap activa, segundo navega.
-    const isTouch = matchMedia('(hover: none)').matches;
-    if (isTouch && !postEl.classList.contains('tapped')) {
-      document.querySelectorAll('.post.tapped').forEach((el) => {
-        if (el !== postEl) el.classList.remove('tapped');
-      });
-      postEl.classList.add('tapped');
-      return;
-    }
-    location.href = `/post/${p.id}`;
+    document.querySelectorAll('.post.active').forEach((el) => {
+      if (el !== postEl) el.classList.remove('active');
+    });
+    postEl.classList.add('active');
   };
-  postEl.addEventListener('click', go);
+  postEl.addEventListener('click', activate);
   postEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if (e.target !== postEl) return; // ignorar si el focus está en un hijo interactivo
@@ -76,17 +75,26 @@ function bindPostClickToNavigate(postEl, p) {
   postEl.classList.add('clickable');
 }
 
-// Global: tap fuera de cualquier .post o tap en un .post distinto al
-// .tapped actual → quitar la clase para que esconda sus post-actions.
+// Global: click fuera de cualquier .post.clickable quita .active de todos.
+// Click dentro de .post-actions no toca nada (deja que el botón actúe).
 // Se llama una sola vez desde el entry point.
 export function setupTapToActivate() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('.post-actions')) return; // dejar que el botón actúe
     const post = e.target.closest?.('.post.clickable');
-    document.querySelectorAll('.post.tapped').forEach((el) => {
-      if (el !== post) el.classList.remove('tapped');
+    document.querySelectorAll('.post.active').forEach((el) => {
+      if (el !== post) el.classList.remove('active');
     });
   }, true);
+}
+
+function bindViewTwoittButton(postEl, p) {
+  const view = postEl.querySelector(':scope > .post-actions .vertwoitt-btn');
+  if (!view) return;
+  view.onclick = (e) => {
+    e.stopPropagation();
+    location.href = `/post/${p.id}`;
+  };
 }
 
 function bindReplyButton(postEl, p) {
@@ -176,6 +184,7 @@ export function renderPost(p, { single = false } = {}) {
     ${renderPostActions(single)}
   `;
   if (!single) bindPostClickToNavigate(el, p);
+  bindViewTwoittButton(el, p);
   bindReplyButton(el, p);
   bindHideButton(el, p, single);
   bindDeleteButton(el, p, single);

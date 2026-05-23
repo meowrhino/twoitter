@@ -766,11 +766,13 @@ body.lightbox-open { overflow: hidden; }
 }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
 
-/* responder/borrar — anclados a la derecha del .post, alineados con el
-   final del rail (--rail-bottom). Aparecen solo cuando el .post está
-   activo: hover en desktop, tap en touch, siempre en single-view.
-   Sin esto, posts encadenados (padre con un único hijo terminal) mostraban
-   los dos sets de botones en el mismo Y y se solapaban como "rresppoondderr". */
+/* ver twoitt / responder / ocultar / borrar — anclados a la derecha del
+   .post, alineados con el final del rail (--rail-bottom). Aparecen sólo
+   cuando el .post está .active (un click sobre el .post-body lo activa;
+   click fuera o en otro .post lo desactiva — lógica en render.js). En
+   single-view se muestran siempre.
+   El hover ya no los muestra: provocaba que al cruzar a un hijo anidado
+   los botones del padre desaparecieran y fuera imposible pulsarlos. */
 .post-actions {
   position: absolute;
   right: 0;
@@ -786,7 +788,12 @@ body.lightbox-open { overflow: hidden; }
   padding: 4px 0;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease;
+  /* slide-in desde la izquierda al activar. Misma curva que la galería
+     (cubic-bezier estándar de Material) para coherencia de movimiento. */
+  transform: translateX(-6px);
+  transition:
+    opacity 140ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 140ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .post-actions button {
   background: none;
@@ -797,31 +804,37 @@ body.lightbox-open { overflow: hidden; }
   font-family: inherit;
   font-size: inherit;
 }
+.post-actions .vertwoitt-btn:hover { color: var(--accent); }
 .post-actions .reply-btn:hover { color: var(--accent); }
 .post-actions .hide-btn:hover { color: var(--text-dim); }
 .post-actions .delete-btn:hover { color: var(--danger); }
 
-/* desktop: hover sobre el .post más interno bajo el cursor → mostrar.
-   :not(:has(.post:hover)) garantiza que solo el más profundo muestra
-   sus botones, así nunca aparecen 2 sets al mismo Y. */
-@media (hover: hover) {
-  .post.clickable:hover:not(:has(.post:hover)) > .post-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
+/* .active: un click sobre el .post-body añade esta clase. El alpha del
+   fondo es el doble que el de hover (0.08 vs 0.04), así si pasas el
+   cursor por encima de un activo se nota el "sumado" sin meter una
+   segunda variable de color. */
+.post.clickable.active > .post-body {
+  background: rgba(232, 176, 74, 0.08);
 }
-
-/* touch: tap en el .post añade .tapped (en JS), retap fuera lo quita.
-   En clickable solo el tapped muestra sus botones. */
-.post.clickable.tapped > .post-actions {
+.post.clickable.active::before {
+  background: var(--accent);
+}
+.post.clickable.active > .post-actions {
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(0);
 }
 
 /* single-view: el post principal no es .clickable, los botones siempre */
 .single-post #postContainer > .post > .post-actions {
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-actions { transition: opacity 80ms linear; transform: none; }
+  .post.clickable.active > .post-actions { transform: none; }
 }
 
 /* inline composer abierto dentro de un post */

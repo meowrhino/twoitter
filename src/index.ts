@@ -43,11 +43,6 @@ type Bindings = {
   AI: Ai;
   PASSWORD: string;
   AUTH_SECRET: string;
-  // Secrets para llamar a Workers AI vía REST (el binding env.AI.run da
-  // problemas con whisper-large-v3-turbo: el `audio` siempre llega al
-  // validador como 'string' y rechaza). Bypass directo más fiable.
-  CF_AI_TOKEN?: string;
-  CF_ACCOUNT_ID?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -210,56 +205,40 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
 
   const audioBytes = await obj.arrayBuffer();
 
-  // Workers AI whisper-large-v3-turbo input: el binding lo lleva mal con
-  // number[] o Uint8Array (ambos llegan al validador como 'string'). La
-  // forma que SÍ funciona hoy es llamar al endpoint REST directamente con
-  // el body binario y el header Content-Type del audio. Necesita un API
-  // token con permiso "Workers AI" en CF_AI_TOKEN + CF_ACCOUNT_ID como
-  // secrets. Si no están configurados, devolvemos un 503 con instrucciones.
-  if (!c.env.CF_AI_TOKEN || !c.env.CF_ACCOUNT_ID) {
-    return c.json({
-      error: "transcribe deshabilitado: añade los secrets CF_AI_TOKEN y CF_ACCOUNT_ID con `wrangler secret put`",
-    }, 503);
+  // Workers AI whisper-large-v3-turbo espera `audio` como STRING base64.
+  // No number[], no Uint8Array, no binary body — confirmado en docs y por
+  // la cascada de errores anteriores ("'string' not in 'array','binary'",
+  // "'string' not in 'object'") según en qué rama del oneOf cayera el
+  // validador. Base64 string es la única forma fiable hoy.
+  const u8 = new Uint8Array(audioBytes);
+  let binary = "";
+  // chunking necesario: String.fromCharCode.apply con un Uint8Array enorme
+  // revienta el stack en algunas runtimes. 32 KB por chunk es seguro y
+  // mucho más rápido que ir byte a byte en un loop.
+  const CHUNK = 0x8000;
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + CHUNK)));
   }
+  const base64 = btoa(binary);
 
   console.log("whisper input:", {
     model: WHISPER_MODEL,
     bytes: audioBytes.byteLength,
+    base64_chars: base64.length,
     content_type: obj.httpMetadata?.contentType,
     language: WHISPER_LANGUAGE ?? "auto",
   });
 
-  // El REST endpoint acepta el audio como body binario directamente; mucho
-  // más fiable que el JSON wrapper del binding. `language` va por query
-  // string. La response es { result: { text, ... }, success, errors, messages }.
-  const url = new URL(
-    `https://api.cloudflare.com/client/v4/accounts/${c.env.CF_ACCOUNT_ID}/ai/run/${WHISPER_MODEL}`,
-  );
-  if (WHISPER_LANGUAGE) url.searchParams.set("language", WHISPER_LANGUAGE);
-
   let transcript: string;
   try {
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${c.env.CF_AI_TOKEN}`,
-        "Content-Type": obj.httpMetadata?.contentType || "audio/webm",
-      },
-      body: audioBytes,
-    });
-    const data = (await res.json()) as {
-      success?: boolean;
-      result?: { text?: string; transcription?: string };
-      errors?: Array<{ message?: string }>;
-    };
-    console.log("whisper raw:", JSON.stringify(data).slice(0, 500));
-    if (!res.ok || data?.success === false) {
-      const msg = data?.errors?.[0]?.message || `http ${res.status}`;
-      return c.json({ error: `fallo al transcribir: ${msg}` }, 500);
-    }
-    transcript = (
-      data?.result?.text ?? data?.result?.transcription ?? ""
-    ).trim();
+    const inputs: { audio: string; language?: string } = { audio: base64 };
+    if (WHISPER_LANGUAGE) inputs.language = WHISPER_LANGUAGE;
+    const result = (await c.env.AI.run(
+      WHISPER_MODEL as never,
+      inputs as never,
+    )) as { text?: string; transcription?: string } | null;
+    console.log("whisper raw:", JSON.stringify(result).slice(0, 500));
+    transcript = ((result?.text ?? result?.transcription) || "").trim();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("whisper failed:", msg, err);

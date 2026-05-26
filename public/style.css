@@ -514,9 +514,14 @@ body.sidebar-hidden .side-col { display: none; }
 .timeline { display: flex; flex-direction: column; }
 
 .post {
-  /* padding-left extra para que entre la guía vertical sin pisar el texto */
+  /* padding-left extra para que entre la guía vertical sin pisar el texto.
+     padding-bottom 18px reserva cola para el rail vertical (visible al
+     hover); cuando el post está .active, esta misma propiedad se anima a
+     0 para que la barra de acciones quede flush contra el bottom del .post
+     sin un hueco sobrante debajo. */
   padding: 18px 4px 18px var(--post-pad-x);
   position: relative;
+  transition: padding-bottom 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* cada post lleva su propio rail vertical a la izquierda — root o anidado.
    --rail-bottom lo ajusta extendRails() en JS para que todos los rails del
@@ -974,6 +979,12 @@ body.lightbox-open { overflow: hidden; }
   max-height: 60px;
   padding: 10px var(--post-pad-x);
 }
+/* Cuando .active, el padding-bottom estructural del .post se va a 0: los
+   actions ya aportan su propio aire abajo, y sin esto quedaría un hueco
+   vacío de 18px debajo del bar. La transición ya está definida en .post. */
+.post.clickable.active {
+  padding-bottom: 0;
+}
 
 /* single-view: el post principal no es .clickable, los botones siempre */
 .single-post #postContainer > .post > .post-actions {
@@ -981,6 +992,9 @@ body.lightbox-open { overflow: hidden; }
   pointer-events: auto;
   max-height: 60px;
   padding: 10px var(--post-pad-x);
+}
+.single-post #postContainer > .post {
+  padding-bottom: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

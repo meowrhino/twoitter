@@ -129,7 +129,12 @@ export function makeInlineComposer(parentPostEl, parentId) {
       if (!nested) {
         nested = document.createElement('div');
         nested.className = 'thread-replies';
-        parentPostEl.appendChild(nested);
+        // Invariante del orden DOM (ver renderThread): .thread-replies va
+        // ANTES de .post-actions. Si no existe la barra (caso raro: usuario
+        // sin auth y/o single-view sin botones), cae a appendChild.
+        const actions = parentPostEl.querySelector(':scope > .post-actions');
+        if (actions) actions.after(nested);
+        else parentPostEl.appendChild(nested);
       }
       // renderThread filtra ocultos, pero un post recién creado por el
       // usuario nunca lo estará — el guard es defensivo, no se espera null.

@@ -3,9 +3,14 @@
 import { fmt } from './utils.js';
 import { refreshHashtags } from './hashtags.js';
 
-// Ajusta --rail-bottom de cada .post para que su rail termine al fin de
-// SU PROPIO subtree (último .post descendiente o sí mismo). El rail
-// representa el alcance del subtree, no del thread completo.
+// Ajusta dos variables por .post:
+// - --rail-bottom: distancia desde el bottom del .post hasta el fin de su
+//   subtree (último descendiente). Es el alcance "estructural" del rail,
+//   usado en reposo y hover.
+// - --rail-active-bottom: distancia desde el bottom del .post hasta el
+//   bottom de SU PROPIA .post-actions. Cuando el post está .active, el
+//   rail usa esta var para acortarse y "abrazar" solo body+barra — así el
+//   trazo amarillo señala inequívocamente a qué post pertenecen los botones.
 // getBoundingClientRect() fuerza un sync reflow, así que las medidas son
 // correctas justo tras DOM mutations (no necesitamos rAF, que no dispara
 // en tabs en background).
@@ -14,11 +19,19 @@ export function extendRails(rootEl) {
   const posts = rootEl.querySelectorAll('.post');
   if (posts.length === 0) return;
   for (const post of posts) {
+    const pb = post.getBoundingClientRect().bottom;
     const descendants = post.querySelectorAll('.post');
     const last = descendants.length ? descendants[descendants.length - 1] : post;
-    const target = last.getBoundingClientRect().bottom;
-    const pb = post.getBoundingClientRect().bottom;
-    post.style.setProperty('--rail-bottom', `${pb - target}px`);
+    post.style.setProperty('--rail-bottom', `${pb - last.getBoundingClientRect().bottom}px`);
+    // Para el rail activo: medir hasta el bottom de la barra de acciones
+    // (revelada o colapsada — su bottom coincide con el del body cuando
+    // max-height:0, y queda por debajo cuando está abierta). Si no hay
+    // .post-actions (caso raro), caemos al bottom del body.
+    const anchor = post.querySelector(':scope > .post-actions')
+      || post.querySelector(':scope > .post-body');
+    if (anchor) {
+      post.style.setProperty('--rail-active-bottom', `${pb - anchor.getBoundingClientRect().bottom}px`);
+    }
   }
   ensureRailObserver(rootEl);
 }

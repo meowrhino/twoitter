@@ -116,13 +116,17 @@ function bindReplyButton(postEl, p) {
     const existing = postEl.querySelector(':scope > .reply-inline');
     if (existing) { existing.remove(); return; }
     const composer = makeInlineComposer(postEl, p.id);
-    // El composer va DIRECTAMENTE detrás del .post-body. Antes lo metía
-    // antes de .thread-replies (o al final), pero ahora .post-actions vive
-    // al final del .post — usar appendChild lo pondría DESPUÉS de la barra
-    // de acciones, descolocado. body.after() es el ancla estable.
-    const body = postEl.querySelector(':scope > .post-body');
-    if (body) body.after(composer);
-    else postEl.prepend(composer);
+    // El composer cae JUSTO debajo de la barra de acciones (que es donde
+    // está el botón "responder" que lo abrió) y por encima de los replies
+    // anidados. Si por alguna razón no hay barra (single-view sin botones),
+    // cae a body.after().
+    const actions = postEl.querySelector(':scope > .post-actions');
+    if (actions) actions.after(composer);
+    else {
+      const body = postEl.querySelector(':scope > .post-body');
+      if (body) body.after(composer);
+      else postEl.prepend(composer);
+    }
   };
 }
 
@@ -249,11 +253,13 @@ export function renderPost(p, { single = false } = {}) {
 // el caller omita el thread entero (no renderiza ni los descendientes).
 // Si un descendiente está oculto, se salta SÓLO ese subtree.
 //
-// IMPORTANT: tras añadir los replies anidados, movemos `.post-actions` al
-// FINAL del .post (tras .thread-replies). Así la barra de acciones, cuando
-// el usuario activa el post, aparece al fondo del thread sin solapar el
-// cuerpo de los hijos ni el reply-inline composer. Si el post no tiene
-// hijos, esta operación es no-op (los actions ya estaban al final).
+// Orden DOM final: body → post-actions → thread-replies. Así la barra de
+// acciones queda visualmente "pegada" al cuerpo del post al que pertenece
+// (cuando el usuario lo activa), no al fondo del subtree — antes se movía
+// al final y daba la sensación de que los botones eran del último hijo.
+// Para mantener este invariante, .thread-replies debe insertarse SIEMPRE
+// después de .post-actions (usamos actions.after(nested) en vez de appendChild,
+// que pondría el nested al final tras la barra).
 export function renderThread(p) {
   if (isHidden(p.id)) return null;
   const el = renderPost(p);
@@ -265,10 +271,11 @@ export function renderThread(p) {
       const childEl = renderThread(child);
       if (childEl) { nested.appendChild(childEl); appended++; }
     }
-    if (appended > 0) el.appendChild(nested);
+    if (appended > 0) {
+      const actions = el.querySelector(':scope > .post-actions');
+      if (actions) actions.after(nested);
+      else el.appendChild(nested);
+    }
   }
-  // mover actions al final, después de los hijos
-  const actions = el.querySelector(':scope > .post-actions');
-  if (actions) el.appendChild(actions);
   return el;
 }

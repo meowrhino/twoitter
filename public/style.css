@@ -516,12 +516,9 @@ body.sidebar-hidden .side-col { display: none; }
 .post {
   /* padding-left extra para que entre la guía vertical sin pisar el texto.
      padding-bottom 18px reserva cola para el rail vertical (visible al
-     hover); cuando el post está .active, esta misma propiedad se anima a
-     0 para que la barra de acciones quede flush contra el bottom del .post
-     sin un hueco sobrante debajo. */
+     hover) y aire debajo del último hijo del subtree. */
   padding: 18px 4px 18px var(--post-pad-x);
   position: relative;
-  transition: padding-bottom 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* cada post lleva su propio rail vertical a la izquierda — root o anidado.
    --rail-bottom lo ajusta extendRails() en JS para que todos los rails del
@@ -772,10 +769,11 @@ body.lightbox-open { overflow: hidden; }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
 
 /* ver twoitt / responder / transcribir / ocultar / borrar — barra de
-   acciones al FINAL del .post (DOM order: body → reply-inline? → replies →
-   actions). Como se monta al final, en threads con hijos la barra queda
-   visualmente al fondo del thread, sin solapar el cuerpo del reply ni el
-   reply-inline composer (que vive justo bajo el body del post activo).
+   acciones inmediatamente DEBAJO del .post-body (DOM order: body →
+   reply-inline? → actions → thread-replies). Vivir junto al body es
+   importante: en threads anidados, la barra "pertenece" visualmente al
+   post al que apunta el outline activo. Antes se movía al final del .post
+   y daba la sensación de que los botones eran del último hijo.
    Se muestra cuando el .post está .active (click sobre el .post-body lo
    activa; click fuera o en otro .post lo desactiva — lógica en render.js).
    En single-view se muestran siempre.
@@ -980,8 +978,16 @@ body.lightbox-open { overflow: hidden; }
   outline-offset: 4px;
   border-radius: 4px;
 }
+/* Cuando el post está .active, el rail se acorta a la zona body+actions
+   (var puesta por extendRails) y se engrosa a 2px. Visualmente el trazo
+   amarillo deja claro a qué post pertenecen los botones revelados, en
+   lugar de extenderse por todo el subtree y confundirse con los rails
+   de los hijos. Si la var no está calculada aún, cae al --rail-bottom. */
 .post.clickable.active::before {
   background: var(--accent);
+  bottom: var(--rail-active-bottom, var(--rail-bottom, 14px));
+  width: 2px;
+  transition: bottom 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* La barra de acciones del active y del single-view: idéntica. */
 .post.clickable.active > .post-actions,
@@ -991,14 +997,10 @@ body.lightbox-open { overflow: hidden; }
   max-height: 60px;
   padding: 10px var(--post-pad-x);
 }
-/* Cuando .active (o single root), el padding-bottom estructural del .post
-   se va a 0: los actions ya aportan su propio aire abajo, y sin esto
-   quedaría un hueco vacío de 18px debajo del bar. La transición ya está
-   definida en la regla base de .post. */
-.post.clickable.active,
-.single-post #postContainer > .post {
-  padding-bottom: 0;
-}
+/* Antes la barra de acciones vivía al final del .post y, al activarse,
+   añadía aire abajo — había que llevar padding-bottom a 0 para evitar
+   doble hueco. Ahora la barra está entre body y replies, así que el
+   padding-bottom estructural (18px) se mantiene siempre. */
 /* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
    pintaría un outline sobre el .post completo (que incluye el subtree
    anidado) y volveríamos a tener la asimetría padre/hijo. El indicador

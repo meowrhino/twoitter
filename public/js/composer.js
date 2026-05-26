@@ -6,6 +6,7 @@ import { toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { renderThread } from './render.js';
 import { notifyThreadChanged, getThreadRoot } from './rails.js';
+import { wireRecorderButton, canRecord } from './recorder.js';
 
 // ----- estado interno -----
 
@@ -19,7 +20,7 @@ let lastFocusedComposer = null;
 // Engancha drop/file-input/submit a un form .composer. El paste se gestiona
 // globalmente con setupGlobalPasteHandler y enruta al composer con foco.
 // El estado por composer vive en composerState (WeakMap).
-export function wireComposer({ form, text, preview, fileInput, parentId = null, onPosted }) {
+export function wireComposer({ form, text, preview, fileInput, recordBtn, parentId = null, onPosted }) {
   if (!form) return;
   const pending = new Map();
   composerState.set(form, { pending, preview });
@@ -28,6 +29,11 @@ export function wireComposer({ form, text, preview, fileInput, parentId = null, 
     for (const f of e.target.files) await attachFile(f, preview, pending);
     fileInput.value = '';
   });
+
+  // Botón de grabar: opcional (no todos los browsers soportan MediaRecorder).
+  if (recordBtn) {
+    wireRecorderButton({ form, button: recordBtn, preview, pending });
+  }
 
   ['dragenter', 'dragover'].forEach((ev) =>
     form.addEventListener(ev, (e) => { e.preventDefault(); form.classList.add('drag-over'); }),
@@ -82,14 +88,20 @@ export function wireComposer({ form, text, preview, fileInput, parentId = null, 
 export function makeInlineComposer(parentPostEl, parentId) {
   const form = document.createElement('form');
   form.className = 'composer reply-inline';
+  // El botón "grabar" sólo se inserta si el navegador soporta MediaRecorder —
+  // así no aparece un botón muerto en Safari iOS antiguos o similares.
+  const recHtml = canRecord()
+    ? `<button type="button" class="rec-btn" aria-label="grabar nota de voz">grabar</button>`
+    : '';
   form.innerHTML = `
     <textarea placeholder="responder..." rows="2"></textarea>
     <div class="media-preview"></div>
     <div class="composer-foot">
       <label class="file-btn">
         adjuntar
-        <input type="file" accept="image/*,video/*" multiple hidden />
+        <input type="file" accept="image/*,video/*,audio/*" multiple hidden />
       </label>
+      ${recHtml}
       <span class="grow"></span>
       <button type="button" class="link-btn cancel">cancelar</button>
       <button type="submit" class="btn-primary">responder</button>
@@ -98,6 +110,7 @@ export function makeInlineComposer(parentPostEl, parentId) {
   const text = form.querySelector('textarea');
   const preview = form.querySelector('.media-preview');
   const fileInput = form.querySelector('input[type="file"]');
+  const recordBtn = form.querySelector('.rec-btn');
   form.querySelector('.cancel').onclick = () => {
     const state = composerState.get(form);
     if (state) revokePendingUrls(state.pending);
@@ -109,6 +122,7 @@ export function makeInlineComposer(parentPostEl, parentId) {
     text,
     preview,
     fileInput,
+    recordBtn,
     parentId,
     onPosted: (post) => {
       let nested = parentPostEl.querySelector(':scope > .thread-replies');
@@ -159,7 +173,9 @@ export function setupGlobalPasteHandler() {
     for (const item of e.clipboardData.items) {
       if (item.kind !== 'file') continue;
       const file = item.getAsFile();
-      if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) continue;
+      if (!file) continue;
+      const t = file.type;
+      if (!t.startsWith('image/') && !t.startsWith('video/') && !t.startsWith('audio/')) continue;
       e.preventDefault();
       await attachFile(file, state.preview, state.pending);
       any = true;

@@ -1,0 +1,163 @@
+// ----- grabación de notas de voz vía MediaRecorder -----
+//
+// Flujo:
+//   start()  → pide permiso de mic, abre stream, arranca MediaRecorder
+//   stop()   → cierra el recorder + libera el stream, devuelve un File
+//              (audio/webm normalmente) listo para pasar a attachFile().
+//
+// Una sola sesión activa por composer (gestionado por el caller). No
+// re-comprimimos: opus de MediaRecorder ya pesa ~16 KB/s.
+
+import { uuid } from './utils.js';
+import { attachFile } from './media.js';
+import { toast } from './utils.js';
+
+// Prioridad de mimeTypes: opus webm → ogg opus → mp4. Safari (~iOS) puede
+// negar el primero, así que probamos el siguiente. Si todo falla, dejamos
+// que MediaRecorder elija por defecto.
+const PREFERRED_TYPES = [
+  'audio/webm;codecs=opus',
+  'audio/ogg;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+];
+
+function pickMimeType() {
+  if (typeof MediaRecorder === 'undefined') return null;
+  for (const t of PREFERRED_TYPES) {
+    if (MediaRecorder.isTypeSupported?.(t)) return t;
+  }
+  return ''; // default del browser
+}
+
+// Estado por composer. WeakMap → GC automático cuando el form sale del DOM.
+const sessions = new WeakMap();
+
+function fmtTime(ms) {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Devuelve true si el navegador puede grabar audio (existe getUserMedia +
+// MediaRecorder). Para HTTPS o localhost; un http:// público no tiene mic.
+export function canRecord() {
+  return (
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof MediaRecorder !== 'undefined'
+  );
+}
+
+// Cablea el botón "grabar" de un composer. El caller pasa los nodos
+// necesarios. Idempotente: si ya está cableado para este form, no repite.
+export function wireRecorderButton({ form, button, preview, pending }) {
+  if (!button) return;
+  if (sessions.has(form)) {
+    // ya cableado — sólo asegúrate de que esté disponible
+    return;
+  }
+  if (!canRecord()) {
+    button.hidden = true;
+    return;
+  }
+  sessions.set(form, { active: false });
+
+  button.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const state = sessions.get(form);
+    if (state.active) {
+      stopRecording(form, button, preview, pending);
+    } else {
+      await startRecording(form, button, preview, pending);
+    }
+  });
+}
+
+async function startRecording(form, button, preview, pending) {
+  const state = sessions.get(form);
+  if (state.active) return;
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    console.error('mic permission denied', err);
+    toast('no se pudo abrir el micro', 'error');
+    return;
+  }
+
+  const mimeType = pickMimeType();
+  let rec;
+  try {
+    rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  } catch (err) {
+    console.error('MediaRecorder init failed', err);
+    stream.getTracks().forEach((t) => t.stop());
+    toast('grabación no soportada en este navegador', 'error');
+    return;
+  }
+
+  const chunks = [];
+  rec.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+  };
+
+  // Lock visual: cambia label + clase para feedback inequívoco.
+  button.classList.add('is-recording');
+  button.dataset.idleLabel = button.dataset.idleLabel || button.textContent;
+  const startedAt = Date.now();
+  const tick = () => {
+    button.textContent = `■ parar · ${fmtTime(Date.now() - startedAt)}`;
+  };
+  tick();
+  const timer = setInterval(tick, 500);
+
+  state.active = true;
+  state.rec = rec;
+  state.stream = stream;
+  state.chunks = chunks;
+  state.timer = timer;
+  state.mimeType = mimeType || rec.mimeType || 'audio/webm';
+
+  rec.start();
+}
+
+function stopRecording(form, button, preview, pending) {
+  const state = sessions.get(form);
+  if (!state?.active || !state.rec) return;
+
+  state.rec.onstop = async () => {
+    clearInterval(state.timer);
+    state.stream.getTracks().forEach((t) => t.stop());
+
+    const mime = (state.mimeType || 'audio/webm').split(';')[0];
+    const ext = mime === 'audio/ogg' ? 'ogg' : mime === 'audio/mp4' ? 'm4a' : 'webm';
+    const blob = new Blob(state.chunks, { type: mime });
+    const filename = `nota-${uuid()}.${ext}`;
+    const file = new File([blob], filename, { type: mime });
+
+    // reset visual
+    button.classList.remove('is-recording');
+    button.textContent = state._idleLabel || button.dataset.idleLabel || 'grabar';
+
+    state.active = false;
+    state.rec = null;
+    state.stream = null;
+    state.chunks = null;
+    state.timer = null;
+
+    if (blob.size > 0) {
+      await attachFile(file, preview, pending);
+    } else {
+      toast('grabación vacía', 'info');
+    }
+  };
+
+  try {
+    state.rec.stop();
+  } catch (err) {
+    console.error('stop failed', err);
+  }
+}

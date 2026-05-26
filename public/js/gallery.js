@@ -13,6 +13,7 @@
 // document → sobrevive a re-renders del feed sin tener que rebindear.
 
 import { escapeHtml } from './utils.js';
+import { audioPlayerMarkup } from './audio-player.js';
 
 // Duración de cada fase (fade-out y fade-in/altura). Debe coincidir con
 // la CSS: .gallery > .stage / .lightbox-stage  transition: ... Xms ...
@@ -34,6 +35,11 @@ function mediaItemHtml(m) {
   if (m.kind === 'image') {
     return `<img src="/r2/${src}" alt="">`;
   }
+  if (m.kind === 'audio') {
+    // Markup + lógica del player viven en audio-player.js. Aquí solo
+    // delegamos; cambiar la apariencia del player o el ARIA se hace allí.
+    return audioPlayerMarkup({ r2_key: m.r2_key, transcript: m.transcript });
+  }
   const poster = m.thumb_key ? ` poster="/r2/${escapeHtml(m.thumb_key)}"` : '';
   return `<video src="/r2/${src}" controls preload="metadata"${poster} playsinline></video>`;
 }
@@ -47,6 +53,11 @@ function thumbHtml(m, index, active) {
       <img src="/r2/${src}" alt="" loading="lazy">
     </button>`;
   }
+  if (m.kind === 'audio') {
+    return `<button class="${cls} thumb-audio" type="button" role="tab" aria-selected="${sel}" data-index="${index}" aria-label="oír nota de voz ${index + 1}">
+      <span class="audio-glyph" aria-hidden="true">🎙️</span>
+    </button>`;
+  }
   const inner = m.thumb_key
     ? `<img src="/r2/${escapeHtml(m.thumb_key)}" alt="" loading="lazy">`
     : `<span class="thumb-placeholder" aria-hidden="true"></span>`;
@@ -58,10 +69,17 @@ function thumbHtml(m, index, active) {
 
 // Punto de entrada usado por render.js. Devuelve el HTML completo de la
 // galería. data-media lleva la lista entera (en JSON corto) para que el
-// swap del stage y el lightbox no tengan que reconstruirla.
+// swap del stage y el lightbox no tengan que reconstruirla. Para audio,
+// llevamos también el transcript ya cacheado (o null si aún no se llamó
+// a /transcribe).
 export function renderPostGallery(media) {
   if (!media || media.length === 0) return '';
-  const payload = media.map((m) => ({ k: m.kind, r: m.r2_key, t: m.thumb_key || null }));
+  const payload = media.map((m) => ({
+    k: m.kind,
+    r: m.r2_key,
+    t: m.thumb_key || null,
+    tr: m.kind === 'audio' ? (m.transcript || null) : null,
+  }));
   const dataAttr = escapeHtml(JSON.stringify(payload));
   const stage = `<div class="stage" data-index="0">${mediaItemHtml(media[0])}</div>`;
   const thumbs = media.length > 1
@@ -73,8 +91,44 @@ export function renderPostGallery(media) {
 function readMedia(galleryEl) {
   try {
     const arr = JSON.parse(galleryEl.dataset.media || '[]');
-    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t }));
+    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, transcript: m.tr || null }));
   } catch { return []; }
+}
+
+// Tras transcribir, refresca el data-media de la galería para que el
+// próximo swap muestre el transcript ya cacheado y para que el botón
+// "transcribir" sepa que ya está hecho. Se llama desde render.js.
+export function updateGalleryTranscript(galleryEl, transcript) {
+  if (!galleryEl) return;
+  const arr = readMedia(galleryEl);
+  let changed = false;
+  for (const m of arr) {
+    if (m.kind === 'audio' && !m.transcript) {
+      m.transcript = transcript;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const payload = arr.map((m) => ({
+    k: m.kind, r: m.r2_key, t: m.thumb_key || null,
+    tr: m.kind === 'audio' ? (m.transcript || null) : null,
+  }));
+  galleryEl.dataset.media = JSON.stringify(payload);
+  // Si el stage está mostrando un audio, inyectar/actualizar el bloque del
+  // transcript sin re-renderizar el <audio> entero (evita parar el playback).
+  const stage = galleryEl.querySelector(':scope > .stage');
+  const audio = stage?.querySelector('audio');
+  if (audio) {
+    let block = stage.querySelector('.audio-transcript');
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'audio-transcript';
+      stage.appendChild(block);
+    }
+    block.textContent = transcript;
+    block.dataset.transcript = '1';
+    block.hidden = false;
+  }
 }
 
 // ----- preload + helpers -----
@@ -323,6 +377,25 @@ function lightboxNav(delta) {
   renderLightbox();
 }
 
+// Construye la lista para el lightbox: filtra audios (el lightbox es para
+// medios visuales — el audio se escucha mejor inline en el feed). Mapea el
+// índice del stage al índice equivalente dentro de la lista filtrada.
+//
+// Estaba en el closure del click handler, pero se aisla aquí para que tests
+// y futuros callers (p.ej. abrir lightbox desde teclado) puedan reusar.
+function lightboxMediaFrom(galleryEl, stageIndex) {
+  const all = readMedia(galleryEl);
+  const visual = all.filter((m) => m.kind !== 'audio');
+  let mappedIndex = 0;
+  for (let i = 0; i < stageIndex && i < all.length; i++) {
+    if (all[i].kind !== 'audio') mappedIndex++;
+  }
+  // Si el stage estaba en un audio (caso imposible vía click — no hay <img>),
+  // ajusta dentro de rango para defensa.
+  if (mappedIndex >= visual.length) mappedIndex = Math.max(0, visual.length - 1);
+  return { visual, mappedIndex };
+}
+
 // ----- wiring global (idempotente) -----
 
 let wired = false;
@@ -339,13 +412,18 @@ export function setupGallery() {
       swapStage(gallery, parseInt(thumb.dataset.index, 10));
       return;
     }
-    // imagen del stage → abrir lightbox (el vídeo conserva sus controls)
+    // imagen del stage → abrir lightbox (el vídeo conserva sus controls;
+    // los audios nunca abren lightbox — no hay <img> que clickar).
     const stageImg = e.target.closest('.gallery > .stage > img');
     if (stageImg) {
       e.stopPropagation();
       const stage = stageImg.parentElement;
       const gallery = stage.closest('.gallery');
-      openLightbox(readMedia(gallery), parseInt(stage.dataset.index || '0', 10));
+      const stageIndex = parseInt(stage.dataset.index || '0', 10);
+      const { visual, mappedIndex } = lightboxMediaFrom(gallery, stageIndex);
+      // Si el post sólo tiene audios (no debería pasar — el handler de stage
+      // img garantiza que hay al menos una imagen), no abrir el lightbox.
+      if (visual.length > 0) openLightbox(visual, mappedIndex);
       return;
     }
     // controles del lightbox

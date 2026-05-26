@@ -12,11 +12,13 @@ import {
   createPost,
   deletePost,
   exportAll,
+  getAudioMediaForPost,
   getPost,
   getReplies,
   listHashtags,
   listPosts,
   restorePost,
+  setMediaTranscript,
 } from "./db";
 import { syncHashtags } from "./hashtags";
 import {
@@ -25,10 +27,20 @@ import {
   maxBytesFor,
 } from "./media";
 
+// ---------- config ----------
+
+// Idioma forzado para Whisper. Las notas de voz del usuario son en castellano,
+// y fijarlo evita ~5% de errores donde el detector automático confunde
+// audios cortos con portugués o italiano. Para reactivar auto-detect, poner
+// null y el endpoint omitirá el campo `language` en la llamada al modelo.
+const WHISPER_LANGUAGE: string | null = "es";
+const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
+
 type Bindings = {
   DB: D1Database;
   STORAGE: R2Bucket;
   ASSETS: Fetcher;
+  AI: Ai;
   PASSWORD: string;
   AUTH_SECRET: string;
 };
@@ -106,7 +118,7 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
     text?: string | null;
     parent_id?: number | null;
     media?: Array<{
-      kind: "image" | "video";
+      kind: "image" | "video" | "audio";
       r2_key: string;
       thumb_key?: string | null;
       width?: number | null;
@@ -172,11 +184,61 @@ app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
   return c.json({ ok: true, restored_ids: result.restoredIds });
 });
 
+// Transcribe la nota de audio de un post vía Workers AI (Whisper).
+// Detrás de auth+CSRF: solo el dueño puede gastar la cuota. Idempotente:
+// si el media ya tiene transcript, lo devuelve sin volver a llamar al modelo
+// (cachea para siempre — el blob de R2 es inmutable).
+app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) => {
+  const id = parseInt(c.req.param("id") ?? "");
+  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+
+  const media = await getAudioMediaForPost(c.env.DB, id);
+  if (!media) return c.json({ error: "este post no tiene audio" }, 404);
+
+  // Cache: si ya transcribimos, devolver sin tocar el modelo.
+  if (media.transcript) {
+    return c.json({ ok: true, transcript: media.transcript, cached: true });
+  }
+
+  const obj = await c.env.STORAGE.get(media.r2_key);
+  if (!obj) return c.json({ error: "blob no encontrado en r2" }, 404);
+
+  const audioBytes = await obj.arrayBuffer();
+
+  // Workers AI Whisper acepta el audio como array de bytes (Uint8Array →
+  // number[]) en el campo `audio`. `language` es opcional; lo añadimos sólo
+  // si el config tiene valor, para que un null deje al modelo auto-detectar.
+  const payload: { audio: number[]; language?: string } = {
+    audio: [...new Uint8Array(audioBytes)],
+  };
+  if (WHISPER_LANGUAGE) payload.language = WHISPER_LANGUAGE;
+
+  let transcript: string;
+  try {
+    const result = (await c.env.AI.run(
+      WHISPER_MODEL as never,
+      payload as never,
+    )) as { text?: string; transcription_info?: unknown } | null;
+    transcript = (result?.text || "").trim();
+  } catch (err) {
+    console.error("whisper failed:", err);
+    return c.json({ error: "fallo al transcribir" }, 500);
+  }
+
+  if (!transcript) {
+    return c.json({ error: "transcripción vacía" }, 422);
+  }
+
+  await setMediaTranscript(c.env.DB, media.id, transcript);
+  return c.json({ ok: true, transcript, cached: false });
+});
+
 app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
   const ct = c.req.header("x-content-type") || c.req.header("content-type") || "";
   const folderHint = c.req.header("x-folder") as
     | "images"
     | "videos"
+    | "audios"
     | "thumbs"
     | undefined;
   const classified = classifyContentType(ct);
@@ -197,12 +259,14 @@ app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
     return c.json({ error: "archivo demasiado grande" }, 413);
   }
 
-  const folder: "images" | "videos" | "thumbs" =
-    folderHint && ["images", "videos", "thumbs"].includes(folderHint)
+  const folder: "images" | "videos" | "audios" | "thumbs" =
+    folderHint && ["images", "videos", "audios", "thumbs"].includes(folderHint)
       ? folderHint
       : classified.kind === "image"
         ? "images"
-        : "videos";
+        : classified.kind === "audio"
+          ? "audios"
+          : "videos";
 
   const key = buildMediaKey(folder, classified.ext);
   await c.env.STORAGE.put(key, body, {

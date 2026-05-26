@@ -806,8 +806,157 @@ body.lightbox-open { overflow: hidden; }
 }
 .post-actions .vertwoitt-btn:hover { color: var(--accent); }
 .post-actions .reply-btn:hover { color: var(--accent); }
+.post-actions .transcribe-btn:hover { color: var(--accent); }
+.post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
 .post-actions .hide-btn:hover { color: var(--text-dim); }
 .post-actions .delete-btn:hover { color: var(--danger); }
+
+/* Botón "grabar" en el composer: gemelo visual de .file-btn pero con un
+   estado rojizo cuando está grabando (.is-recording). Se anima el borde
+   para feedback inequívoco mientras MediaRecorder está activo. */
+.rec-btn {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.rec-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rec-btn.is-recording {
+  border-color: var(--danger, #d33);
+  color: var(--danger, #d33);
+  animation: recPulse 1.2s ease-in-out infinite;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0.35); }
+  50%      { box-shadow: 0 0 0 4px rgba(211, 51, 51, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-btn.is-recording { animation: none; }
+}
+
+/* Preview de audio en el composer: cuadrado con el ícono de mic centrado.
+   No se ve la forma de onda — sería over-engineering para una nota corta. */
+.media-preview .item-audio {
+  display: grid;
+  place-items: center;
+}
+.media-preview .item-audio .audio-preview {
+  font-size: 2rem;
+  opacity: 0.7;
+}
+.media-preview .item-audio audio { display: none; }
+
+/* Audio en la galería del post — player custom (markup en gallery.js,
+   lógica en audio-player.js). El stage por defecto es flex-row para
+   centrar imágenes/vídeos; con audio queremos columna para que el
+   transcript caiga DEBAJO del player. :has() existe en Safari 15.4+,
+   Chrome 105+ y Firefox 121+. */
+.gallery > .stage:has(.audio-player) {
+  flex-direction: column;
+  align-items: stretch;
+}
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.audio-player > audio { display: none; }
+
+/* Botón play/pause: cuadrado, accent. Dos íconos dentro (▶ y ❚❚), se
+   muestran según data-state del wrapper. */
+.audio-player .ap-play {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent-dim);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.audio-player .ap-play:hover { background: var(--accent-dim); }
+.audio-player .ap-play:active { transform: scale(0.96); }
+.audio-player .ap-icon-play,
+.audio-player .ap-icon-pause { display: none; }
+.audio-player[data-state="paused"]  .ap-icon-play  { display: inline; }
+.audio-player[data-state="playing"] .ap-icon-pause { display: inline; font-size: 0.7rem; letter-spacing: -1px; }
+
+/* Barra de progreso: hairline alto, fill accent. Clickable; el roleslider
+   hace que tab y flechas funcionen como un input range. */
+.audio-player .ap-progress {
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--faint);
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.audio-player .ap-progress:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.audio-player .ap-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 80ms linear;
+}
+
+.audio-player .ap-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.audio-player .ap-time-sep { opacity: 0.5; }
+.audio-player .ap-time-dur { color: var(--text-dim); }
+
+.audio-transcript {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  background: rgba(232, 176, 74, 0.04);
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  line-height: 1.45;
+  border-radius: 0 4px 4px 0;
+}
+.audio-transcript[hidden] { display: none; }
+
+/* Thumb para audio: cuadrado con el emoji de micro. Mismo tamaño que las
+   otras thumbs (CSS de .thumb ya define el frame); aquí sólo se centra
+   el glyph dentro. */
+.gallery .thumb.thumb-audio {
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+}
+.gallery .thumb.thumb-audio .audio-glyph {
+  font-size: 1.4rem;
+  opacity: 0.85;
+}
 
 /* .active: un click sobre el .post-body añade esta clase. El alpha del
    fondo es el doble que el de hover (0.08 vs 0.04), así si pasas el

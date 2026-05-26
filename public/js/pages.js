@@ -55,6 +55,7 @@ export function setupTimelineComposer() {
     text: $('#text'),
     preview: $('#mediaPreview'),
     fileInput: $('#fileInput'),
+    recordBtn: $('#btnRecord'),
     parentId: null,
     onPosted: (post) => {
       const el = renderThread(post);
@@ -108,6 +109,7 @@ export function setupReplyForm() {
     text: $('#replyText'),
     preview: $('#replyMediaPreview'),
     fileInput: $('#replyFileInput'),
+    recordBtn: $('#replyRecord'),
     parentId: POST_ID,
     onPosted: (reply) => {
       const el = renderThread(reply);

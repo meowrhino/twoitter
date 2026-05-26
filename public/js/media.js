@@ -29,12 +29,14 @@ async function uploadBlob(blob, folder) {
   return res.json();
 }
 
-// Sube los blobs ya comprimidos + (si es vídeo) thumbnail.
-async function uploadCompressed(compressed, isVideo) {
-  const folder = isVideo ? 'videos' : 'images';
+// Sube los blobs ya procesados + (si es vídeo) thumbnail. `kind` puede ser
+// 'image' | 'video' | 'audio'; el folder R2 cambia en consecuencia.
+async function uploadCompressed(compressed, kind) {
+  const folder =
+    kind === 'video' ? 'videos' : kind === 'audio' ? 'audios' : 'images';
   const main = await uploadBlob(compressed.blob, folder);
   let thumb_key = null;
-  if (isVideo && compressed.thumbBlob) {
+  if (kind === 'video' && compressed.thumbBlob) {
     try {
       thumb_key = (await uploadBlob(compressed.thumbBlob, 'thumbs')).key;
     } catch (e) {
@@ -42,7 +44,7 @@ async function uploadCompressed(compressed, isVideo) {
     }
   }
   return {
-    kind: isVideo ? 'video' : 'image',
+    kind,
     r2_key: main.key,
     thumb_key,
     width: compressed.width ?? null,
@@ -51,9 +53,11 @@ async function uploadCompressed(compressed, isVideo) {
 }
 
 // Orquesta compresión + thumb. Para vídeo, el thumb se genera del File
-// original (canvas decoder fiable) en paralelo al output ffmpeg.
-async function compressItem(file, isVideo, onProgress) {
-  if (isVideo) {
+// original (canvas decoder fiable) en paralelo al output ffmpeg. El audio
+// no se re-comprime: opus ya viene óptimo de MediaRecorder, y los formatos
+// subidos manualmente (mp3/m4a/ogg) ya están comprimidos lo bastante.
+async function compressItem(file, kind, onProgress) {
+  if (kind === 'video') {
     const result = await compressVideo(file, onProgress);
     let thumbBlob = null;
     try {
@@ -64,19 +68,32 @@ async function compressItem(file, isVideo, onProgress) {
     }
     return { ...result, thumbBlob };
   }
+  if (kind === 'audio') {
+    // Pasamos el File directo como blob — uploadBlob lee blob.type, y los
+    // tipos que aceptamos en el server ya están en la whitelist de media.ts.
+    return { blob: file, width: null, height: null };
+  }
   return compressImage(file);
 }
 
 // DOM puro: construye el item de preview con preview local + × + overlay
 // para el estado (barra de progreso + etiqueta). El overlay se crea aquí,
 // vacío y sin .visible: setItemStatus lo activa cuando hace falta.
-export function createPreviewItem({ localId, previewUrl, isImage }) {
+export function createPreviewItem({ localId, previewUrl, kind }) {
   const el = document.createElement('div');
-  el.className = 'item';
+  el.className = `item item-${kind}`;
   el.dataset.localId = localId;
-  const media = isImage
-    ? `<img src="${previewUrl}">`
-    : `<video src="${previewUrl}" muted></video>`;
+  let media;
+  if (kind === 'image') {
+    media = `<img src="${previewUrl}">`;
+  } else if (kind === 'audio') {
+    // Audio sin controls aquí dentro: ya tiene su botón × encima y el preview
+    // es informativo (el usuario escuchará el resultado tras publicar). Si
+    // alguna vez se necesita preview con play, añadir controls aquí.
+    media = `<div class="audio-preview" aria-hidden="true">🎙️</div><audio src="${previewUrl}" preload="none"></audio>`;
+  } else {
+    media = `<video src="${previewUrl}" muted></video>`;
+  }
   el.innerHTML = `
     ${media}
     <button class="remove" type="button" aria-label="quitar">×</button>
@@ -150,13 +167,18 @@ export function setItemStatus(itemEl, kind, extra = {}) {
 // La promise de compresión se guarda en `compressionPromise` para que submit
 // la pueda esperar si todavía está en marcha.
 export async function attachFile(file, previewRoot, pending) {
-  const isImage = file.type.startsWith('image/');
-  const isVideo = file.type.startsWith('video/');
-  if (!isImage && !isVideo) return;
+  const kind = file.type.startsWith('image/')
+    ? 'image'
+    : file.type.startsWith('video/')
+      ? 'video'
+      : file.type.startsWith('audio/')
+        ? 'audio'
+        : null;
+  if (!kind) return;
 
   const localId = uuid();
   const previewUrl = URL.createObjectURL(file);
-  const itemEl = createPreviewItem({ localId, previewUrl, isImage });
+  const itemEl = createPreviewItem({ localId, previewUrl, kind });
   previewRoot.appendChild(itemEl);
 
   itemEl.querySelector('.remove').onclick = () => {
@@ -168,7 +190,7 @@ export async function attachFile(file, previewRoot, pending) {
   const item = {
     file,
     previewUrl,
-    kind: isImage ? 'image' : 'video',
+    kind,
     status: 'compressing',
     compressed: null,
     compressionPromise: null,
@@ -177,17 +199,21 @@ export async function attachFile(file, previewRoot, pending) {
   pending.set(localId, item);
 
   // Lanza compresión async — no la await aquí. El submit la espera.
-  setItemStatus(itemEl, 'compressing', {
-    label: isVideo ? 'preparando vídeo…' : 'comprimiendo imagen…',
-  });
-  item.compressionPromise = compressItem(file, isVideo, (p) => {
+  // Audio no se re-comprime; aún así pasa por el mismo flujo para reutilizar
+  // los estados/overlays de la barra de progreso.
+  const initialLabel =
+    kind === 'video' ? 'preparando vídeo…'
+    : kind === 'audio' ? 'preparando audio…'
+    : 'comprimiendo imagen…';
+  setItemStatus(itemEl, 'compressing', { label: initialLabel });
+  item.compressionPromise = compressItem(file, kind, (p) => {
     if (!pending.has(localId)) return; // el usuario quitó el item
     if (p.phase === 'loading') {
       // 'descargando ffmpeg…' / 'inicializando ffmpeg…' — barra indeterminada
       setItemStatus(itemEl, 'compressing', { label: p.label });
     } else if (p.phase === 'compressing') {
       // percent real desde ffmpeg.on('progress')
-      const verb = isVideo ? 'comprimiendo vídeo' : 'comprimiendo';
+      const verb = kind === 'video' ? 'comprimiendo vídeo' : 'comprimiendo';
       setItemStatus(itemEl, 'compressing', { percent: p.percent, label: verb });
     }
   })
@@ -242,8 +268,7 @@ export async function uploadPendingFiles(pending, previewRoot) {
 
     if (itemEl) setItemStatus(itemEl, 'uploading');
     try {
-      const isVideo = item.kind === 'video';
-      const meta = await uploadCompressed(item.compressed, isVideo);
+      const meta = await uploadCompressed(item.compressed, item.kind);
       if (!pending.has(localId)) continue; // borrado durante el upload
       pending.set(localId, { ...item, ...meta, status: 'ready' });
       if (itemEl) setItemStatus(itemEl, 'ok');

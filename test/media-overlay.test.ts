@@ -2,14 +2,14 @@
 import { describe, it, expect } from 'vitest';
 import { createPreviewItem, setItemStatus } from '../public/js/media.js';
 
-function makeItem(isImage = true) {
-  return createPreviewItem({ localId: '1', previewUrl: 'blob:x', isImage });
+function makeItem(kind: 'image' | 'video' | 'audio' = 'image') {
+  return createPreviewItem({ localId: '1', previewUrl: 'blob:x', kind });
 }
 
 describe('createPreviewItem', () => {
   it('genera el item con status overlay oculto al inicio', () => {
     const el = makeItem();
-    expect(el.className).toBe('item');
+    expect(el.className).toBe('item item-image');
     expect(el.dataset.localId).toBe('1');
     expect(el.querySelector('img')).toBeTruthy();
     expect(el.querySelector('.status')).toBeTruthy();
@@ -18,10 +18,20 @@ describe('createPreviewItem', () => {
     expect(el.querySelector('.status')!.classList.contains('visible')).toBe(false);
   });
 
-  it('usa <video> para isImage=false', () => {
-    const el = makeItem(false);
+  it('usa <video> para kind=video', () => {
+    const el = makeItem('video');
+    expect(el.className).toBe('item item-video');
     expect(el.querySelector('video')).toBeTruthy();
     expect(el.querySelector('img')).toBeFalsy();
+  });
+
+  it('usa preview de audio (icono + <audio> oculto) para kind=audio', () => {
+    const el = makeItem('audio');
+    expect(el.className).toBe('item item-audio');
+    expect(el.querySelector('.audio-preview')).toBeTruthy();
+    expect(el.querySelector('audio')).toBeTruthy();
+    expect(el.querySelector('img')).toBeFalsy();
+    expect(el.querySelector('video')).toBeFalsy();
   });
 
   it('tiene aria-live=polite en el overlay para lectores', () => {

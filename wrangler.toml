@@ -19,3 +19,9 @@ database_id = "9fec7a62-ec30-4b2d-9eeb-4e1e0caf5552"
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "twoitter-storage"
+
+# Workers AI: Whisper para transcribir notas de audio.
+# El binding `AI` queda disponible en c.env.AI y permite llamar a modelos como
+# @cf/openai/whisper-large-v3-turbo sin secrets externos.
+[ai]
+binding = "AI"

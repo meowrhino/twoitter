@@ -12,11 +12,17 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS media (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id INTEGER NOT NULL,
+    -- kind: 'image' | 'video' | 'audio'. TEXT libre (sin CHECK) para que añadir
+    -- tipos nuevos no requiera migrar la tabla.
     kind TEXT NOT NULL,
     r2_key TEXT NOT NULL,
     thumb_key TEXT,
     width INTEGER,
     height INTEGER,
+    -- transcript: solo se rellena para kind='audio' tras llamar a /transcribe.
+    -- NULL = aún no transcrito; cuando hay valor, el frontend lo muestra y no
+    -- vuelve a llamar al modelo.
+    transcript TEXT,
     position INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
@@ -34,6 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_posts_deleted ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id, position);
 CREATE INDEX IF NOT EXISTS idx_hashtags_tag ON hashtags(tag);
 
--- Para DBs existentes pre-deleted_at, correr una vez:
---   npm run db:migrate:001         (local)
---   npm run db:migrate:001:remote  (producción)
+-- Para DBs existentes, correr migraciones (idempotentes pero ALTER falla si
+-- ya está aplicada — seguro ignorar el error):
+--   npm run db:migrate:001         (local)   -- añade posts.deleted_at
+--   npm run db:migrate:001:remote  (prod)
+--   npm run db:migrate:002         (local)   -- añade media.transcript
+--   npm run db:migrate:002:remote  (prod)

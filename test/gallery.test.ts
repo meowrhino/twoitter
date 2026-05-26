@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderPostGallery, swapStage, openLightbox, closeLightbox } from '../public/js/gallery.js';
+import { renderPostGallery, swapStage, openLightbox, closeLightbox, updateGalleryTranscript } from '../public/js/gallery.js';
 
 function mount(html: string) {
   document.body.innerHTML = html;
@@ -66,9 +66,63 @@ describe('renderPostGallery', () => {
     ] as any));
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed).toEqual([
-      { k: 'image', r: 'a.jpg', t: null },
-      { k: 'video', r: 'v.mp4', t: 't.jpg' },
+      { k: 'image', r: 'a.jpg', t: null, tr: null },
+      { k: 'video', r: 'v.mp4', t: 't.jpg', tr: null },
     ]);
+  });
+
+  it('audio: stage con .audio-player (custom) y sin autoplay, thumb con glyph', () => {
+    const el = mount(renderPostGallery([
+      { kind: 'audio', r2_key: 'n.webm' },
+      { kind: 'image', r2_key: 'a.jpg' },
+    ] as any));
+    const player = el.querySelector(':scope > .stage > .audio-player');
+    expect(player).toBeTruthy();
+    expect(player!.querySelector('.ap-play')).toBeTruthy();
+    expect(player!.querySelector('.ap-progress')).toBeTruthy();
+    expect(player!.querySelector('.ap-time')).toBeTruthy();
+    const audio = player!.querySelector('audio') as HTMLAudioElement;
+    expect(audio).toBeTruthy();
+    // El <audio> nativo no debe llevar controls (los pinta el player custom)
+    // ni autoplay (regla del proyecto: nunca autoplay).
+    expect(audio.hasAttribute('controls')).toBe(false);
+    expect(audio.hasAttribute('autoplay')).toBe(false);
+    expect(audio.getAttribute('src')).toBe('/r2/n.webm');
+    const thumbs = el.querySelectorAll(':scope > .thumbs > .thumb');
+    expect(thumbs[0].classList.contains('thumb-audio')).toBe(true);
+    expect(thumbs[0].querySelector('.audio-glyph')).toBeTruthy();
+  });
+
+  it('audio con transcript previo: lo pinta visible bajo el <audio>', () => {
+    const el = mount(renderPostGallery([
+      { kind: 'audio', r2_key: 'n.webm', transcript: 'hola mundo' },
+    ] as any));
+    const stage = el.querySelector(':scope > .stage')!;
+    const tr = stage.querySelector('.audio-transcript') as HTMLElement;
+    expect(tr).toBeTruthy();
+    expect(tr.hidden).toBe(false);
+    expect(tr.textContent).toBe('hola mundo');
+  });
+
+  it('audio sin transcript: el bloque existe pero está oculto', () => {
+    const el = mount(renderPostGallery([
+      { kind: 'audio', r2_key: 'n.webm' },
+    ] as any));
+    const tr = el.querySelector('.audio-transcript') as HTMLElement;
+    expect(tr).toBeTruthy();
+    expect(tr.hidden).toBe(true);
+  });
+
+  it('updateGalleryTranscript rellena el bloque y actualiza data-media', () => {
+    const el = mount(renderPostGallery([
+      { kind: 'audio', r2_key: 'n.webm' },
+    ] as any));
+    updateGalleryTranscript(el, 'transcripción nueva');
+    const tr = el.querySelector('.audio-transcript') as HTMLElement;
+    expect(tr.textContent).toBe('transcripción nueva');
+    expect(tr.hidden).toBe(false);
+    const parsed = JSON.parse(el.dataset.media!);
+    expect(parsed[0].tr).toBe('transcripción nueva');
   });
 });
 

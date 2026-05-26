@@ -19,6 +19,7 @@ import { setupMenu, setupFilterBanner } from './js/menu.js';
 import { setupGlobalPasteHandler } from './js/composer.js';
 import { setupTapToActivate } from './js/render.js';
 import { setupGallery } from './js/gallery.js';
+import { setupAudioPlayers } from './js/audio-player.js';
 import { setupResizeRailRecalc } from './js/rails.js';
 import { loadHashtags } from './js/hashtags.js';
 import {
@@ -32,6 +33,7 @@ import {
   setupGlobalPasteHandler();
   setupTapToActivate();
   setupGallery();
+  setupAudioPlayers();
   setupResizeRailRecalc();
 
   if (PAGE === 'timeline') {

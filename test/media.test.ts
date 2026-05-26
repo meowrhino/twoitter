@@ -16,6 +16,16 @@ describe('classifyContentType', () => {
     expect(classifyContentType('video/quicktime')).toEqual({ kind: 'video', ext: 'mov' });
   });
 
+  it('classifies common audio types', () => {
+    expect(classifyContentType('audio/webm')).toEqual({ kind: 'audio', ext: 'webm' });
+    expect(classifyContentType('audio/ogg')).toEqual({ kind: 'audio', ext: 'ogg' });
+    expect(classifyContentType('audio/mpeg')).toEqual({ kind: 'audio', ext: 'mp3' });
+    expect(classifyContentType('audio/mp4')).toEqual({ kind: 'audio', ext: 'm4a' });
+    expect(classifyContentType('audio/x-m4a')).toEqual({ kind: 'audio', ext: 'm4a' });
+    expect(classifyContentType('audio/wav')).toEqual({ kind: 'audio', ext: 'wav' });
+    expect(classifyContentType('audio/x-wav')).toEqual({ kind: 'audio', ext: 'wav' });
+  });
+
   it('rejects unknown content types', () => {
     expect(classifyContentType('application/pdf')).toBeNull();
     expect(classifyContentType('text/plain')).toBeNull();
@@ -59,13 +69,16 @@ describe('buildMediaKey', () => {
 });
 
 describe('maxBytesFor', () => {
-  // límites actuales: 10 MB imagen, 50 MB vídeo. estos números son el cap
-  // tras la compresión cliente (canvas WebP / ffmpeg.wasm), así que el
-  // backend solo rechaza si el archivo comprimido supera estos valores.
+  // límites actuales: 10 MB imagen, 50 MB vídeo, 25 MB audio. estos números
+  // son el cap tras la compresión cliente; el audio coincide con el límite
+  // de Workers AI Whisper en la request (~25 MB).
   it('caps images at 10 MB', () => {
     expect(maxBytesFor('image')).toBe(10 * 1024 * 1024);
   });
   it('caps videos at 50 MB', () => {
     expect(maxBytesFor('video')).toBe(50 * 1024 * 1024);
+  });
+  it('caps audios at 25 MB', () => {
+    expect(maxBytesFor('audio')).toBe(25 * 1024 * 1024);
   });
 });

@@ -1,11 +1,14 @@
 export interface MediaRow {
   id: number;
   post_id: number;
-  kind: "image" | "video";
+  kind: "image" | "video" | "audio";
   r2_key: string;
   thumb_key: string | null;
   width: number | null;
   height: number | null;
+  // Sólo se rellena para kind='audio' tras llamar a /transcribe.
+  // NULL = aún no transcrito.
+  transcript: string | null;
   position: number;
 }
 
@@ -228,7 +231,7 @@ export async function attachMedia(
   db: D1Database,
   postId: number,
   items: Array<{
-    kind: "image" | "video";
+    kind: "image" | "video" | "audio";
     r2_key: string;
     thumb_key: string | null;
     width: number | null;
@@ -244,6 +247,34 @@ export async function attachMedia(
       stmt.bind(postId, m.kind, m.r2_key, m.thumb_key, m.width, m.height, i),
     ),
   );
+}
+
+// Devuelve el primer media de tipo audio de un post. La UI sólo permite 1
+// audio por post, así que con el primero basta. Usado por /transcribe para
+// localizar el blob a procesar y por el botón "transcribir" para saber si
+// hace falta llamar al modelo.
+export async function getAudioMediaForPost(
+  db: D1Database,
+  postId: number,
+): Promise<MediaRow | null> {
+  const row = await db
+    .prepare(
+      "SELECT * FROM media WHERE post_id = ? AND kind = 'audio' ORDER BY position ASC, id ASC LIMIT 1",
+    )
+    .bind(postId)
+    .first<MediaRow>();
+  return row ?? null;
+}
+
+export async function setMediaTranscript(
+  db: D1Database,
+  mediaId: number,
+  transcript: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE media SET transcript = ? WHERE id = ?")
+    .bind(transcript, mediaId)
+    .run();
 }
 
 export async function deletePost(

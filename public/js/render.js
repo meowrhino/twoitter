@@ -5,7 +5,7 @@ import { fmt, hoursAgo, escapeHtml, linkify, toast } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot } from './rails.js';
 import { makeInlineComposer } from './composer.js';
-import { renderPostGallery } from './gallery.js';
+import { renderPostGallery, updateGalleryTranscript } from './gallery.js';
 import { isHidden, hide } from './hidden.js';
 
 // Wrapper de acciones del post. Vive FUERA de .post-body, como hijo directo
@@ -15,18 +15,29 @@ import { isHidden, hide } from './hidden.js';
 //
 //   ver twoitt → navega al permalink (sólo en feed, no en single)
 //   responder  → composer inline (sólo en feed, no en single)
+//   transcribir → sólo si el post tiene audio sin transcript (auth)
 //   ocultar    → localStorage por-navegador (no afecta a otros devices)
 //   borrar     → soft-delete server-side (recuperable desde papelera)
 //
 // "ocultar" está disponible incluso sin sesión: cualquiera puede esconder
-// posts molestos de su feed local. "borrar" requiere auth.
-function renderPostActions(single) {
+// posts molestos de su feed local. "borrar" y "transcribir" requieren auth.
+function renderPostActions(p, single) {
   const view = !single ? '<button class="vertwoitt-btn" type="button">ver twoitt</button>' : '';
   const reply = isAuthed() && !single ? '<button class="reply-btn" type="button">responder</button>' : '';
+  // Sólo mostrar "transcribir" si:
+  //  - hay sesión (vamos a llamar a Workers AI, no queremos que un visitante
+  //    queme la cuota)
+  //  - el post tiene al menos un media de tipo audio
+  //  - ningún audio ya tiene transcript (si los hay todos, no hace falta)
+  const audioMedia = (p.media || []).filter((m) => m.kind === 'audio');
+  const hasUntranscribed = audioMedia.some((m) => !m.transcript);
+  const transcribe = isAuthed() && hasUntranscribed
+    ? '<button class="transcribe-btn" type="button">transcribir</button>'
+    : '';
   const hideBtn = !single ? '<button class="hide-btn" type="button">ocultar</button>' : '';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  if (!view && !reply && !hideBtn && !del) return '';
-  return `<div class="post-actions">${view}${reply}${hideBtn}${del}</div>`;
+  if (!view && !reply && !transcribe && !hideBtn && !del) return '';
+  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${del}</div>`;
 }
 
 function renderPostFoot(p) {
@@ -131,6 +142,43 @@ function bindHideButton(postEl, p, single) {
   };
 }
 
+function bindTranscribeButton(postEl, p) {
+  const btn = postEl.querySelector(':scope > .post-actions .transcribe-btn');
+  if (!btn) return;
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'transcribiendo…';
+    try {
+      const res = await fetch(`/api/posts/${p.id}/transcribe`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: CSRF_HEADERS,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data?.error || 'error al transcribir', 'error');
+        btn.disabled = false;
+        btn.textContent = original;
+        return;
+      }
+      // Actualiza la galería del post in-place: añade el transcript bajo el
+      // <audio> y refresca data-media para que un swap futuro lo conserve.
+      const gallery = postEl.querySelector(':scope > .post-body .gallery');
+      updateGalleryTranscript(gallery, data.transcript);
+      // El botón se cae para siempre — ya no hay audios sin transcript.
+      btn.remove();
+    } catch (err) {
+      console.error('transcribe failed', err);
+      toast('error al transcribir', 'error');
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  };
+}
+
 function bindDeleteButton(postEl, p, single) {
   const del = postEl.querySelector(':scope > .post-actions .delete-btn');
   if (!del) return;
@@ -181,11 +229,12 @@ export function renderPost(p, { single = false } = {}) {
       ${renderPostGallery(p.media)}
       ${renderPostFoot(p)}
     </div>
-    ${renderPostActions(single)}
+    ${renderPostActions(p, single)}
   `;
   if (!single) bindPostClickToNavigate(el, p);
   bindViewTwoittButton(el, p);
   bindReplyButton(el, p);
+  bindTranscribeButton(el, p);
   bindHideButton(el, p, single);
   bindDeleteButton(el, p, single);
   return el;

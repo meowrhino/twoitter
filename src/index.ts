@@ -43,6 +43,11 @@ type Bindings = {
   AI: Ai;
   PASSWORD: string;
   AUTH_SECRET: string;
+  // Secrets para llamar a Workers AI vía REST (el binding env.AI.run da
+  // problemas con whisper-large-v3-turbo: el `audio` siempre llega al
+  // validador como 'string' y rechaza). Bypass directo más fiable.
+  CF_AI_TOKEN?: string;
+  CF_ACCOUNT_ID?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -205,40 +210,59 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
 
   const audioBytes = await obj.arrayBuffer();
 
-  // Workers AI Whisper acepta el audio como array de bytes (Uint8Array →
-  // number[]) en el campo `audio`. `language` es opcional; lo añadimos sólo
-  // si el config tiene valor, para que un null deje al modelo auto-detectar.
-  const payload: { audio: number[]; language?: string } = {
-    audio: [...new Uint8Array(audioBytes)],
-  };
-  if (WHISPER_LANGUAGE) payload.language = WHISPER_LANGUAGE;
+  // Workers AI whisper-large-v3-turbo input: el binding lo lleva mal con
+  // number[] o Uint8Array (ambos llegan al validador como 'string'). La
+  // forma que SÍ funciona hoy es llamar al endpoint REST directamente con
+  // el body binario y el header Content-Type del audio. Necesita un API
+  // token con permiso "Workers AI" en CF_AI_TOKEN + CF_ACCOUNT_ID como
+  // secrets. Si no están configurados, devolvemos un 503 con instrucciones.
+  if (!c.env.CF_AI_TOKEN || !c.env.CF_ACCOUNT_ID) {
+    return c.json({
+      error: "transcribe deshabilitado: añade los secrets CF_AI_TOKEN y CF_ACCOUNT_ID con `wrangler secret put`",
+    }, 503);
+  }
 
-  // Log de tamaño/tipo para diagnosticar problemas de upload al modelo en
-  // wrangler tail. Inocuo en prod (sólo va a stderr del worker).
   console.log("whisper input:", {
     model: WHISPER_MODEL,
     bytes: audioBytes.byteLength,
     content_type: obj.httpMetadata?.contentType,
-    language: payload.language ?? "auto",
+    language: WHISPER_LANGUAGE ?? "auto",
   });
 
+  // El REST endpoint acepta el audio como body binario directamente; mucho
+  // más fiable que el JSON wrapper del binding. `language` va por query
+  // string. La response es { result: { text, ... }, success, errors, messages }.
+  const url = new URL(
+    `https://api.cloudflare.com/client/v4/accounts/${c.env.CF_ACCOUNT_ID}/ai/run/${WHISPER_MODEL}`,
+  );
+  if (WHISPER_LANGUAGE) url.searchParams.set("language", WHISPER_LANGUAGE);
+
   let transcript: string;
-  let rawResult: unknown;
   try {
-    rawResult = await c.env.AI.run(
-      WHISPER_MODEL as never,
-      payload as never,
-    );
-    console.log("whisper raw:", JSON.stringify(rawResult).slice(0, 500));
-    const result = rawResult as { text?: string; transcription?: string } | null;
-    // whisper-large-v3-turbo expone `text`; el legacy `@cf/openai/whisper` a
-    // veces devuelve `transcription`. Cogemos lo que haya.
-    transcript = ((result?.text ?? result?.transcription) || "").trim();
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${c.env.CF_AI_TOKEN}`,
+        "Content-Type": obj.httpMetadata?.contentType || "audio/webm",
+      },
+      body: audioBytes,
+    });
+    const data = (await res.json()) as {
+      success?: boolean;
+      result?: { text?: string; transcription?: string };
+      errors?: Array<{ message?: string }>;
+    };
+    console.log("whisper raw:", JSON.stringify(data).slice(0, 500));
+    if (!res.ok || data?.success === false) {
+      const msg = data?.errors?.[0]?.message || `http ${res.status}`;
+      return c.json({ error: `fallo al transcribir: ${msg}` }, 500);
+    }
+    transcript = (
+      data?.result?.text ?? data?.result?.transcription ?? ""
+    ).trim();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("whisper failed:", msg, err);
-    // Devolvemos el mensaje real para poder ver el origen en el toast del
-    // cliente sin tener que mirar wrangler tail.
     return c.json({ error: `fallo al transcribir: ${msg}` }, 500);
   }
 

@@ -963,39 +963,47 @@ body.lightbox-open { overflow: hidden; }
   opacity: 0.85;
 }
 
-/* .active: un click sobre el .post-body añade esta clase. El alpha del
-   fondo es el doble que el de hover (0.08 vs 0.04), así si pasas el
-   cursor por encima de un activo se nota el "sumado" sin meter una
-   segunda variable de color. */
-.post.clickable.active > .post-body {
+/* .active: un click sobre el .post-body añade esta clase. El estado
+   "revelado" es el mismo que el del post principal en /post/:id (donde
+   no hay .clickable y todo está visible permanentemente). Esos dos
+   selectores comparten estilos a través de los grupos de abajo.
+   El alpha del fondo es el doble que el de hover (0.08 vs 0.04), así
+   si pasas el cursor por encima de un activo se nota el "sumado" sin
+   meter una segunda variable de color.
+   El outline va al .post-body (no al .post): así un padre activo y un
+   hijo activo enmarcan SU contenido, no el subtree entero. La caja del
+   active es simétrica para root y replies. */
+.post.clickable.active > .post-body,
+.single-post #postContainer > .post > .post-body {
   background: rgba(232, 176, 74, 0.08);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 .post.clickable.active::before {
   background: var(--accent);
 }
-.post.clickable.active > .post-actions {
-  opacity: 1;
-  pointer-events: auto;
-  max-height: 60px;
-  padding: 10px var(--post-pad-x);
-}
-/* Cuando .active, el padding-bottom estructural del .post se va a 0: los
-   actions ya aportan su propio aire abajo, y sin esto quedaría un hueco
-   vacío de 18px debajo del bar. La transición ya está definida en .post. */
-.post.clickable.active {
-  padding-bottom: 0;
-}
-
-/* single-view: el post principal no es .clickable, los botones siempre */
+/* La barra de acciones del active y del single-view: idéntica. */
+.post.clickable.active > .post-actions,
 .single-post #postContainer > .post > .post-actions {
   opacity: 1;
   pointer-events: auto;
   max-height: 60px;
   padding: 10px var(--post-pad-x);
 }
+/* Cuando .active (o single root), el padding-bottom estructural del .post
+   se va a 0: los actions ya aportan su propio aire abajo, y sin esto
+   quedaría un hueco vacío de 18px debajo del bar. La transición ya está
+   definida en la regla base de .post. */
+.post.clickable.active,
 .single-post #postContainer > .post {
   padding-bottom: 0;
 }
+/* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
+   pintaría un outline sobre el .post completo (que incluye el subtree
+   anidado) y volveríamos a tener la asimetría padre/hijo. El indicador
+   visual de foco lo da .active > .post-body. */
+.post:focus-visible { outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .post-actions { transition: opacity 80ms linear; }

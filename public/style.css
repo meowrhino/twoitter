@@ -766,34 +766,34 @@ body.lightbox-open { overflow: hidden; }
 }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
 
-/* ver twoitt / responder / ocultar / borrar — anclados a la derecha del
-   .post, alineados con el final del rail (--rail-bottom). Aparecen sólo
-   cuando el .post está .active (un click sobre el .post-body lo activa;
-   click fuera o en otro .post lo desactiva — lógica en render.js). En
-   single-view se muestran siempre.
-   El hover ya no los muestra: provocaba que al cruzar a un hijo anidado
-   los botones del padre desaparecieran y fuera imposible pulsarlos. */
+/* ver twoitt / responder / transcribir / ocultar / borrar — barra de
+   acciones al FINAL del .post (DOM order: body → reply-inline? → replies →
+   actions). Como se monta al final, en threads con hijos la barra queda
+   visualmente al fondo del thread, sin solapar el cuerpo del reply ni el
+   reply-inline composer (que vive justo bajo el body del post activo).
+   Se muestra cuando el .post está .active (click sobre el .post-body lo
+   activa; click fuera o en otro .post lo desactiva — lógica en render.js).
+   En single-view se muestran siempre.
+   max-height: 0 → 60px da una transición suave sin saber la altura exacta;
+   60px sobra para una fila de botones de 0.75rem. */
 .post-actions {
-  position: absolute;
-  right: 0;
-  /* Sube los botones 10px del final del rail para que el aire arriba y
-     abajo sea similar (sin esto, los botones quedaban pegados al bottom
-     del .post terminal y solo había espacio por arriba). */
-  bottom: calc(var(--rail-bottom, 0px) + 10px);
-  display: inline-flex;
+  display: flex;
+  justify-content: flex-end;
   gap: 16px;
   font-family: var(--mono);
   font-size: 0.75rem;
   line-height: 1;
-  padding: 4px 0;
+  padding: 0 var(--post-pad-x);
+  max-height: 0;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  /* slide-in desde la izquierda al activar. Misma curva que la galería
-     (cubic-bezier estándar de Material) para coherencia de movimiento. */
-  transform: translateX(-6px);
+  /* Slide vertical + fade. cubic-bezier de Material para coherencia con la
+     galería y el lightbox. */
   transition:
-    opacity 140ms cubic-bezier(0.4, 0, 0.2, 1),
-    transform 140ms cubic-bezier(0.4, 0, 0.2, 1);
+    max-height 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding    200ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity    140ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .post-actions button {
   background: none;
@@ -971,19 +971,20 @@ body.lightbox-open { overflow: hidden; }
 .post.clickable.active > .post-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
+  max-height: 60px;
+  padding: 10px var(--post-pad-x);
 }
 
 /* single-view: el post principal no es .clickable, los botones siempre */
 .single-post #postContainer > .post > .post-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
+  max-height: 60px;
+  padding: 10px var(--post-pad-x);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .post-actions { transition: opacity 80ms linear; transform: none; }
-  .post.clickable.active > .post-actions { transform: none; }
+  .post-actions { transition: opacity 80ms linear; }
 }
 
 /* inline composer abierto dentro de un post */

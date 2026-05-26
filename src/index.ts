@@ -213,16 +213,33 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
   };
   if (WHISPER_LANGUAGE) payload.language = WHISPER_LANGUAGE;
 
+  // Log de tamaño/tipo para diagnosticar problemas de upload al modelo en
+  // wrangler tail. Inocuo en prod (sólo va a stderr del worker).
+  console.log("whisper input:", {
+    model: WHISPER_MODEL,
+    bytes: audioBytes.byteLength,
+    content_type: obj.httpMetadata?.contentType,
+    language: payload.language ?? "auto",
+  });
+
   let transcript: string;
+  let rawResult: unknown;
   try {
-    const result = (await c.env.AI.run(
+    rawResult = await c.env.AI.run(
       WHISPER_MODEL as never,
       payload as never,
-    )) as { text?: string; transcription_info?: unknown } | null;
-    transcript = (result?.text || "").trim();
+    );
+    console.log("whisper raw:", JSON.stringify(rawResult).slice(0, 500));
+    const result = rawResult as { text?: string; transcription?: string } | null;
+    // whisper-large-v3-turbo expone `text`; el legacy `@cf/openai/whisper` a
+    // veces devuelve `transcription`. Cogemos lo que haya.
+    transcript = ((result?.text ?? result?.transcription) || "").trim();
   } catch (err) {
-    console.error("whisper failed:", err);
-    return c.json({ error: "fallo al transcribir" }, 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("whisper failed:", msg, err);
+    // Devolvemos el mensaje real para poder ver el origen en el toast del
+    // cliente sin tener que mirar wrangler tail.
+    return c.json({ error: `fallo al transcribir: ${msg}` }, 500);
   }
 
   if (!transcript) {

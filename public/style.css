@@ -996,12 +996,10 @@ body.lightbox-open { overflow: hidden; }
   background: rgba(232, 176, 74, 0.08);
   border-radius: 4px;
 }
-.post.clickable.active::before {
-  background: var(--accent);
-}
-/* Rail del root cuando hay un descendiente .active: tira amarillo desde
-   arriba del root hasta abajo del .post-actions (último hijo del root).
-   Sólo cambia el color — bottom:0 ya está en la regla base. */
+/* Indicador del thread activo: SOLO se enciende el rail del root (que ya
+   llega del top al bottom de .post-actions). Los rails de los descendientes
+   se quedan grises, son sólo guía estructural. La "identidad" del twoitt
+   activo viene por el fondo amarillo del .post-body, no por su rail. */
 .post.thread-has-active::before {
   background: var(--accent);
 }

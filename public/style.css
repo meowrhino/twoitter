@@ -361,6 +361,15 @@ body.sidebar-hidden .side-col { display: none; }
   .tag-list li { padding: 0; }
   .menu-btn { top: 12px; right: 12px; }
   .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
+  /* La barra de acciones tiene hasta 5 botones ("ver twoitt", "responder",
+     "transcribir", "ocultar", "borrar"). En desktop caben en una fila vía
+     flex-end + gap:16. En mobile estrecho, sin flex-wrap, el último botón
+     se recortaba. Permitir wrap a 2 filas cuando no caben. */
+  .post-actions { flex-wrap: wrap; gap: 8px 12px; }
+  .post.thread-has-active > .post-actions,
+  .single-post #postContainer > .post > .post-actions {
+    max-height: 100px;  /* sube el cap para acomodar 2 filas */
+  }
 }
 
 /* ---------- composer ---------- */
@@ -1040,6 +1049,14 @@ body.lightbox-open { overflow: hidden; }
    ya está definida en la regla base de .post. */
 .post.thread-has-active,
 .single-post #postContainer > .post {
+  padding-bottom: 0;
+}
+/* Y lo mismo para los .post ANIDADOS dentro de un thread con activo: si no
+   se quita su padding-bottom: 18px, se acumula en cada nivel de anidación
+   (4 niveles = 72px de hueco vacío entre el último twoitt y la barra de
+   botones). Como todos los rails llegan al mismo bottom vía overflow:hidden,
+   no hace falta separación visual entre nested .post y la barra. */
+.post.thread-has-active .thread-replies .post {
   padding-bottom: 0;
 }
 /* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global

@@ -129,7 +129,13 @@ export function makeInlineComposer(parentPostEl, parentId) {
       if (!nested) {
         nested = document.createElement('div');
         nested.className = 'thread-replies';
-        parentPostEl.appendChild(nested);
+        // .post-actions vive como ÚLTIMO hijo del root del thread (asRoot=true
+        // en renderThread). Hay que insertar .thread-replies ANTES de la barra
+        // para mantener el orden DOM body → thread-replies → post-actions;
+        // si no, el primer reply mete la barra en medio del thread.
+        const actions = parentPostEl.querySelector(':scope > .post-actions');
+        if (actions) parentPostEl.insertBefore(nested, actions);
+        else parentPostEl.appendChild(nested);
       }
       // renderThread filtra ocultos, pero un post recién creado por el
       // usuario nunca lo estará — el guard es defensivo, no se espera null.

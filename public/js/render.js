@@ -135,24 +135,11 @@ function syncThreadActiveFlags() {
 function paintActiveRail(rootPost, activePost) {
   const rootRect = rootPost.getBoundingClientRect();
   const activeRect = activePost.getBoundingClientRect();
-  // La .post-actions tiene transition max-height: 0 → 60px (200ms). Al activar
-  // por primera vez, rootRect.bottom NO incluye la barra todavía expandida →
-  // si midiéramos directamente, height sería ~22px corto y el rail amarillo
-  // se quedaría corto frente al gris (que usa overflow:hidden y se ajusta solo).
-  // Compensación: scrollHeight da el tamaño final de la barra (content+padding,
-  // invariante a max-height); la diferencia con rect.height es lo que le falta
-  // para llegar al final. Suma esa diferencia al rootBottom para que el rail
-  // amarillo se calcule con la posición FINAL desde el primer frame.
-  const bar = rootPost.querySelector(':scope > .post-actions');
-  const barDelta = bar
-    ? bar.scrollHeight - bar.getBoundingClientRect().height
-    : 0;
-  const rootBottom = rootRect.bottom + barDelta;
   // +14 alinea con .post::before { top: 14px } (rail estructural gris).
   const top = activeRect.top - rootRect.top + 14;
   // +6 = --rail-x. activeRect.left ya incluye toda la sangría acumulada.
   const left = activeRect.left - rootRect.left + 6;
-  const height = rootBottom - (activeRect.top + 14);
+  const height = rootRect.bottom - (activeRect.top + 14);
 
   // Fase 1: snap a la nueva posición + reset de height SIN transición.
   rootPost.style.setProperty('--active-rail-trans', 'none');

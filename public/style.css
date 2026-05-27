@@ -820,12 +820,14 @@ body.lightbox-open { overflow: hidden; }
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  /* Slide vertical + fade. cubic-bezier de Material para coherencia con la
-     galería y el lightbox. */
-  transition:
-    max-height 200ms var(--curve-standard),
-    padding    200ms var(--curve-standard),
-    opacity    140ms var(--curve-standard);
+  /* Sólo opacity transitions. max-height y padding cambian INSTANTÁNEAMENTE
+     al activar para que paintActiveRail() pueda medir el bottom final del
+     root .post en el mismo frame que la activación, sin tener que esperar
+     a que la altura del bar se asiente. Antes había un slide-down con
+     max-height + padding (200ms), pero causaba que el rail amarillo
+     quedara corto frente al gris (medía mid-transition). El fade de
+     opacity da suficiente suavidad visual. */
+  transition: opacity 140ms var(--curve-standard);
 }
 .post-actions button {
   background: none;

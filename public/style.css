@@ -1018,7 +1018,11 @@ body.lightbox-open { overflow: hidden; }
   opacity: 1;
   pointer-events: auto;
   max-height: 60px;
-  padding: 10px var(--post-pad-x);
+  /* padding-bottom: 0 → los botones quedan flush contra el bottom de la
+     caja, que coincide con el bottom del .post y con el bottom del rail.
+     Sin esto, el padding-bottom dejaba ~10px de cola amarilla por debajo
+     de los botones (la caja de .post-actions era más alta que el texto). */
+  padding: 10px var(--post-pad-x) 0;
 }
 /* Cuando hay algo activo en el thread (o es single root), el padding-bottom
    estructural del .post root se va a 0: la barra ya aporta su propio aire

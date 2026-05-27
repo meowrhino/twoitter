@@ -4,8 +4,12 @@ import { fmt } from './utils.js';
 import { refreshHashtags } from './hashtags.js';
 
 // Ajusta --rail-bottom de cada .post para que su rail termine al fin de
-// SU PROPIO subtree (último .post descendiente o sí mismo). El rail
-// representa el alcance del subtree, no del thread completo.
+// SU PROPIO subtree. Usamos el bottom de la .thread-replies hija directa
+// (que envuelve TODO el subtree visualmente, incluyendo el padding-bottom
+// de los descendientes intermedios) — antes usábamos el último .post
+// descendiente y el rail se cortaba 18px arriba del fin real del subtree,
+// dejando un hueco con la barra .post-actions cuando ésta era visible.
+// Si el post es hoja (sin .thread-replies), railBottom = 0 → rail hasta abajo.
 // getBoundingClientRect() fuerza un sync reflow, así que las medidas son
 // correctas justo tras DOM mutations (no necesitamos rAF, que no dispara
 // en tabs en background).
@@ -14,11 +18,12 @@ export function extendRails(rootEl) {
   const posts = rootEl.querySelectorAll('.post');
   if (posts.length === 0) return;
   for (const post of posts) {
-    const descendants = post.querySelectorAll('.post');
-    const last = descendants.length ? descendants[descendants.length - 1] : post;
-    const target = last.getBoundingClientRect().bottom;
+    const tr = post.querySelector(':scope > .thread-replies');
+    const targetBottom = tr
+      ? tr.getBoundingClientRect().bottom
+      : post.getBoundingClientRect().bottom;
     const pb = post.getBoundingClientRect().bottom;
-    post.style.setProperty('--rail-bottom', `${pb - target}px`);
+    post.style.setProperty('--rail-bottom', `${pb - targetBottom}px`);
   }
   ensureRailObserver(rootEl);
 }

@@ -12,6 +12,7 @@
 import { CSRF_HEADERS } from './state.js';
 import { uuid } from './utils.js';
 import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
+import { audioPlayerMarkup } from './audio-player.js';
 
 async function uploadBlob(blob, folder) {
   const res = await fetch('/api/upload', {
@@ -87,10 +88,10 @@ export function createPreviewItem({ localId, previewUrl, kind }) {
   if (kind === 'image') {
     media = `<img src="${previewUrl}">`;
   } else if (kind === 'audio') {
-    // Audio sin controls aquí dentro: ya tiene su botón × encima y el preview
-    // es informativo (el usuario escuchará el resultado tras publicar). Si
-    // alguna vez se necesita preview con play, añadir controls aquí.
-    media = `<div class="audio-preview" aria-hidden="true">🎙️</div><audio src="${previewUrl}" preload="none"></audio>`;
+    // Reutilizamos el mismo player que el feed (audioPlayerMarkup) para que
+    // el usuario pueda escuchar la nota antes de publicar. setupAudioPlayers
+    // (MutationObserver global) lo wirea automáticamente al insertarlo.
+    media = audioPlayerMarkup({ src: previewUrl });
   } else {
     media = `<video src="${previewUrl}" muted></video>`;
   }

@@ -133,7 +133,9 @@ export function makeInlineComposer(parentPostEl, parentId) {
       }
       // renderThread filtra ocultos, pero un post recién creado por el
       // usuario nunca lo estará — el guard es defensivo, no se espera null.
-      const el = renderThread(post);
+      // asRoot:false → el nuevo reply hereda la barra de acciones del
+      // thread root existente, no lleva una propia.
+      const el = renderThread(post, { asRoot: false });
       if (el) nested.appendChild(el);
       notifyThreadChanged({
         parentPost: parentPostEl,

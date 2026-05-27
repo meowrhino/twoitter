@@ -18,8 +18,10 @@ import { escapeHtml } from './utils.js';
 //   - `transcript: string | null`. Si llega texto, se pinta visible debajo
 //     del player; si es null, dejamos el bloque oculto para que el botón
 //     "transcribir" pueda rellenarlo in-place sin recrear DOM.
-export function audioPlayerMarkup({ r2_key, transcript }) {
-  const src = escapeHtml(r2_key);
+//   - `src: string | undefined`. Si llega, se usa tal cual (caso composer
+//     con blob: URL). Si no, se construye `/r2/${r2_key}` como antes.
+export function audioPlayerMarkup({ r2_key, transcript, src } = {}) {
+  const audioSrc = src ? escapeHtml(src) : `/r2/${escapeHtml(r2_key)}`;
   const tr = transcript ? escapeHtml(transcript) : '';
   const trBlock = tr
     ? `<div class="audio-transcript" data-transcript="1">${tr}</div>`
@@ -33,7 +35,7 @@ export function audioPlayerMarkup({ r2_key, transcript }) {
       <div class="ap-progress-fill"></div>
     </div>
     <span class="ap-time" aria-live="off">0:00<span class="ap-time-sep"> / </span><span class="ap-time-dur">--:--</span></span>
-    <audio src="/r2/${src}" preload="metadata"></audio>
+    <audio src="${audioSrc}" preload="metadata"></audio>
   </div>${trBlock}`;
 }
 

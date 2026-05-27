@@ -844,17 +844,33 @@ body.lightbox-open { overflow: hidden; }
   .rec-btn.is-recording { animation: none; }
 }
 
-/* Preview de audio en el composer: cuadrado con el ícono de mic centrado.
-   No se ve la forma de onda — sería over-engineering para una nota corta. */
+/* Preview de audio en el composer: usa el mismo audio-player que el feed
+   para que el usuario pueda escuchar la nota antes de publicar. El item
+   ocupa la fila entera del grid de la preview (audio-player es horizontal,
+   no encaja en un cuadrado de 110px). */
 .media-preview .item-audio {
-  display: grid;
-  place-items: center;
+  grid-column: 1 / -1;
+  aspect-ratio: auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
 }
-.media-preview .item-audio .audio-preview {
-  font-size: 2rem;
-  opacity: 0.7;
+.media-preview .item-audio .audio-player {
+  /* Padding-right deja espacio al botón × que va absolutamente posicionado
+     en la esquina superior derecha del item; sin esto, el botón pisa al
+     <span class="ap-time">. */
+  padding-right: 36px;
 }
-.media-preview .item-audio audio { display: none; }
+/* En el preview no se llama a /transcribe, así que el bloque transcript
+   nunca tiene contenido — lo ocultamos por completo en lugar de dejar el
+   nodo vacío (que añadiría margen). */
+.media-preview .item-audio .audio-transcript { display: none; }
+.media-preview .item-audio .remove {
+  /* Por encima del audio-player para que el × siga clickable a pesar del
+     z-index implícito del player. */
+  z-index: 1;
+}
 
 /* Audio en la galería del post — player custom (markup en gallery.js,
    lógica en audio-player.js). El stage por defecto es flex-row para
@@ -937,16 +953,17 @@ body.lightbox-open { overflow: hidden; }
 .audio-player .ap-time-sep { opacity: 0.5; }
 .audio-player .ap-time-dur { color: var(--text-dim); }
 
+/* Transcripción debajo del audio: tipográficamente igual que .post-text para
+   que un post de sólo audio se lea como un post normal — el usuario no
+   distingue "transcript" de "texto escrito", es todo el mensaje. */
 .audio-transcript {
   margin-top: 10px;
-  padding: 10px 12px;
-  border-left: 2px solid var(--accent);
-  background: rgba(232, 176, 74, 0.04);
-  font-size: 0.9rem;
-  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.92em;
+  line-height: 1.6;
   white-space: pre-wrap;
-  line-height: 1.45;
-  border-radius: 0 4px 4px 0;
+  word-wrap: break-word;
+  color: var(--text);
 }
 .audio-transcript[hidden] { display: none; }
 
@@ -965,37 +982,51 @@ body.lightbox-open { overflow: hidden; }
 
 /* .active: un click sobre el .post-body añade esta clase. El estado
    "revelado" es el mismo que el del post principal en /post/:id (donde
-   no hay .clickable y todo está visible permanentemente). Esos dos
-   selectores comparten estilos a través de los grupos de abajo.
+   no hay .clickable y todo está visible permanentemente).
    El alpha del fondo es el doble que el de hover (0.08 vs 0.04), así
    si pasas el cursor por encima de un activo se nota el "sumado" sin
    meter una segunda variable de color.
-   El outline va al .post-body (no al .post): así un padre activo y un
+   El fondo va al .post-body (no al .post): así un padre activo y un
    hijo activo enmarcan SU contenido, no el subtree entero. La caja del
    active es simétrica para root y replies. */
 .post.clickable.active > .post-body,
 .single-post #postContainer > .post > .post-body {
   background: rgba(232, 176, 74, 0.08);
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
   border-radius: 4px;
 }
 .post.clickable.active::before {
   background: var(--accent);
 }
-/* La barra de acciones del active y del single-view: idéntica. */
-.post.clickable.active > .post-actions,
+/* Rail del root del thread cuando hay un descendiente .active: tira amarillo
+   ininterrumpido desde arriba del root hasta abajo del .post (que con
+   padding-bottom: 0 incluye la barra .post-actions). Así la guía amarilla
+   "envuelve" el thread activo y acompaña a los botones de la barra.
+   bottom: 0 sobreescribe var(--rail-bottom) — sale ganando por especificidad
+   (.post.thread-has-active::before > .post::before). */
+.post.thread-has-active::before {
+  background: var(--accent);
+  bottom: 0;
+}
+/* Barra de acciones — un único bar por thread, anclado al final del .post
+   root. Se muestra cuando hay un .post.active en cualquier nivel del thread
+   (root o descendiente). La clase .thread-has-active la mantiene JS en el
+   .post root de cada thread (ver syncThreadActiveFlags en render.js):
+   evitamos un selector :has() porque su invalidación dinámica al quitar una
+   clase está bugueada en algunas versiones de Chromium (el computed style
+   se queda "pegado"). En single-view, la barra del root principal es
+   siempre visible. */
+.post.thread-has-active > .post-actions,
 .single-post #postContainer > .post > .post-actions {
   opacity: 1;
   pointer-events: auto;
   max-height: 60px;
   padding: 10px var(--post-pad-x);
 }
-/* Cuando .active (o single root), el padding-bottom estructural del .post
-   se va a 0: los actions ya aportan su propio aire abajo, y sin esto
-   quedaría un hueco vacío de 18px debajo del bar. La transición ya está
-   definida en la regla base de .post. */
-.post.clickable.active,
+/* Cuando hay algo activo en el thread (o es single root), el padding-bottom
+   estructural del .post root se va a 0: la barra ya aporta su propio aire
+   abajo, y sin esto quedaría un hueco vacío de 18px debajo. La transición
+   ya está definida en la regla base de .post. */
+.post.thread-has-active,
 .single-post #postContainer > .post {
   padding-bottom: 0;
 }

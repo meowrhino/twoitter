@@ -9,25 +9,23 @@
 // imagen via canvas WebP. La compresión arranca al adjuntar para aprovechar
 // el tiempo que el usuario tarda escribiendo el post.
 
-import { CSRF_HEADERS } from './state.js';
+import { api } from './api.js';
 import { uuid } from './utils.js';
 import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
 import { audioPlayerMarkup } from './audio-player.js';
 
 async function uploadBlob(blob, folder) {
-  const res = await fetch('/api/upload', {
+  const { ok, status, data } = await api('/api/upload', {
     method: 'POST',
-    credentials: 'same-origin',
+    body: blob,
     headers: {
       'content-type': blob.type,
       'x-content-type': blob.type,
       'x-folder': folder,
-      ...CSRF_HEADERS,
     },
-    body: blob,
   });
-  if (!res.ok) throw new Error('upload failed: ' + res.status);
-  return res.json();
+  if (!ok) throw new Error('upload failed: ' + status);
+  return data;
 }
 
 // Sube los blobs ya procesados + (si es vídeo) thumbnail. `kind` puede ser

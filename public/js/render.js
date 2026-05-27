@@ -1,6 +1,6 @@
 // ----- renderizado de posts + bindings de UI -----
 
-import { CSRF_HEADERS } from './state.js';
+import { api } from './api.js';
 import { fmt, hoursAgo, escapeHtml, linkify, toast } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot } from './rails.js';
@@ -179,31 +179,19 @@ async function doTranscribe(targetEl, btn) {
   btn.disabled = true;
   const original = btn.textContent;
   btn.textContent = 'transcribiendo…';
-  try {
-    const res = await fetch(`/api/posts/${targetEl.dataset.id}/transcribe`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: CSRF_HEADERS,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      toast(data?.error || 'error al transcribir', 'error');
-      btn.disabled = false;
-      btn.textContent = original;
-      return;
-    }
-    const gallery = targetEl.querySelector(':scope > .post-body .gallery');
-    updateGalleryTranscript(gallery, data.transcript);
-    targetEl.dataset.hasUntranscribed = '0';
+  const { ok, data } = await api(`/api/posts/${targetEl.dataset.id}/transcribe`, { method: 'POST' });
+  if (!ok) {
+    toast(data?.error || 'error al transcribir', 'error');
     btn.disabled = false;
     btn.textContent = original;
-    btn.hidden = true;
-  } catch (err) {
-    console.error('transcribe failed', err);
-    toast('error al transcribir', 'error');
-    btn.disabled = false;
-    btn.textContent = original;
+    return;
   }
+  const gallery = targetEl.querySelector(':scope > .post-body .gallery');
+  updateGalleryTranscript(gallery, data.transcript);
+  targetEl.dataset.hasUntranscribed = '0';
+  btn.disabled = false;
+  btn.textContent = original;
+  btn.hidden = true;
 }
 
 function doHide(targetEl) {
@@ -227,12 +215,8 @@ async function doDelete(targetEl, { single = false } = {}) {
   // funciona en nodos detached.
   const parentPost = findLogicalParentPost(targetEl);
   const root = getThreadRoot(targetEl);
-  const res = await fetch(`/api/posts/${targetEl.dataset.id}`, {
-    method: 'DELETE',
-    credentials: 'same-origin',
-    headers: CSRF_HEADERS,
-  });
-  if (!res.ok) { toast('error al borrar', 'error'); return; }
+  const { ok } = await api(`/api/posts/${targetEl.dataset.id}`, { method: 'DELETE' });
+  if (!ok) { toast('error al borrar', 'error'); return; }
   if (single) { location.href = '/'; return; }
   if (targetEl.closest('.thread-replies') || targetEl.closest('#replies')) {
     targetEl.remove();

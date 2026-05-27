@@ -2,6 +2,7 @@
 
 import { $, toast } from './utils.js';
 import { POST_ID } from './state.js';
+import { api } from './api.js';
 import { renderThread, renderPost } from './render.js';
 import { wireComposer } from './composer.js';
 import { notifyThreadChanged } from './rails.js';
@@ -22,9 +23,8 @@ export async function loadTimeline(reset = false) {
     if (q) params.set('q', q);
     if (!reset && nextCursor) params.set('cursor', nextCursor);
 
-    const res = await fetch('/api/posts?' + params);
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const data = await res.json().catch(() => ({}));
+    const { ok, status, data } = await api('/api/posts?' + params);
+    if (!ok) throw new Error(`status ${status}`);
     // Defensa: si el server devuelve algo sin posts (5xx con JSON de error,
     // body vacío, etc.) no queremos romper el feed. Tratamos como "sin más".
     const posts = Array.isArray(data?.posts) ? data.posts : [];
@@ -71,20 +71,17 @@ export function setupTimelineComposer() {
 }
 
 export async function loadSinglePost() {
-  let res;
-  try {
-    res = await fetch(`/api/posts/${POST_ID}`);
-  } catch (err) {
-    console.error('loadSinglePost network', err);
-    $('#postContainer').innerHTML = '<p class="not-found">error de red al cargar el post</p>';
-    toast('error de red', 'error');
+  const { ok, status, data } = await api(`/api/posts/${POST_ID}`);
+  if (!ok) {
+    if (status === 0) {
+      $('#postContainer').innerHTML = '<p class="not-found">error de red al cargar el post</p>';
+      toast('error de red', 'error');
+    } else {
+      $('#postContainer').innerHTML = '<p class="not-found">post no encontrado</p>';
+    }
     return;
   }
-  if (!res.ok) {
-    $('#postContainer').innerHTML = '<p class="not-found">post no encontrado</p>';
-    return;
-  }
-  const { post, replies } = await res.json();
+  const { post, replies } = data;
   document.title = `twoitter — ${post.text?.slice(0, 40) || 'post'}`;
   $('#postContainer').appendChild(renderPost(post, { single: true }));
 

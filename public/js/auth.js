@@ -2,6 +2,7 @@
 
 import { $, $$ } from './utils.js';
 import { SIDEBAR_KEY } from './state.js';
+import { api } from './api.js';
 
 // Estado interno mutable: solo lo modifica este módulo. Los demás
 // preguntan vía isAuthed() (live binding también funciona, pero la
@@ -10,13 +11,8 @@ let IS_AUTHED = false;
 export const isAuthed = () => IS_AUTHED;
 
 export async function checkAuth() {
-  try {
-    const r = await fetch('/api/me');
-    const d = await r.json();
-    IS_AUTHED = !!d.authed;
-  } catch {
-    IS_AUTHED = false;
-  }
+  const { ok, data } = await api('/api/me');
+  IS_AUTHED = ok && !!data?.authed;
   applyAuthVisibility();
 }
 

@@ -1,6 +1,7 @@
 // ----- composer principal + reply-inline + paste global -----
 
-import { CSRF_HEADERS, composerState } from './state.js';
+import { composerState } from './state.js';
+import { api } from './api.js';
 import { isAuthed } from './auth.js';
 import { toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
@@ -56,14 +57,11 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, parent
     if (submitBtn) submitBtn.disabled = true;
     try {
       const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
-      const res = await fetch('/api/posts', {
+      const { ok, data: post } = await api('/api/posts', {
         method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', ...CSRF_HEADERS },
-        body: JSON.stringify({ text: t || null, media, parent_id: parentId }),
+        body: { text: t || null, media, parent_id: parentId },
       });
-      if (!res.ok) throw new Error('post failed');
-      const post = await res.json();
+      if (!ok) throw new Error('post failed');
       text.value = '';
       revokePendingUrls(pending);
       preview.innerHTML = '';

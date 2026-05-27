@@ -310,9 +310,16 @@ export async function deletePost(
   if (ids.length === 0) return { softDeletedIds: [] };
   const placeholders = ids.map(() => "?").join(",");
 
+  // deleted_at lleva un nonce de 8 hex chars al final del timestamp ISO
+  // para que dos borrados en el mismo milisegundo no compartan valor.
+  // strftime('%f') es preciso a milisegundos: en bursts (script, retries)
+  // dos deletes podían colisionar y un restore traería de vuelta posts de
+  // otro borrado. El nonce hace la colisión ~1 en 4e9. Sigue siendo string
+  // ordenable por timestamp (el prefijo ISO sigue intacto al inicio).
   await db
     .prepare(
-      `UPDATE posts SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id IN (${placeholders})`,
+      `UPDATE posts SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') || '-' || hex(randomblob(4))
+         WHERE id IN (${placeholders})`,
     )
     .bind(...ids)
     .run();
@@ -331,8 +338,9 @@ export async function restorePost(
     .bind(id)
     .first<{ id: number; deleted_at: string | null }>();
   if (!exists || !exists.deleted_at) return null;
-  // Restaura sólo los que se borraron en el MISMO momento (mismo deleted_at)
-  // para no resucitar borrados anteriores cuando un subtree se restaura.
+  // Restaura sólo los que se borraron en el MISMO momento (mismo deleted_at,
+  // incluyendo el nonce — ver deletePost). Antes el match podía resucitar
+  // posts de borrados anteriores colisionados al milisegundo.
   const res = await db
     .prepare(
       `UPDATE posts SET deleted_at = NULL

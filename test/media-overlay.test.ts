@@ -25,10 +25,12 @@ describe('createPreviewItem', () => {
     expect(el.querySelector('img')).toBeFalsy();
   });
 
-  it('usa preview de audio (icono + <audio> oculto) para kind=audio', () => {
+  it('usa el audio-player completo del feed para kind=audio (para preview escuchable)', () => {
     const el = makeItem('audio');
     expect(el.className).toBe('item item-audio');
-    expect(el.querySelector('.audio-preview')).toBeTruthy();
+    // Antes era un icono + <audio> oculto. Cambió a audioPlayerMarkup para que
+    // el usuario pueda escuchar la nota antes de publicar.
+    expect(el.querySelector('.audio-player')).toBeTruthy();
     expect(el.querySelector('audio')).toBeTruthy();
     expect(el.querySelector('img')).toBeFalsy();
     expect(el.querySelector('video')).toBeFalsy();

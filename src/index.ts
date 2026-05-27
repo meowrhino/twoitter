@@ -25,6 +25,7 @@ import {
   buildMediaKey,
   classifyContentType,
   maxBytesFor,
+  uint8ToBase64,
 } from "./media";
 
 // ---------- config ----------
@@ -210,16 +211,7 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
   // la cascada de errores anteriores ("'string' not in 'array','binary'",
   // "'string' not in 'object'") según en qué rama del oneOf cayera el
   // validador. Base64 string es la única forma fiable hoy.
-  const u8 = new Uint8Array(audioBytes);
-  let binary = "";
-  // chunking necesario: String.fromCharCode.apply con un Uint8Array enorme
-  // revienta el stack en algunas runtimes. 32 KB por chunk es seguro y
-  // mucho más rápido que ir byte a byte en un loop.
-  const CHUNK = 0x8000;
-  for (let i = 0; i < u8.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + CHUNK)));
-  }
-  const base64 = btoa(binary);
+  const base64 = uint8ToBase64(new Uint8Array(audioBytes));
 
   console.log("whisper input:", {
     model: WHISPER_MODEL,

@@ -398,7 +398,11 @@ body.sidebar-hidden .side-col { display: none; }
 .composer-foot {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  /* row-gap más pequeño que column-gap: cuando los botones envuelven a una
+     segunda fila, queremos que estén cerca, no separados con todo el aire
+     de un gap normal entre filas. */
+  gap: 8px 10px;
 }
 .composer-foot .hint {
   color: var(--muted);

@@ -108,15 +108,46 @@ export function setupTapToActivate() {
 }
 
 // Mantiene la clase .thread-has-active en el .post root de cada thread cuando
-// él o cualquier descendiente está .active. Evitamos un selector :has() en
-// CSS porque la invalidación dinámica de :has() al quitar una clase está
-// bugueada en algunas versiones de Chromium — el computed style se queda
-// "pegado" al estado matcheante anterior. JS-driven es 100% fiable.
+// él o cualquier descendiente está .active, y además pinta el rail amarillo
+// del activo (--active-rail-{top,left,height}) usado por el ::after del root.
+// Evitamos un selector :has() en CSS porque la invalidación dinámica de :has()
+// al quitar una clase está bugueada en algunas versiones de Chromium — el
+// computed style se queda "pegado" al estado matcheante anterior.
 function syncThreadActiveFlags() {
-  document.querySelectorAll('.thread > .post, #replies > .post').forEach((host) => {
-    const has = host.classList.contains('active') || !!host.querySelector('.post.active');
-    host.classList.toggle('thread-has-active', has);
+  document.querySelectorAll('.thread > .post, #replies > .post').forEach((root) => {
+    const active = root.classList.contains('active')
+      ? root
+      : root.querySelector('.post.active');
+    if (active) {
+      root.classList.add('thread-has-active');
+      paintActiveRail(root, active);
+    } else {
+      root.classList.remove('thread-has-active');
+    }
   });
+}
+
+// Rail amarillo del .active: vive como ::after del .post root del thread y se
+// posiciona ABSOLUTO dentro de él (el root tiene position:relative). Su top
+// y left vienen del bounding rect del active relativo al root; su height
+// llega hasta el bottom del root (= bottom de .post-actions, último hijo).
+// El primer pintado parte de height: 0 (valor por defecto del CSS var) → la
+// transition CSS anima el fill desde arriba. Al cambiar de un .active a otro,
+// top y left saltan instantáneamente y height transitiona entre los dos
+// valores (puede crecer o encoger según donde caiga el nuevo activo).
+function paintActiveRail(rootPost, activePost) {
+  const rootRect = rootPost.getBoundingClientRect();
+  const activeRect = activePost.getBoundingClientRect();
+  // +14 alinea con .post::before { top: 14px } — el rail amarillo arranca a
+  // la misma altura visual que el rail gris estructural.
+  const top = activeRect.top - rootRect.top + 14;
+  // +6 = --rail-x. activeRect.left ya incluye toda la sangría acumulada,
+  // así que esto da el X correcto incluso en threads anidados con ramas.
+  const left = activeRect.left - rootRect.left + 6;
+  const height = rootRect.bottom - (activeRect.top + 14);
+  rootPost.style.setProperty('--active-rail-top', `${top}px`);
+  rootPost.style.setProperty('--active-rail-left', `${left}px`);
+  rootPost.style.setProperty('--active-rail-height', `${height}px`);
 }
 
 // Sube por el árbol de .post hasta el más externo (el root del thread,

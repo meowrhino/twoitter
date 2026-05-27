@@ -996,12 +996,24 @@ body.lightbox-open { overflow: hidden; }
   background: rgba(232, 176, 74, 0.08);
   border-radius: 4px;
 }
-/* Indicador del thread activo: SOLO se enciende el rail del root (que ya
-   llega del top al bottom de .post-actions). Los rails de los descendientes
-   se quedan grises, son sólo guía estructural. La "identidad" del twoitt
-   activo viene por el fondo amarillo del .post-body, no por su rail. */
-.post.thread-has-active::before {
+/* Rail amarillo del twoitt activo: ::after del root del thread, posicionado
+   absoluto. JS (paintActiveRail en render.js) calcula top, left y height
+   para que vaya desde el top del .active (a su sangrado) hasta el bottom
+   de la barra de botones, atravesando si hace falta otros .post intermedios.
+   La transition en height da el efecto "fill desde arriba" cada vez que
+   se activa un twoitt nuevo (paintActiveRail resetea height a 0 en cada
+   pintada). El rail gris del .post::before se queda; este ::after se
+   superpone encima de los grises por el render order. */
+.post.thread-has-active::after {
+  content: '';
+  position: absolute;
+  top: var(--active-rail-top, 0);
+  left: var(--active-rail-left, var(--rail-x));
+  width: 2px;
+  height: var(--active-rail-height, 0);
   background: var(--accent);
+  transition: height 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
 }
 /* Barra de acciones — un único bar por thread, anclado al final del .post
    root. Se muestra cuando hay un .post.active en cualquier nivel del thread

@@ -1021,15 +1021,26 @@ body.lightbox-open { overflow: hidden; }
   background: rgba(232, 176, 74, 0.08);
   border-radius: 4px;
 }
-/* Rail amarillo del twoitt activo: simplemente cambiamos el color del rail
-   estructural del .active (via .post::before). Como TODOS los rails llegan
-   al bottom del root (gracias a bottom:-9999px + overflow:hidden), el rail
-   amarillo del activo va de top a bottom de la barra de botones sin necesidad
-   de medir ni animar height. La transition en background da un suave fade
-   gris→amarillo al activar. */
-.post.clickable.active::before {
+/* Rail amarillo del twoitt activo: ::after del root del thread con FILL
+   animation desde arriba. Position absolute dentro del root (que tiene
+   position:relative). Las CSS vars --active-rail-{top,left,height} las
+   setea paintActiveRail() en render.js, midiendo el active relativo al
+   root. La transition height anima el "encendido" desde 0 hasta target.
+   Al cambiar de un activo a otro, JS resetea height a 0 con transition:
+   none, force-reflow, y luego setea target con transition normal — así
+   el rail SIEMPRE crece desde 0 (sin glitches por height transitioning
+   entre dos valores no nulos cuando top/left saltan a otra posición).
+   Width 2px > 1px del rail gris estructural, para que se vea encima. */
+.post.thread-has-active::after {
+  content: '';
+  position: absolute;
+  top: var(--active-rail-top, 0);
+  left: var(--active-rail-left, var(--rail-x));
+  width: 2px;
+  height: var(--active-rail-height, 0);
   background: var(--accent);
-  transition: background 200ms;
+  transition: var(--active-rail-trans, height 320ms var(--curve-standard));
+  pointer-events: none;
 }
 /* Barra de acciones — un único bar por thread, anclado al final del .post
    root. Se muestra cuando hay un .post.active en cualquier nivel del thread
@@ -1053,6 +1064,21 @@ body.lightbox-open { overflow: hidden; }
 /* (padding-bottom: 0 está en la regla base de .post — antes vivía aquí como
    override condicional para .thread-has-active, pero al hacerlo siempre el
    thread queda más limpio y desaparece la diferencia visual entre estados.) */
+
+/* Blink de la barra al cambiar el .active dentro del mismo thread: como
+   la barra es ÚNICA por thread y opera sobre el .active vigente, sin un
+   feedback visual al cambiar de target el usuario puede no notar que los
+   botones ahora "pertenecen" a otro post. La clase .refreshing la añade
+   JS sólo cuando el activo cambió (no en la primera activación) y se
+   retira tras el ciclo de animación. */
+.post-actions.refreshing {
+  animation: bar-flash 220ms var(--curve-standard);
+}
+@keyframes bar-flash {
+  0%   { opacity: 1; }
+  45%  { opacity: 0; }
+  100% { opacity: 1; }
+}
 /* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
    pintaría un outline sobre el .post completo (que incluye el subtree
    anidado) y volveríamos a tener la asimetría padre/hijo. El indicador

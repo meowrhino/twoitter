@@ -83,18 +83,75 @@ export function setupTapToActivate() {
 }
 
 // Mantiene la clase .thread-has-active en el .post root de cada thread cuando
-// él o cualquier descendiente está .active. Sólo se usa para mostrar la barra
-// de .post-actions (que es child directo del root). El rail amarillo del
-// activo se maneja por CSS puro vía .post.clickable.active::before — no hay
-// JS de medición, todos los rails se extienden a -9999px y se recortan en el
-// bottom del root via overflow:hidden.
-// Evitamos un selector :has() en CSS porque la invalidación dinámica de :has()
-// al quitar una clase está bugueada en algunas versiones de Chromium.
+// él o cualquier descendiente está .active. Esa clase:
+//   1. Muestra la barra de .post-actions (child directo del root)
+//   2. Activa el ::after del root que pinta el rail amarillo animado
+// Además: pinta el rail (paintActiveRail) y dispara el blink de la barra
+// cuando el .active cambia de un twoitt a otro dentro del mismo thread.
+// Evitamos un selector :has() en CSS porque su invalidación dinámica al
+// quitar una clase está bugueada en algunas versiones de Chromium.
 function syncThreadActiveFlags() {
   document.querySelectorAll('.thread > .post, #replies > .post').forEach((root) => {
-    const has = root.classList.contains('active') || !!root.querySelector('.post.active');
-    root.classList.toggle('thread-has-active', has);
+    const active = root.classList.contains('active')
+      ? root
+      : root.querySelector('.post.active');
+    if (active) {
+      const prevId = root.dataset.lastActiveId;
+      const nowId = active.dataset.id ?? '';
+      root.classList.add('thread-has-active');
+      paintActiveRail(root, active);
+      if (prevId && prevId !== nowId) {
+        // Cambio de target dentro del mismo thread: pequeño "blink" en la
+        // barra para señalar que los botones ahora apuntan a otro twoitt.
+        const bar = root.querySelector(':scope > .post-actions');
+        if (bar) {
+          bar.classList.remove('refreshing');
+          // Force reflow para reiniciar la animación si estaba a medias.
+          void bar.offsetWidth;
+          bar.classList.add('refreshing');
+        }
+      }
+      root.dataset.lastActiveId = nowId;
+    } else {
+      root.classList.remove('thread-has-active');
+      // No borramos lastActiveId aquí: syncThreadActiveFlags se llama dos veces
+      // por click (document capture phase + .post bubble) y la primera pasada
+      // ve "ningún active" momentáneamente. Si borráramos, la segunda pasada
+      // perdería el ID previo y no detectaría el cambio para el blink.
+      // El dato se sobreescribe en la próxima activación; queda inocuamente
+      // stale si el thread se vacía permanentemente (no rompe nada).
+    }
   });
+}
+
+// Mide el .active relativo al .post root del thread y setea CSS vars para
+// que el ::after del root pinte el rail amarillo en la posición correcta,
+// animando height desde 0. El protocolo de doble set (none → reflow →
+// transition con target) evita un bug visto en una iteración anterior:
+// al cambiar de un activo a otro RÁPIDO, height transitionaba entre dos
+// valores no nulos y, si el nuevo top era más alto, el rail "se desbordaba"
+// por debajo (porque visual = top + height transitionado). Reseteando
+// height a 0 instantáneo y luego animando, el rail siempre crece desde 0.
+function paintActiveRail(rootPost, activePost) {
+  const rootRect = rootPost.getBoundingClientRect();
+  const activeRect = activePost.getBoundingClientRect();
+  // +14 alinea con .post::before { top: 14px } (rail estructural gris).
+  const top = activeRect.top - rootRect.top + 14;
+  // +6 = --rail-x. activeRect.left ya incluye toda la sangría acumulada.
+  const left = activeRect.left - rootRect.left + 6;
+  const height = rootRect.bottom - (activeRect.top + 14);
+
+  // Fase 1: snap a la nueva posición + reset de height SIN transición.
+  rootPost.style.setProperty('--active-rail-trans', 'none');
+  rootPost.style.setProperty('--active-rail-top', `${top}px`);
+  rootPost.style.setProperty('--active-rail-left', `${left}px`);
+  rootPost.style.setProperty('--active-rail-height', '0px');
+  // Force reflow para que el browser commit-ee los valores anteriores
+  // antes de habilitar la transition de la fase 2.
+  void rootPost.offsetWidth;
+  // Fase 2: habilitar transition y disparar el fill animado a target.
+  rootPost.style.removeProperty('--active-rail-trans');
+  rootPost.style.setProperty('--active-rail-height', `${height}px`);
 }
 
 // ----- renderPost / renderThread -----

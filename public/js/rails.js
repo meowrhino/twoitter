@@ -1,47 +1,16 @@
 // ----- rails verticales + bookkeeping cross-thread -----
+//
+// El rail vertical de cada .post lo pinta CSS puro: .post::before con
+// top:14px y bottom:0 se extiende automáticamente hasta el fin del .post,
+// que por construcción del DOM (ver renderThread) es:
+//   - root:   bottom de .post-actions (último hijo, la barra del thread)
+//   - nested: bottom de su .thread-replies (si tiene hijos) o de su body
+// No medimos alturas en JS — el browser ya lo hace al layout-ar. Antes este
+// archivo tenía extendRails + ResizeObserver + setupResizeRailRecalc para
+// ajustar --rail-bottom; quedó obsoleto al pasar a CSS puro.
 
 import { fmt } from './utils.js';
 import { refreshHashtags } from './hashtags.js';
-
-// Ajusta --rail-bottom de cada .post para que su rail termine al fin de
-// SU PROPIO subtree. Usamos el bottom de la .thread-replies hija directa
-// (que envuelve TODO el subtree visualmente, incluyendo el padding-bottom
-// de los descendientes intermedios) — antes usábamos el último .post
-// descendiente y el rail se cortaba 18px arriba del fin real del subtree,
-// dejando un hueco con la barra .post-actions cuando ésta era visible.
-// Si el post es hoja (sin .thread-replies), railBottom = 0 → rail hasta abajo.
-// getBoundingClientRect() fuerza un sync reflow, así que las medidas son
-// correctas justo tras DOM mutations (no necesitamos rAF, que no dispara
-// en tabs en background).
-export function extendRails(rootEl) {
-  if (!rootEl) return;
-  const posts = rootEl.querySelectorAll('.post');
-  if (posts.length === 0) return;
-  for (const post of posts) {
-    const tr = post.querySelector(':scope > .thread-replies');
-    const targetBottom = tr
-      ? tr.getBoundingClientRect().bottom
-      : post.getBoundingClientRect().bottom;
-    const pb = post.getBoundingClientRect().bottom;
-    post.style.setProperty('--rail-bottom', `${pb - targetBottom}px`);
-  }
-  ensureRailObserver(rootEl);
-}
-
-// ResizeObserver compartido: cuando un .thread cambia de altura (ej. al
-// cargarse una imagen async), recalcula sus rails sin que haga falta un
-// evento explícito.
-const _railObserver = typeof ResizeObserver !== 'undefined'
-  ? new ResizeObserver((entries) => {
-      for (const e of entries) extendRails(e.target);
-    })
-  : null;
-
-function ensureRailObserver(threadEl) {
-  if (!_railObserver || threadEl._railObserved) return;
-  threadEl._railObserved = true;
-  _railObserver.observe(threadEl);
-}
 
 // Contenedor lógico del thread para un .post:
 // - timeline: el .thread ancestro
@@ -49,27 +18,6 @@ function ensureRailObserver(threadEl) {
 // - single (post principal): null (no tiene rail)
 export function getThreadRoot(postEl) {
   return postEl.closest('.thread') || postEl.closest('#replies');
-}
-
-export function extendAllRails() {
-  for (const t of document.querySelectorAll('.thread, #replies')) {
-    extendRails(t);
-  }
-}
-
-// debounced resize + safety net en window.load (por si imágenes/vídeos
-// terminaron de cargar después de la medida inicial y el ResizeObserver
-// no llegó a disparar). app.js es type=module (defer), así que en
-// navegadores rápidos `load` ya disparó cuando llegamos aquí — en ese
-// caso lo ejecutamos inmediatamente; si no, registramos el listener.
-export function setupResizeRailRecalc() {
-  let t;
-  window.addEventListener('resize', () => {
-    clearTimeout(t);
-    t = setTimeout(extendAllRails, 100);
-  });
-  if (document.readyState === 'complete') extendAllRails();
-  else window.addEventListener('load', extendAllRails, { once: true });
 }
 
 // Actualiza el contador "N resp" en el footer de un .post tras add/delete.
@@ -99,21 +47,12 @@ export function updateReplyCount(postEl, delta) {
 }
 
 // Único punto de entrada para "algo cambió en este thread": ajusta el
-// contador del padre, reextiende los rails y refresca el sidebar de tags.
+// contador del padre y refresca el sidebar de tags. Los rails son CSS puro
+// y se actualizan solos al reflow — no hay nada que reextender aquí.
 //   parentPost  → ancestro cuyo "N resp" hay que ajustar (null si root nuevo)
-//   threadRoot  → .thread o #replies a re-medir (null para skip)
+//   threadRoot  → reservado por compat con callers; ya no se usa
 //   delta       → +1 al añadir, -1 al borrar, 0 si solo es reorder
 export function notifyThreadChanged({ parentPost = null, threadRoot = null, delta = 0 } = {}) {
   if (parentPost && delta) updateReplyCount(parentPost, delta);
-  if (threadRoot) {
-    if (threadRoot.isConnected) {
-      extendRails(threadRoot);
-    } else if (_railObserver && threadRoot._railObserved) {
-      // Thread detached: liberar la referencia del ResizeObserver para que
-      // el nodo no quede retenido en sesiones largas con muchos delete.
-      _railObserver.unobserve(threadRoot);
-      threadRoot._railObserved = false;
-    }
-  }
   refreshHashtags();
 }

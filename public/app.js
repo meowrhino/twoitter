@@ -10,7 +10,7 @@
 //   js/media.js      → uploadMedia + preview items + attachFile
 //   js/composer.js   → wireComposer, makeInlineComposer, paste global
 //   js/render.js     → renderPost, renderThread, bindings
-//   js/rails.js      → extendRails + notifyThreadChanged
+//   js/rails.js      → getThreadRoot, notifyThreadChanged (rails son CSS puro)
 //   js/pages.js      → loadTimeline, loadSinglePost, setupComposers
 
 import { PAGE } from './js/state.js';
@@ -20,7 +20,6 @@ import { setupGlobalPasteHandler } from './js/composer.js';
 import { setupTapToActivate } from './js/render.js';
 import { setupGallery } from './js/gallery.js';
 import { setupAudioPlayers } from './js/audio-player.js';
-import { setupResizeRailRecalc } from './js/rails.js';
 import { loadHashtags } from './js/hashtags.js';
 import {
   loadTimeline, setupTimelineComposer,
@@ -34,7 +33,6 @@ import {
   setupTapToActivate();
   setupGallery();
   setupAudioPlayers();
-  setupResizeRailRecalc();
 
   if (PAGE === 'timeline') {
     setupTimelineComposer();

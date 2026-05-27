@@ -4,7 +4,7 @@ import { $, toast } from './utils.js';
 import { POST_ID } from './state.js';
 import { renderThread, renderPost } from './render.js';
 import { wireComposer } from './composer.js';
-import { extendRails, extendAllRails, notifyThreadChanged } from './rails.js';
+import { notifyThreadChanged } from './rails.js';
 
 // estado de paginación de la timeline. local al módulo porque solo
 // loadTimeline lo lee y muta.
@@ -40,7 +40,6 @@ export async function loadTimeline(reset = false) {
     }
     nextCursor = data?.nextCursor ?? null;
     $('#loadMore').hidden = !nextCursor;
-    extendAllRails();
   } catch (err) {
     console.error('loadTimeline failed', err);
     toast('error al cargar timeline', 'error');
@@ -98,7 +97,6 @@ export async function loadSinglePost() {
     }
     if (appended > 0) {
       $('#repliesHeader').hidden = false;
-      extendRails(container);
     }
   }
 }

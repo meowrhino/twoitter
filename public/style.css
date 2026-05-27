@@ -523,16 +523,18 @@ body.sidebar-hidden .side-col { display: none; }
   position: relative;
   transition: padding-bottom 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-/* cada post lleva su propio rail vertical a la izquierda — root o anidado.
-   --rail-bottom lo ajusta extendRails() en JS para que todos los rails del
-   mismo thread acaben al mismo Y (el bottom del último post). Valor por
-   defecto 14px = comportamiento previo si JS no ha corrido aún. */
+/* cada .post lleva su propio rail vertical a la izquierda. bottom:0 hace
+   que el rail llegue al fin del .post — que por construcción del DOM es:
+   - root del thread: bottom de .post-actions (la barra de botones, que
+     renderThread inserta como último hijo).
+   - nested: bottom de su .thread-replies (si tiene hijos) o de su body.
+   Sin JS de medición: el browser hace el layout y el rail "encaja" solo. */
 .post::before {
   content: '';
   position: absolute;
   left: var(--rail-x);
   top: 14px;
-  bottom: var(--rail-bottom, 14px);
+  bottom: 0;
   width: 1px;
   background: var(--hairline);
 }
@@ -997,15 +999,11 @@ body.lightbox-open { overflow: hidden; }
 .post.clickable.active::before {
   background: var(--accent);
 }
-/* Rail del root del thread cuando hay un descendiente .active: tira amarillo
-   ininterrumpido desde arriba del root hasta abajo del .post (que con
-   padding-bottom: 0 incluye la barra .post-actions). Así la guía amarilla
-   "envuelve" el thread activo y acompaña a los botones de la barra.
-   bottom: 0 sobreescribe var(--rail-bottom) — sale ganando por especificidad
-   (.post.thread-has-active::before > .post::before). */
+/* Rail del root cuando hay un descendiente .active: tira amarillo desde
+   arriba del root hasta abajo del .post-actions (último hijo del root).
+   Sólo cambia el color — bottom:0 ya está en la regla base. */
 .post.thread-has-active::before {
   background: var(--accent);
-  bottom: 0;
 }
 /* Barra de acciones — un único bar por thread, anclado al final del .post
    root. Se muestra cuando hay un .post.active en cualquier nivel del thread

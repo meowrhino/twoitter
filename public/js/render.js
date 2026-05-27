@@ -272,7 +272,14 @@ function bindSinglePostActions(postEl, p) {
 function bindThreadActions(threadRootEl) {
   const bar = threadRootEl.querySelector(':scope > .post-actions');
   if (!bar) return;
-  const target = () => threadRootEl.querySelector('.post.clickable.active');
+  // Si el root del thread está él mismo .active, querySelector NO lo matchearía
+  // (sólo busca descendientes). Hay que comprobar el root explícitamente antes
+  // de buscar dentro — si no, los botones no funcionan cuando el activo es el
+  // post raíz del thread (caso muy común en timeline sin replies).
+  const target = () =>
+    threadRootEl.matches('.post.clickable.active')
+      ? threadRootEl
+      : threadRootEl.querySelector('.post.clickable.active');
 
   bar.querySelector('.vertwoitt-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();

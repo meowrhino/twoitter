@@ -39,7 +39,7 @@ export function audioPlayerMarkup({ r2_key, transcript, src } = {}) {
   </div>${trBlock}`;
 }
 
-function fmt(t) {
+function fmtTime(t) {
   if (!Number.isFinite(t) || t < 0) return '--:--';
   const total = Math.floor(t);
   const m = Math.floor(total / 60);
@@ -59,10 +59,10 @@ function paintTime(player) {
     // los spans hijos (separador + duración).
     const first = curEl.firstChild;
     if (first && first.nodeType === Node.TEXT_NODE) {
-      first.nodeValue = fmt(audio.currentTime);
+      first.nodeValue = fmtTime(audio.currentTime);
     }
   }
-  if (durEl) durEl.textContent = fmt(audio.duration);
+  if (durEl) durEl.textContent = fmtTime(audio.duration);
 }
 
 function paintProgress(player) {

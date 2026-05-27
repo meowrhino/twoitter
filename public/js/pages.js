@@ -71,6 +71,10 @@ export function setupTimelineComposer() {
 }
 
 export async function loadSinglePost() {
+  if (POST_ID == null) {
+    $('#postContainer').innerHTML = '<p class="not-found">id de post inválido</p>';
+    return;
+  }
   const { ok, status, data } = await api(`/api/posts/${POST_ID}`);
   if (!ok) {
     if (status === 0) {

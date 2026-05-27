@@ -21,6 +21,10 @@
   --post-pad-x: 16px;   /* padding-left del .post */
   --rail-x: 6px;        /* X del rail dentro del .post */
   --indent-x: 14px;     /* sangría que añade cada .thread-replies */
+  /* easing estándar del proyecto — Material "decelerate". Cambios aquí
+     propagan a todas las transitions/animations sin tener que hacer
+     find&replace en cubic-bezier strings. */
+  --curve-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -524,13 +528,12 @@ body.sidebar-hidden .side-col { display: none; }
 
 .post {
   /* padding-left extra para que entre la guía vertical sin pisar el texto.
-     padding-bottom 18px reserva cola para el rail vertical (visible al
-     hover); cuando el post está .active, esta misma propiedad se anima a
-     0 para que la barra de acciones quede flush contra el bottom del .post
-     sin un hueco sobrante debajo. */
-  padding: 18px 4px 18px var(--post-pad-x);
+     padding-bottom: 0 siempre — la separación visual entre posts viene del
+     padding-top (18 root / 14 nested) del siguiente y del margin-bottom del
+     .thread. Antes lo gestionábamos con transición a 0 al activar, pero
+     visualmente queda más limpio dejarlo a 0 por defecto. */
+  padding: 18px 4px 0 var(--post-pad-x);
   position: relative;
-  transition: padding-bottom 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* cada .post lleva su propio rail vertical a la izquierda. bottom:-9999px
    hace que el rail se extienda muchísimo por debajo de su .post; el clip
@@ -635,8 +638,8 @@ body.sidebar-hidden .side-col { display: none; }
      Material — suave en ambas direcciones sin sentir lento. */
   opacity: 1;
   transition:
-    opacity 240ms cubic-bezier(0.4, 0, 0.2, 1),
-    height 240ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 240ms var(--curve-standard),
+    height 240ms var(--curve-standard);
 }
 .gallery > .stage.is-fading { opacity: 0; }
 .gallery > .stage > img,
@@ -723,8 +726,8 @@ body.sidebar-hidden .side-col { display: none; }
   /* Mismo patrón de fade+altura que el stage del feed. */
   opacity: 1;
   transition:
-    opacity 240ms cubic-bezier(0.4, 0, 0.2, 1),
-    height 240ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 240ms var(--curve-standard),
+    height 240ms var(--curve-standard);
 }
 .lightbox-stage.is-fading { opacity: 0; }
 .lightbox-stage > img,
@@ -816,9 +819,9 @@ body.lightbox-open { overflow: hidden; }
   /* Slide vertical + fade. cubic-bezier de Material para coherencia con la
      galería y el lightbox. */
   transition:
-    max-height 200ms cubic-bezier(0.4, 0, 0.2, 1),
-    padding    200ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity    140ms cubic-bezier(0.4, 0, 0.2, 1);
+    max-height 200ms var(--curve-standard),
+    padding    200ms var(--curve-standard),
+    opacity    140ms var(--curve-standard);
 }
 .post-actions button {
   background: none;
@@ -1043,22 +1046,9 @@ body.lightbox-open { overflow: hidden; }
      de los botones (la caja de .post-actions era más alta que el texto). */
   padding: 10px var(--post-pad-x) 0;
 }
-/* Cuando hay algo activo en el thread (o es single root), el padding-bottom
-   estructural del .post root se va a 0: la barra ya aporta su propio aire
-   abajo, y sin esto quedaría un hueco vacío de 18px debajo. La transición
-   ya está definida en la regla base de .post. */
-.post.thread-has-active,
-.single-post #postContainer > .post {
-  padding-bottom: 0;
-}
-/* Y lo mismo para los .post ANIDADOS dentro de un thread con activo: si no
-   se quita su padding-bottom: 18px, se acumula en cada nivel de anidación
-   (4 niveles = 72px de hueco vacío entre el último twoitt y la barra de
-   botones). Como todos los rails llegan al mismo bottom vía overflow:hidden,
-   no hace falta separación visual entre nested .post y la barra. */
-.post.thread-has-active .thread-replies .post {
-  padding-bottom: 0;
-}
+/* (padding-bottom: 0 está en la regla base de .post — antes vivía aquí como
+   override condicional para .thread-has-active, pero al hacerlo siempre el
+   thread queda más limpio y desaparece la diferencia visual entre estados.) */
 /* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
    pintaría un outline sobre el .post completo (que incluye el subtree
    anidado) y volveríamos a tener la asimetría padre/hijo. El indicador

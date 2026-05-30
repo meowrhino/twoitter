@@ -42,6 +42,9 @@ export async function loadTimeline(reset = false) {
     $('#loadMore').hidden = !nextCursor;
   } catch (err) {
     console.error('loadTimeline failed', err);
+    // Si era la carga inicial, limpiar los skeletons estáticos (en loadMore
+    // no tocamos lo ya pintado).
+    if (reset) $('#timeline').innerHTML = '';
     toast('error al cargar timeline', 'error');
   } finally {
     loading = false;
@@ -87,6 +90,7 @@ export async function loadSinglePost() {
   }
   const { post, replies } = data;
   document.title = `twoitter — ${post.text?.slice(0, 40) || 'post'}`;
+  $('#postContainer').innerHTML = ''; // quita el skeleton estático
   $('#postContainer').appendChild(renderPost(post, { single: true }));
 
   if (replies.length) {

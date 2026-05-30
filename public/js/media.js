@@ -9,31 +9,51 @@
 // imagen via canvas WebP. La compresión arranca al adjuntar para aprovechar
 // el tiempo que el usuario tarda escribiendo el post.
 
-import { api } from './api.js';
+import { CSRF_HEADERS } from './state.js';
 import { uuid } from './utils.js';
 import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
 import { audioPlayerMarkup } from './audio-player.js';
 
-async function uploadBlob(blob, folder) {
-  const { ok, status, data } = await api('/api/upload', {
-    method: 'POST',
-    body: blob,
-    headers: {
-      'content-type': blob.type,
-      'x-content-type': blob.type,
-      'x-folder': folder,
-    },
+// Subimos vía XHR (no fetch) para poder reportar el progreso real con
+// xhr.upload.onprogress — fetch no expone progreso de subida. onProgress
+// recibe un ratio 0..1. Replica lo que hacía api(): cookie de sesión
+// (same-origin) + CSRF header. Devuelve el JSON del server ({ key, ... }).
+function uploadBlob(blob, folder, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('content-type', blob.type);
+    xhr.setRequestHeader('x-content-type', blob.type);
+    xhr.setRequestHeader('x-folder', folder);
+    for (const [k, v] of Object.entries(CSRF_HEADERS)) xhr.setRequestHeader(k, v);
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      });
+    }
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('upload failed: respuesta no-JSON'));
+        }
+      } else {
+        reject(new Error('upload failed: ' + xhr.status));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('upload failed: red')));
+    xhr.send(blob);
   });
-  if (!ok) throw new Error('upload failed: ' + status);
-  return data;
 }
 
 // Sube los blobs ya procesados + (si es vídeo) thumbnail. `kind` puede ser
 // 'image' | 'video' | 'audio'; el folder R2 cambia en consecuencia.
-async function uploadCompressed(compressed, kind) {
+async function uploadCompressed(compressed, kind, onProgress) {
   const folder =
     kind === 'video' ? 'videos' : kind === 'audio' ? 'audios' : 'images';
-  const main = await uploadBlob(compressed.blob, folder);
+  const main = await uploadBlob(compressed.blob, folder, onProgress);
   let thumb_key = null;
   if (kind === 'video' && compressed.thumbBlob) {
     try {
@@ -140,9 +160,17 @@ export function setItemStatus(itemEl, kind, extra = {}) {
     fill.style.width = '100%';
     label.textContent = extra.sizeMB ? `${extra.sizeMB} MB · listo` : 'comprimido';
   } else if (kind === 'uploading') {
-    status.classList.add('indeterminate');
-    fill.style.width = '';
-    label.textContent = 'subiendo a R2…';
+    if (extra.percent != null) {
+      // % real desde xhr.upload.onprogress → barra determinada.
+      status.classList.remove('indeterminate');
+      fill.style.width = `${extra.percent}%`;
+      label.textContent = `subiendo ${extra.percent}%`;
+    } else {
+      // Fallback (aún sin progreso / blob diminuto): barra indeterminada.
+      status.classList.add('indeterminate');
+      fill.style.width = '';
+      label.textContent = 'subiendo a R2…';
+    }
   } else if (kind === 'ok') {
     // No usamos setTimeout para ocultar: el preview se vacía justo después
     // en composer.js (preview.innerHTML = ''), y el feedback real es el
@@ -267,7 +295,9 @@ export async function uploadPendingFiles(pending, previewRoot) {
 
     if (itemEl) setItemStatus(itemEl, 'uploading');
     try {
-      const meta = await uploadCompressed(item.compressed, item.kind);
+      const meta = await uploadCompressed(item.compressed, item.kind, (ratio) => {
+        if (itemEl) setItemStatus(itemEl, 'uploading', { percent: Math.round(ratio * 100) });
+      });
       if (!pending.has(localId)) continue; // borrado durante el upload
       pending.set(localId, { ...item, ...meta, status: 'ready' });
       if (itemEl) setItemStatus(itemEl, 'ok');

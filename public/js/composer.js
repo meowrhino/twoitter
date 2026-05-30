@@ -54,7 +54,13 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, parent
     if (!t && !hasFiles) return;
 
     const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn) submitBtn.disabled = true;
+    // Guardamos la etiqueta original ("publicar" o "responder") para
+    // restaurarla; mientras tanto el botón muestra el estado de subida.
+    const submitLabel = submitBtn?.textContent;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'publicando…';
+    }
     try {
       const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
       const { ok, data: post } = await api('/api/posts', {
@@ -73,7 +79,10 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, parent
       // publicar solo se vuelven a subir los que estaban en 'pending'.
       toast('error al publicar', 'error');
     } finally {
-      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = submitLabel;
+      }
     }
   });
 }

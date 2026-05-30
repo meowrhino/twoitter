@@ -4,6 +4,8 @@
 //   - renderPost / renderThread (estructura HTML del post)
 //   - bindPostClickToNavigate + setupTapToActivate (flujo de .active)
 //   - syncThreadActiveFlags (clase .thread-has-active en el root)
+//   - markExtendsToBottom (clase .extends-to-bottom para los .post de
+//     la "rama extrema derecha" — controla hasta dónde llega su rail)
 //
 // Las barras de acciones (responder/ocultar/borrar/transcribir/ver twoitt)
 // y sus handlers viven en post-actions.js — render.js sólo invoca su API.
@@ -100,6 +102,7 @@ function syncThreadActiveFlags() {
       const nowId = active.dataset.id ?? '';
       root.classList.add('thread-has-active');
       paintActiveRail(root, active);
+      observeActiveRoot(root);
       if (prevId && prevId !== nowId) {
         // Cambio de target dentro del mismo thread: pequeño "blink" en la
         // barra para señalar que los botones ahora apuntan a otro twoitt.
@@ -114,6 +117,7 @@ function syncThreadActiveFlags() {
       root.dataset.lastActiveId = nowId;
     } else {
       root.classList.remove('thread-has-active');
+      unobserveActiveRoot(root);
       // No borramos lastActiveId aquí: syncThreadActiveFlags se llama dos veces
       // por click (document capture phase + .post bubble) y la primera pasada
       // ve "ningún active" momentáneamente. Si borráramos, la segunda pasada
@@ -124,23 +128,68 @@ function syncThreadActiveFlags() {
   });
 }
 
-// Mide el .active relativo al .post root del thread y setea CSS vars para
-// que el ::after del root pinte el rail amarillo en la posición correcta,
-// animando height desde 0. El protocolo de doble set (none → reflow →
-// transition con target) evita un bug visto en una iteración anterior:
-// al cambiar de un activo a otro RÁPIDO, height transitionaba entre dos
-// valores no nulos y, si el nuevo top era más alto, el rail "se desbordaba"
-// por debajo (porque visual = top + height transitionado). Reseteando
-// height a 0 instantáneo y luego animando, el rail siempre crece desde 0.
-function paintActiveRail(rootPost, activePost) {
+// ----- rama extrema derecha del thread -----
+//
+// Un .post está en la "rama extrema derecha" si no tiene hermanos .post
+// posteriores ni él ni ninguno de sus ancestros hasta el root. Los .post
+// que cumplen esto llevan la clase .extends-to-bottom y su rail (gris vía
+// CSS, y amarillo vía paintActiveRail) se extiende hasta el bottom del
+// thread; los demás se cortan en el bottom de su propio .post para no
+// atravesar visualmente a hermanos posteriores que queden a menos
+// profundidad (caso típico: #97 depth 3 con #98 depth 2 debajo).
+//
+// Se evita un selector CSS :has() porque su invalidación dinámica al
+// añadir/quitar elementos está bugueada en algunas versiones de Chromium
+// (mismo motivo por el que .thread-has-active se gestiona desde JS).
+// Llamar a markExtendsToBottom tras cada add/delete vía notifyThreadChanged.
+function computeExtendsToBottom(post, root) {
+  let cur = post;
+  while (cur && cur !== root) {
+    const parent = cur.parentElement;
+    if (parent && parent.classList.contains('thread-replies')) {
+      let sib = cur.nextElementSibling;
+      while (sib && !sib.classList.contains('post')) sib = sib.nextElementSibling;
+      if (sib) return false;
+    }
+    cur = parent ? parent.closest('.post') : null;
+  }
+  return true;
+}
+export function markExtendsToBottom(threadRoot) {
+  if (!threadRoot) return;
+  const all = [threadRoot, ...threadRoot.querySelectorAll('.post')];
+  for (const p of all) {
+    p.classList.toggle('extends-to-bottom', computeExtendsToBottom(p, threadRoot));
+  }
+}
+
+// Mide el .active relativo al .post root del thread y devuelve las coords
+// (px, relativas al root) que el ::after del root necesita para pintar el
+// rail amarillo. height depende de si el activo lleva .extends-to-bottom
+// (ver arriba): si sí, llega al bottom del root; si no, al bottom del
+// propio activo.
+function measureRail(rootPost, activePost) {
   const rootRect = rootPost.getBoundingClientRect();
   const activeRect = activePost.getBoundingClientRect();
   // +14 alinea con .post::before { top: 14px } (rail estructural gris).
   const top = activeRect.top - rootRect.top + 14;
   // +6 = --rail-x. activeRect.left ya incluye toda la sangría acumulada.
   const left = activeRect.left - rootRect.left + 6;
-  const height = rootRect.bottom - (activeRect.top + 14);
+  const height = activePost.classList.contains('extends-to-bottom')
+    ? rootRect.bottom - (activeRect.top + 14)
+    : activeRect.bottom - (activeRect.top + 14);
+  return { top, left, height };
+}
 
+// Pinta el rail con el protocolo de doble set (none → reflow → transition
+// con target), que evita un bug visto en una iteración anterior: al cambiar
+// de un activo a otro RÁPIDO, height transitionaba entre dos valores no
+// nulos y, si el nuevo top era más alto, el rail "se desbordaba" por debajo
+// (porque visual = top + height transitionado). Reseteando height a 0
+// instantáneo y luego animando, el rail siempre crece desde 0. Se usa al
+// ACTIVAR un twoitt o al cambiar de target dentro del thread.
+function paintActiveRail(rootPost, activePost) {
+  const { top, left, height } = measureRail(rootPost, activePost);
   // Fase 1: snap a la nueva posición + reset de height SIN transición.
   rootPost.style.setProperty('--active-rail-trans', 'none');
   rootPost.style.setProperty('--active-rail-top', `${top}px`);
@@ -152,6 +201,47 @@ function paintActiveRail(rootPost, activePost) {
   // Fase 2: habilitar transition y disparar el fill animado a target.
   rootPost.style.removeProperty('--active-rail-trans');
   rootPost.style.setProperty('--active-rail-height', `${height}px`);
+}
+
+// Repinta el rail SIN re-snap a 0: deja la transición por defecto (height
+// 320ms) activa, así crece/encoge suave cuando el root activo cambia de
+// altura DESPUÉS de activarse. Lo dispara el railObserver de abajo.
+function updateActiveRail(rootPost, activePost) {
+  const { top, left, height } = measureRail(rootPost, activePost);
+  rootPost.style.setProperty('--active-rail-top', `${top}px`);
+  rootPost.style.setProperty('--active-rail-left', `${left}px`);
+  rootPost.style.setProperty('--active-rail-height', `${height}px`);
+}
+
+// Un único ResizeObserver vigila el root del thread activo y repinta el
+// rail ante cualquier cambio de altura del subtree. paintActiveRail solo
+// corre al activar; sin esto el rail se quedaba corto cuando el post crecía
+// DESPUÉS (abrir el reply-inline, imágenes loading="lazy" que cargan tarde,
+// transcripción que aparece, una respuesta recién enviada). El ::after del
+// rail es position:absolute → no afecta al layout del root, así que no hay
+// bucle de feedback. Observamos un solo root a la vez (el activo vigente).
+let observedRoot = null;
+const railObserver =
+  typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver(() => {
+        if (!observedRoot) return;
+        const active = observedRoot.classList.contains('active')
+          ? observedRoot
+          : observedRoot.querySelector('.post.active');
+        if (active) updateActiveRail(observedRoot, active);
+      })
+    : null;
+
+function observeActiveRoot(root) {
+  if (!railObserver || observedRoot === root) return;
+  if (observedRoot) railObserver.unobserve(observedRoot);
+  railObserver.observe(root);
+  observedRoot = root;
+}
+function unobserveActiveRoot(root) {
+  if (!railObserver || observedRoot !== root) return;
+  railObserver.unobserve(root);
+  observedRoot = null;
 }
 
 // ----- renderPost / renderThread -----
@@ -208,6 +298,9 @@ export function renderThread(p, { asRoot = true } = {}) {
     // Los handlers leen .post.active del subtree como target.
     el.insertAdjacentHTML('beforeend', renderThreadActionsHtml());
     bindThreadActions(el);
+    // Marca de "rama extrema derecha" para el subtree del thread. Tras
+    // add/delete se vuelve a llamar desde notifyThreadChanged (rails.js).
+    markExtendsToBottom(el);
   }
   return el;
 }

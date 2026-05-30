@@ -307,8 +307,11 @@ textarea {
   grid-template-columns: minmax(0, 1fr) 220px;
   gap: 32px;
   max-width: 880px;
-  margin: 64px auto 80px;
-  padding: 0 24px;
+  margin: 64px auto 0;
+  /* padding-bottom generoso (no margin para evitar margin-collapse hacia
+     fuera del body): deja respirar al final del scroll, para que el último
+     twoitt no quede pegado al borde inferior del viewport. */
+  padding: 0 24px 40vh;
 }
 
 body.anon .layout,
@@ -530,6 +533,36 @@ body.sidebar-hidden .side-col { display: none; }
 
 .timeline { display: flex; flex-direction: column; }
 
+/* skeletons del loader inicial: cajas con forma de twoitt que "brillan"
+   mientras llega el primer fetch. Van estáticas en el HTML (paint inmediato,
+   antes incluso de que corra app.js) y las limpia loadTimeline/loadSinglePost
+   al pintar el contenido real. Misma sangría que un .post para que no salten. */
+.skeleton { padding: 18px 4px 0 var(--post-pad-x); }
+.skeleton + .skeleton { margin-top: 18px; }
+.sk-line {
+  height: 12px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--hairline) 25%,
+    rgba(154, 144, 130, 0.22) 50%,
+    var(--hairline) 75%
+  );
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+.sk-w50 { width: 50%; }
+.sk-w70 { width: 70%; }
+.sk-w90 { width: 90%; }
+@keyframes sk-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-line { animation: none; background: var(--hairline); opacity: 0.6; }
+}
+
 .post {
   /* padding-left extra para que entre la guía vertical sin pisar el texto.
      padding-bottom: 0 siempre — la separación visual entre posts viene del
@@ -539,41 +572,55 @@ body.sidebar-hidden .side-col { display: none; }
   padding: 18px 4px 0 var(--post-pad-x);
   position: relative;
 }
-/* cada .post lleva su propio rail vertical a la izquierda. bottom:-9999px
-   hace que el rail se extienda muchísimo por debajo de su .post; el clip
-   real lo hace el `overflow: hidden` del root del thread (ver más abajo).
-   Resultado: todos los rails terminan en el bottom de la barra de botones
-   (último hijo del root), independientemente de a qué profundidad estén.
-   Sin JS de medición. */
+/* cada .post lleva su propio rail vertical a la izquierda. Por defecto
+   bottom:0 → el rail termina en el bottom del propio .post. Esto evita
+   que el rail de un descendiente profundo se extienda más allá y
+   atraviese visualmente a un hermano posterior menos profundo (caso
+   típico: #97 depth 3 con #98 depth 2 debajo).
+   Excepción: los .post de la "rama extrema derecha" (sin hermanos .post
+   posteriores ni ellos ni ningún ancestro) recuperan bottom:-9999px para
+   que el rail siga llegando al bottom de la barra del thread. La marca
+   .extends-to-bottom la pone JS (markExtendsToBottom en render.js),
+   recalculada en cada add/delete vía notifyThreadChanged. */
 .post::before {
   content: '';
   position: absolute;
   left: var(--rail-x);
   top: 14px;
-  bottom: -9999px;
+  bottom: 0;
   width: 1px;
   background: var(--hairline);
 }
-/* Recorte de los rails al bottom del thread. Los .post-actions son último
-   hijo del root, así que el bottom del root = bottom de la barra. Cualquier
-   ::before que se extienda más abajo queda clipeado aquí. Aplicar tanto al
-   root de timeline (.thread > .post) como al root de cada thread en single
-   view (#replies > .post). */
+.post.extends-to-bottom::before {
+  bottom: -9999px;
+}
+/* Recorte de los rails extendidos al bottom del thread. Los .post-actions
+   son último hijo del root, así que el bottom del root = bottom de la
+   barra. Cualquier ::before con bottom:-9999px (los .extends-to-bottom)
+   queda clipeado aquí. Aplicar tanto al root de timeline (.thread > .post)
+   como al root de cada thread en single view (#replies > .post). */
 .thread > .post,
 #replies > .post {
   overflow: hidden;
 }
-/* hover y click viven en el .post, pero limitados al más interno con
-   :not(:has(.post:hover)) para que pasar el cursor por un descendiente no
-   ilumine también al ancestro. el área incluye el rail estructural (::before
-   del .post): pasar el cursor por la línea vertical también dispara el
-   hover, sin tener que estar dentro del .post-body. */
+/* Click sigue ligado a todo el .post (ver bindPostClickToNavigate en
+   render.js): clickar el rail o el padding también activa el post. Pero
+   el feedback visual de hover está restringido al .post-body propio para
+   que pasar el cursor por el rail o por el padding-left no ilumine nada.
+   Como .post-body es hijo directo y único de cada .post (no anida con los
+   .post-body de hijos, que viven dentro de .thread-replies), no hace
+   falta el viejo :not(:has(.post:hover)) — cada .post-body es exclusivo
+   de su nivel. */
 .post.clickable { cursor: pointer; }
-.post.clickable:hover:not(:has(.post:hover)) > .post-body {
+.post.clickable > .post-body:hover {
   background: rgba(232, 176, 74, 0.04);
 }
-/* el rail estructural cambia a amarillo en hover del .post más interno */
-.post.clickable:hover:not(:has(.post:hover))::before {
+/* Rail estructural en amarillo cuando el .post-body propio está en hover.
+   :has() con :hover está bien soportado en browsers modernos; a diferencia
+   del caso de .thread-has-active (donde :has() se evitó por bugs de
+   invalidación al toggle de clases vía JS), aquí el estado :hover lo
+   gestiona el browser internamente, sin add/remove de clases. */
+.post.clickable:has(> .post-body:hover)::before {
   background: var(--accent);
   transition: background 0.15s ease;
 }
@@ -1009,17 +1056,18 @@ body.lightbox-open { overflow: hidden; }
   opacity: 0.85;
 }
 
-/* .active: un click sobre el .post-body añade esta clase. El estado
-   "revelado" es el mismo que el del post principal en /post/:id (donde
-   no hay .clickable y todo está visible permanentemente).
+/* .active: un click sobre el .post-body añade esta clase.
    El alpha del fondo es el doble que el de hover (0.08 vs 0.04), así
    si pasas el cursor por encima de un activo se nota el "sumado" sin
    meter una segunda variable de color.
    El fondo va al .post-body (no al .post): así un padre activo y un
    hijo activo enmarcan SU contenido, no el subtree entero. La caja del
-   active es simétrica para root y replies. */
-.post.clickable.active > .post-body,
-.single-post #postContainer > .post > .post-body {
+   active es simétrica para root y replies.
+   En /post/:id el post principal NO lleva fondo: ya está aislado en su
+   propia página, marcarlo como "activo" queda redundante y se lee como
+   un hover pegado. La barra de acciones del root sí se muestra siempre
+   en single-view (ver más abajo). */
+.post.clickable.active > .post-body {
   background: rgba(232, 176, 74, 0.08);
   border-radius: 4px;
 }
@@ -1027,8 +1075,11 @@ body.lightbox-open { overflow: hidden; }
    animation desde arriba. Position absolute dentro del root (que tiene
    position:relative). Las CSS vars --active-rail-{top,left,height} las
    setea paintActiveRail() en render.js, midiendo el active relativo al
-   root. La transition height anima el "encendido" desde 0 hasta target.
-   Al cambiar de un activo a otro, JS resetea height a 0 con transition:
+   root. La altura depende de si el activo lleva .extends-to-bottom:
+   si sí, va hasta el bottom del root (= bottom de la barra); si no, se
+   queda en el bottom de su propio .post (incluido su subtree).
+   La transition height anima el "encendido" desde 0 hasta target. Al
+   cambiar de un activo a otro, JS resetea height a 0 con transition:
    none, force-reflow, y luego setea target con transition normal — así
    el rail SIEMPRE crece desde 0 (sin glitches por height transitioning
    entre dos valores no nulos cuando top/left saltan a otra posición).
@@ -1119,8 +1170,11 @@ body.lightbox-open { overflow: hidden; }
 
 .single-post {
   max-width: 640px;
-  margin: 64px auto 80px;
-  padding: 0 24px;
+  margin: 64px auto 0;
+  /* padding-bottom generoso (no margin para evitar margin-collapse hacia
+     fuera del body, mismo razonamiento que .layout): respiración al final
+     del thread para que el último reply no quede pegado al borde. */
+  padding: 0 24px 40vh;
 }
 /* solo el post principal (hijo directo de #postContainer) recibe el padding
    especial. los replies de abajo siguen con el .post base — si no, hereda

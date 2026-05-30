@@ -10,7 +10,7 @@
 import { api } from './api.js';
 import { toast } from './utils.js';
 import { isAuthed } from './auth.js';
-import { notifyThreadChanged, getThreadRoot } from './rails.js';
+import { notifyThreadChanged, getThreadRoot, relaunchActiveRail } from './rails.js';
 import { makeInlineComposer } from './composer.js';
 import { updateGalleryTranscript } from './gallery.js';
 import { hide } from './hidden.js';
@@ -87,13 +87,18 @@ export function refreshThreadTranscribeBtn(postEl) {
 
 function openReplyComposer(targetEl, parentId) {
   const existing = targetEl.querySelector(':scope > .reply-inline');
-  if (existing) { existing.remove(); return; }
+  // Toggle-off: quitar el composer abierto. relaunchActiveRail porque este
+  // botón vive en .post-actions y el listener global no repinta el rail.
+  if (existing) { existing.remove(); relaunchActiveRail(); return; }
   const composer = makeInlineComposer(targetEl, parentId);
   // El composer va DIRECTAMENTE detrás del .post-body. Si lo apendieras al
   // .post a secas, caería tras .thread-replies / .post-actions, descolocado.
   const body = targetEl.querySelector(':scope > .post-body');
   if (body) body.after(composer);
   else targetEl.prepend(composer);
+  // El rail debe crecer para cubrir el composer recién abierto. Síncrono
+  // (getBoundingClientRect fuerza reflow) → el rail ya mide la nueva altura.
+  relaunchActiveRail();
 }
 
 async function doTranscribe(targetEl, btn) {

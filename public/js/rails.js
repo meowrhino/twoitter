@@ -200,3 +200,19 @@ export function unobserveActiveRoot(root) {
   railObserver.unobserve(root);
   observedRoot = null;
 }
+
+// Re-lanza el rail del root activo (snap a 0 + crece, mismo efecto visual
+// que al activar un twoitt). Lo usa el reply-inline al abrir/cerrar: ese
+// botón vive dentro de .post-actions, que el listener global de activación
+// (setupTapToActivate en render.js) ignora a propósito — así que sin esto
+// abrir/cerrar el reply no dispara ningún repintado salvo el del
+// ResizeObserver, que es async y "no se relanza" a la vista. Llamarlo
+// síncrono tras insertar/quitar el composer hace que el rail cubra (o
+// libere) su altura en el mismo gesto. No-op si no hay root activo.
+export function relaunchActiveRail() {
+  if (!observedRoot) return;
+  const active = observedRoot.classList.contains('active')
+    ? observedRoot
+    : observedRoot.querySelector('.post.active');
+  if (active) paintActiveRail(observedRoot, active);
+}

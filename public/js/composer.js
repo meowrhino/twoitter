@@ -6,7 +6,7 @@ import { isAuthed } from './auth.js';
 import { toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { renderThread } from './render.js';
-import { notifyThreadChanged, getThreadRoot, relaunchActiveRail } from './rails.js';
+import { notifyThreadChanged, getThreadRoot, refreshActiveRail } from './rails.js';
 import { wireRecorderButton, canRecord } from './recorder.js';
 
 // ----- estado interno -----
@@ -122,10 +122,10 @@ export function makeInlineComposer(parentPostEl, parentId) {
     const state = composerState.get(form);
     if (state) revokePendingUrls(state.pending);
     form.remove();
-    // El rail debe encoger al quitar el composer. Síncrono tras el remove
-    // (igual que openReplyComposer al abrir) → no dependemos del repintado
-    // accidental del click global ni del ResizeObserver async.
-    relaunchActiveRail();
+    // El rail encoge (suave) al quitar el composer. Síncrono tras el remove
+    // (igual que openReplyComposer al abrir) → no dependemos del ResizeObserver
+    // async, que además no corre en pestañas ocultas.
+    refreshActiveRail();
   };
 
   wireComposer({

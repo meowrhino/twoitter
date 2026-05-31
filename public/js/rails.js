@@ -160,10 +160,12 @@ export function paintActiveRail(rootPost, activePost) {
   rootPost.style.setProperty('--active-rail-height', `${height}px`);
 }
 
-// Repinta el rail SIN re-snap a 0: deja la transición por defecto (height
-// 320ms) activa, así crece/encoge suave cuando el root activo cambia de
-// altura DESPUÉS de activarse. Lo dispara el railObserver de abajo.
-function updateActiveRail(rootPost, activePost) {
+// Repinta el rail SIN re-snap a 0: deja la transición por defecto (top/left/
+// height 320ms) activa, así crece/encoge/se desliza suave cuando el root
+// activo cambia de altura o el target cambia DESPUÉS de activarse. Lo dispara
+// el railObserver de abajo, refreshActiveRail (reply-inline) y el cambio de
+// target en syncThreadActiveFlags (render.js).
+export function updateActiveRail(rootPost, activePost) {
   const { top, left, height } = measureRail(rootPost, activePost);
   rootPost.style.setProperty('--active-rail-top', `${top}px`);
   rootPost.style.setProperty('--active-rail-left', `${left}px`);
@@ -201,18 +203,65 @@ export function unobserveActiveRoot(root) {
   observedRoot = null;
 }
 
-// Re-lanza el rail del root activo (snap a 0 + crece, mismo efecto visual
-// que al activar un twoitt). Lo usa el reply-inline al abrir/cerrar: ese
-// botón vive dentro de .post-actions, que el listener global de activación
-// (setupTapToActivate en render.js) ignora a propósito — así que sin esto
-// abrir/cerrar el reply no dispara ningún repintado salvo el del
-// ResizeObserver, que es async y "no se relanza" a la vista. Llamarlo
-// síncrono tras insertar/quitar el composer hace que el rail cubra (o
-// libere) su altura en el mismo gesto. No-op si no hay root activo.
-export function relaunchActiveRail() {
+// Reajusta el rail del root activo de forma SUAVE (updateActiveRail, no
+// re-snap a 0). Lo usa el reply-inline al abrir/cerrar: ese botón vive dentro
+// de .post-actions, que el listener global de activación (setupTapToActivate
+// en render.js) ignora a propósito — así que sin esto abrir/cerrar el reply
+// dependería sólo del ResizeObserver, que es async (y no corre en pestañas
+// ocultas). Llamarlo síncrono tras insertar/quitar el composer estira o
+// encoge el rail en el mismo gesto. No-op si no hay root activo.
+export function refreshActiveRail() {
   if (!observedRoot) return;
   const active = observedRoot.classList.contains('active')
     ? observedRoot
     : observedRoot.querySelector('.post.active');
-  if (active) paintActiveRail(observedRoot, active);
+  if (active) updateActiveRail(observedRoot, active);
+}
+
+// ----- apagado animado del rail -----
+//
+// Al desactivar (clic fuera) no quitamos .thread-has-active de golpe: eso
+// haría desaparecer el rail amarillo y la barra al instante. En su lugar lo
+// "recogemos hacia arriba" (height→0 con top fijo, inverso de encender) y
+// fundimos la barra (.thread-closing), y sólo tras la animación quitamos las
+// clases y limpiamos las vars.
+//
+// syncThreadActiveFlags corre DOS veces por click (capture + bubble). Al
+// cambiar de un twoitt activo a otro del mismo hilo, la pasada de captura ve
+// "ningún activo" un instante y pediría cerrar; por eso scheduleRailClose
+// difiere con queueMicrotask y re-checa: si para cuando corre el root ya
+// recuperó un .active (la pasada de burbuja), aborta. cancelRailClose maneja
+// el caso de reactivar cuando el cierre YA empezó a animar.
+const RAIL_CLOSE_MS = 360; // > 320ms de la transición de height
+const closeTimers = new Map(); // root -> timeoutId del cleanup post-animación
+
+function startRailClose(root) {
+  if (closeTimers.has(root)) return; // ya cerrándose
+  root.classList.add('thread-closing'); // funde la barra (CSS)
+  root.style.setProperty('--active-rail-height', '0px'); // recoge hacia arriba
+  unobserveActiveRoot(root);
+  const tid = setTimeout(() => {
+    closeTimers.delete(root);
+    root.classList.remove('thread-has-active', 'thread-closing');
+    root.style.removeProperty('--active-rail-top');
+    root.style.removeProperty('--active-rail-left');
+    root.style.removeProperty('--active-rail-height');
+    root.style.removeProperty('--active-rail-trans');
+  }, RAIL_CLOSE_MS);
+  closeTimers.set(root, tid);
+}
+
+export function scheduleRailClose(root) {
+  queueMicrotask(() => {
+    // Re-check tras asentar el click completo (capture + bubble).
+    if (root.classList.contains('active') || root.querySelector('.post.active')) return;
+    if (!root.classList.contains('thread-has-active')) return;
+    startRailClose(root);
+  });
+}
+
+export function cancelRailClose(root) {
+  const tid = closeTimers.get(root);
+  if (tid) { clearTimeout(tid); closeTimers.delete(root); }
+  root.classList.remove('thread-closing');
 }

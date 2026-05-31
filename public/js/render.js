@@ -16,8 +16,10 @@ import { isHidden } from './hidden.js';
 import {
   markExtendsToBottom,
   paintActiveRail,
+  updateActiveRail,
   observeActiveRoot,
-  unobserveActiveRoot,
+  scheduleRailClose,
+  cancelRailClose,
 } from './rails.js';
 import {
   renderSinglePostActions,
@@ -94,10 +96,13 @@ export function setupTapToActivate() {
 // él o cualquier descendiente está .active. Esa clase:
 //   1. Muestra la barra de .post-actions (child directo del root)
 //   2. Activa el ::after del root que pinta el rail amarillo animado
-// Además: pinta el rail (paintActiveRail), arranca/para el ResizeObserver del
-// rail (observeActiveRoot/unobserveActiveRoot) y dispara el blink de la barra
-// cuando el .active cambia de un twoitt a otro dentro del mismo thread.
-// Evitamos un selector :has() en CSS porque su invalidación dinámica al
+// Además gobierna la animación del rail amarillo con UNA sola gramática:
+//   - encender (no estaba activo) → paintActiveRail: crece desde arriba (0→full)
+//   - cambiar de target / reajustar → updateActiveRail: se desliza/estira suave
+//   - apagar (sin .active) → scheduleRailClose: se recoge hacia arriba y funde
+//     la barra (inverso de encender), no desaparece de golpe.
+// Y dispara el blink de la barra cuando el .active cambia de twoitt en el mismo
+// thread. Evitamos un selector :has() en CSS porque su invalidación dinámica al
 // quitar una clase está bugueada en algunas versiones de Chromium.
 function syncThreadActiveFlags() {
   document.querySelectorAll('.thread > .post, #replies > .post').forEach((root) => {
@@ -105,11 +110,17 @@ function syncThreadActiveFlags() {
       ? root
       : root.querySelector('.post.active');
     if (active) {
+      cancelRailClose(root); // aborta un apagado en curso si lo había
       const prevId = root.dataset.lastActiveId;
       const nowId = active.dataset.id ?? '';
+      // wasActive: el rail ya estaba encendido → reajuste suave; si no, es un
+      // "encender" y crece desde 0. Se mide tras cancelRailClose (que quita
+      // .thread-closing) y ANTES de re-añadir la clase.
+      const wasActive = root.classList.contains('thread-has-active');
       root.classList.add('thread-has-active');
-      paintActiveRail(root, active);
       observeActiveRoot(root);
+      if (wasActive) updateActiveRail(root, active);
+      else paintActiveRail(root, active);
       if (prevId && prevId !== nowId) {
         // Cambio de target dentro del mismo thread: pequeño "blink" en la
         // barra para señalar que los botones ahora apuntan a otro twoitt.
@@ -122,9 +133,11 @@ function syncThreadActiveFlags() {
         }
       }
       root.dataset.lastActiveId = nowId;
-    } else {
-      root.classList.remove('thread-has-active');
-      unobserveActiveRoot(root);
+    } else if (root.classList.contains('thread-has-active')) {
+      // Apagado animado (diferido + re-check, ver scheduleRailClose en rails.js):
+      // si esto es la pasada de captura de un cambio de target, la de burbuja
+      // reactivará el root y el cierre se aborta solo.
+      scheduleRailClose(root);
       // No borramos lastActiveId aquí: syncThreadActiveFlags se llama dos veces
       // por click (document capture phase + .post bubble) y la primera pasada
       // ve "ningún active" momentáneamente. Si borráramos, la segunda pasada

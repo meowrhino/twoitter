@@ -1092,7 +1092,24 @@ body.lightbox-open { overflow: hidden; }
   width: 2px;
   height: var(--active-rail-height, 0);
   background: var(--accent);
-  transition: var(--active-rail-trans, height 320ms var(--curve-standard));
+  /* Anima top/left además de height: al cambiar de un twoitt activo a otro
+     del mismo hilo el rail se DESLIZA suave a la nueva posición en vez de
+     saltar. paintActiveRail (encender) congela top/left con --active-rail-trans:
+     none en su fase 1, así que ahí no transicionan — sólo crece la height.
+     Animar top y height a la par mantiene bottom = top+height monótono entre
+     dos valores válidos (sin el viejo desborde por abajo); overflow:hidden del
+     root recorta cualquier sobrante. */
+  transition: var(--active-rail-trans,
+    top 320ms var(--curve-standard),
+    left 320ms var(--curve-standard),
+    height 320ms var(--curve-standard));
+  pointer-events: none;
+}
+/* Apagado: mientras el rail se recoge (.thread-closing, lo pone startRailClose
+   en rails.js), la barra de acciones se desvanece a la vez en vez de
+   desaparecer de golpe. */
+.post.thread-has-active.thread-closing > .post-actions {
+  opacity: 0;
   pointer-events: none;
 }
 /* Barra de acciones — un único bar por thread, anclado al final del .post

@@ -136,18 +136,10 @@ function syncThreadActiveFlags() {
       else paintActiveRail(root, active);                  // encender: crece desde arriba
       // Recalcular la cascada de botones (sólo al encender o cambiar de target;
       // en sameTarget el conjunto visible no cambió, pero recalcular es barato).
+      // Antes aquí había un "blink" (bar-flash) al cambiar de target; se quitó
+      // porque switchActiveRail ya recoge+recrece el rail y los botones salen y
+      // reaparecen en cascada, señalando el cambio sin parpadeo redundante.
       if (!sameTarget) staggerActionButtons(root.querySelector(':scope > .post-actions'));
-      if (prevId && prevId !== nowId) {
-        // Cambio de target dentro del mismo thread: pequeño "blink" en la
-        // barra para señalar que los botones ahora apuntan a otro twoitt.
-        const bar = root.querySelector(':scope > .post-actions');
-        if (bar) {
-          bar.classList.remove('refreshing');
-          // Force reflow para reiniciar la animación si estaba a medias.
-          void bar.offsetWidth;
-          bar.classList.add('refreshing');
-        }
-      }
       root.dataset.lastActiveId = nowId;
     } else if (root.classList.contains('thread-has-active')) {
       // Apagado animado (diferido + re-check, ver scheduleRailClose en rails.js):

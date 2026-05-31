@@ -83,6 +83,25 @@ export function refreshThreadTranscribeBtn(postEl) {
   btn.hidden = postEl.dataset.hasUntranscribed !== '1';
 }
 
+// Escalona la entrada/salida de los botones de una barra al ritmo del rail.
+// Setea en cada botón VISIBLE dos índices que el CSS usa como retardo:
+//   --si → índice desde la DERECHA (0 = el más a la derecha): apertura en
+//          cascada derecha→izquierda, sincronizada con el rail creciendo.
+//   --sc → índice desde la IZQUIERDA: cierre simétrico inverso (los de la
+//          izquierda se van primero) cuando el rail se recoge.
+// Se recalcula en cada activación porque "transcribir" se muestra/oculta según
+// el target: contar sólo los visibles evita un hueco en mitad de la cascada.
+// Debe llamarse DESPUÉS de refreshThreadTranscribeBtn (que fija qué se ve).
+export function staggerActionButtons(bar) {
+  if (!bar) return;
+  const btns = [...bar.children].filter((b) => b.tagName === 'BUTTON' && !b.hidden);
+  const n = btns.length;
+  btns.forEach((b, i) => {
+    b.style.setProperty('--si', String(n - 1 - i)); // desde la derecha (apertura)
+    b.style.setProperty('--sc', String(i));          // desde la izquierda (cierre)
+  });
+}
+
 // ----- handlers compartidos -----
 
 function openReplyComposer(targetEl, parentId) {
@@ -185,6 +204,9 @@ function bindButtonsOnBar(bar, rules) {
 export function bindSinglePostActions(postEl, p) {
   const bar = postEl.querySelector(':scope > .post-actions');
   if (!bar) return;
+  // Barra siempre visible en single-view: fija sus índices de cascada una vez
+  // (entran escalonados de derecha a izquierda al cargar la página).
+  staggerActionButtons(bar);
   bindButtonsOnBar(bar, {
     '.reply-btn': () => openReplyComposer(postEl, p.id),
     '.transcribe-btn': async (btn) => {

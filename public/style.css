@@ -865,16 +865,13 @@ body.lightbox-open { overflow: hidden; }
   padding: 0 var(--post-pad-x);
   max-height: 0;
   overflow: hidden;
-  opacity: 0;
   pointer-events: none;
-  /* Sólo opacity transitions. max-height y padding cambian INSTANTÁNEAMENTE
-     al activar para que paintActiveRail() pueda medir el bottom final del
-     root .post en el mismo frame que la activación, sin tener que esperar
-     a que la altura del bar se asiente. Antes había un slide-down con
-     max-height + padding (200ms), pero causaba que el rail amarillo
-     quedara corto frente al gris (medía mid-transition). El fade de
-     opacity da suficiente suavidad visual. */
-  transition: opacity 140ms var(--curve-standard);
+  /* max-height y padding cambian INSTANTÁNEAMENTE al activar (sin transición)
+     para que paintActiveRail() mida el bottom final del root en el mismo frame
+     que la activación, sin esperar a que la barra se asiente. El fade ya NO lo
+     hace la barra: cada botón entra individualmente, en cascada de derecha a
+     izquierda y al ritmo del rail (reglas de abajo). overflow:hidden recorta
+     los botones mientras max-height es 0 (cerrado). */
 }
 .post-actions button {
   background: none;
@@ -884,6 +881,17 @@ body.lightbox-open { overflow: hidden; }
   padding: 0;
   font-family: inherit;
   font-size: inherit;
+  /* Estado cerrado: invisible y desplazado ligeramente a la derecha. Al activar
+     el twoitt cada botón entra con fade + slide hacia la izquierda; el retardo
+     --si (índice desde la derecha, 0 = el más a la derecha) escalona la entrada
+     de derecha a izquierda. Paso 30ms × ≤5 botones + 200ms de transición ≈ los
+     320ms que tarda el rail en crecer, así barra y rail van al mismo ritmo.
+     --si/--sc los setea staggerActionButtons (post-actions.js). */
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 200ms var(--curve-standard),
+    transform 200ms var(--curve-standard);
 }
 .post-actions .vertwoitt-btn:hover { color: var(--accent); }
 .post-actions .reply-btn:hover { color: var(--accent); }
@@ -1106,11 +1114,15 @@ body.lightbox-open { overflow: hidden; }
   pointer-events: none;
 }
 /* Apagado: mientras el rail se recoge (.thread-closing, lo pone startRailClose
-   en rails.js), la barra de acciones se desvanece a la vez en vez de
-   desaparecer de golpe. */
+   en rails.js), los botones salen en cascada INVERSA (izquierda→derecha, vía
+   --sc) a la vez que el rail, en vez de desaparecer de golpe. */
 .post.thread-has-active.thread-closing > .post-actions {
-  opacity: 0;
   pointer-events: none;
+}
+.post.thread-has-active.thread-closing > .post-actions button {
+  opacity: 0;
+  transform: translateX(6px);
+  transition-delay: calc(var(--sc, 0) * 30ms);
 }
 /* Barra de acciones — un único bar por thread, anclado al final del .post
    root. Se muestra cuando hay un .post.active en cualquier nivel del thread
@@ -1122,7 +1134,6 @@ body.lightbox-open { overflow: hidden; }
    siempre visible. */
 .post.thread-has-active > .post-actions,
 .single-post #postContainer > .post > .post-actions {
-  opacity: 1;
   pointer-events: auto;
   max-height: 60px;
   /* padding-bottom: 0 → los botones quedan flush contra el bottom de la
@@ -1130,6 +1141,14 @@ body.lightbox-open { overflow: hidden; }
      Sin esto, el padding-bottom dejaba ~10px de cola amarilla por debajo
      de los botones (la caja de .post-actions era más alta que el texto). */
   padding: 10px var(--post-pad-x) 0;
+}
+/* Cada botón entra: fade 0→1 + slide a su sitio, escalonado por --si (desde la
+   derecha) para la cascada derecha→izquierda sincronizada con el rail. */
+.post.thread-has-active > .post-actions button,
+.single-post #postContainer > .post > .post-actions button {
+  opacity: 1;
+  transform: none;
+  transition-delay: calc(var(--si, 0) * 30ms);
 }
 /* (padding-bottom: 0 está en la regla base de .post — antes vivía aquí como
    override condicional para .thread-has-active, pero al hacerlo siempre el

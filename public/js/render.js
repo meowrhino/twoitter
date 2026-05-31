@@ -28,6 +28,7 @@ import {
   bindSinglePostActions,
   bindThreadActions,
   refreshThreadTranscribeBtn,
+  staggerActionButtons,
 } from './post-actions.js';
 
 function renderPostFoot(p) {
@@ -66,8 +67,10 @@ function bindPostClickToNavigate(postEl, p) {
       if (el !== postEl) el.classList.remove('active');
     });
     postEl.classList.add('active');
-    syncThreadActiveFlags();
+    // refreshThreadTranscribeBtn ANTES de sync: fija qué botones se ven, para
+    // que staggerActionButtons (dentro de sync) cuente sólo los visibles.
     refreshThreadTranscribeBtn(postEl);
+    syncThreadActiveFlags();
   };
   postEl.addEventListener('click', activate);
   postEl.addEventListener('keydown', (e) => {
@@ -131,6 +134,9 @@ function syncThreadActiveFlags() {
       if (sameTarget) updateActiveRail(root, active);      // mismo twoitt: suave
       else if (wasActive) switchActiveRail(root, active);  // otro twoitt: apaga+enciende
       else paintActiveRail(root, active);                  // encender: crece desde arriba
+      // Recalcular la cascada de botones (sólo al encender o cambiar de target;
+      // en sameTarget el conjunto visible no cambió, pero recalcular es barato).
+      if (!sameTarget) staggerActionButtons(root.querySelector(':scope > .post-actions'));
       if (prevId && prevId !== nowId) {
         // Cambio de target dentro del mismo thread: pequeño "blink" en la
         // barra para señalar que los botones ahora apuntan a otro twoitt.

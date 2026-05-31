@@ -276,7 +276,8 @@ export function switchActiveRail(rootPost, activePost) {
 function startRailClose(root) {
   if (root.classList.contains('thread-closing')) return; // ya cerrándose
   clearPending(root); // cancela un cambio pendiente si lo había
-  root.classList.add('thread-closing'); // funde la barra (CSS)
+  root.classList.add('thread-closing'); // funde la barra + saca los botones en
+  // cascada inversa (izquierda→derecha), todo vía CSS (.thread-closing button).
   root.style.setProperty('--active-rail-height', '0px'); // recoge hacia arriba
   unobserveActiveRoot(root);
   const tid = setTimeout(() => {
@@ -323,4 +324,34 @@ export function lockstepRail(duration = 360) {
     lockstepTimer = null;
     if (!pendingTimers.has(root)) root.style.removeProperty('--active-rail-trans');
   }, duration);
+}
+
+// ----- liberar el rail al borrar/ocultar un twoitt -----
+//
+// Llamar DESPUÉS de quitar nodos del DOM (doDelete/doHide → removeFromDom).
+// El ResizeObserver y observedRoot son estado de módulo con referencia FUERTE
+// al .post root activo; si ese root (o un ancestro) se borra, quedarían
+// apuntando a un nodo detached hasta la siguiente activación, y si el borrado
+// fue el propio .active, el rail amarillo se quedaría "colgado" sobre el hueco.
+// releaseRail detecta ambos casos y limpia:
+//   - root detached (se borró él o su .thread)      → suelta observer + timer
+//   - root vivo pero ya sin ningún .active dentro    → apaga el rail al instante
+//     (clases + CSS vars) y suelta el observer
+// No-op si no hay root observado o si sigue teniendo un activo (se borró otro).
+export function releaseRail() {
+  if (!observedRoot) return;
+  const stillActive = observedRoot.isConnected &&
+    (observedRoot.classList.contains('active') || observedRoot.querySelector('.post.active'));
+  if (stillActive) return;
+  clearPending(observedRoot);
+  if (lockstepTimer) { clearTimeout(lockstepTimer); lockstepTimer = null; }
+  railObserver?.unobserve(observedRoot);
+  if (observedRoot.isConnected) {
+    observedRoot.classList.remove('thread-has-active', 'thread-closing');
+    observedRoot.style.removeProperty('--active-rail-top');
+    observedRoot.style.removeProperty('--active-rail-left');
+    observedRoot.style.removeProperty('--active-rail-height');
+    observedRoot.style.removeProperty('--active-rail-trans');
+  }
+  observedRoot = null;
 }

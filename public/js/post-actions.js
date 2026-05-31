@@ -10,7 +10,7 @@
 import { api } from './api.js';
 import { toast } from './utils.js';
 import { isAuthed } from './auth.js';
-import { notifyThreadChanged, getThreadRoot } from './rails.js';
+import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './composer.js';
 import { updateGalleryTranscript } from './gallery.js';
 import { hide } from './hidden.js';
@@ -150,6 +150,10 @@ function removeFromDom(targetEl, ctx = null) {
   } else {
     targetEl.closest('.thread')?.remove() || targetEl.remove();
   }
+  // Si el twoitt borrado/ocultado era el .active (o su thread), el rail amarillo
+  // quedaría colgado y el ResizeObserver apuntando a un nodo detached. releaseRail
+  // lo suelta; no-op si seguía habiendo otro .active (se borró un twoitt distinto).
+  releaseRail();
   notifyThreadChanged({ parentPost, threadRoot: root, delta: -1 });
 }
 

@@ -303,3 +303,24 @@ export function cancelRailClose(root) {
   clearPending(root); // cancela cierre O cambio pendiente
   root.classList.remove('thread-closing');
 }
+
+// ----- lockstep con una animación de altura externa (composer abriéndose) -----
+//
+// Cuando el reply-inline crece/encoge animado, el .post root cambia de altura y
+// el ResizeObserver de arriba repinta el rail. Pero con la transición CSS del
+// rail activa (320ms), el rail "persigue" un target que se mueve → llega con
+// lag. lockstepRail desactiva esa transición durante `duration` ms: el observer
+// setea height = altura real del post en cada frame SIN suavizado, así el rail
+// queda pegado exacto a la animación del composer. Al terminar restaura la
+// transición (salvo que un switch/close ya la esté gestionando).
+let lockstepTimer = null;
+export function lockstepRail(duration = 360) {
+  if (!observedRoot) return;
+  const root = observedRoot;
+  root.style.setProperty('--active-rail-trans', 'none');
+  if (lockstepTimer) clearTimeout(lockstepTimer);
+  lockstepTimer = setTimeout(() => {
+    lockstepTimer = null;
+    if (!pendingTimers.has(root)) root.style.removeProperty('--active-rail-trans');
+  }, duration);
+}

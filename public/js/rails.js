@@ -180,10 +180,19 @@ export function updateActiveRail(rootPost, activePost) {
 // rail es position:absolute → no afecta al layout del root, así que no hay
 // bucle de feedback. Observamos un solo root a la vez (el activo vigente).
 let observedRoot = null;
+// timeoutId por root de las animaciones diferidas (switch/close). Se declara
+// aquí arriba porque el observer lo consulta (ver guarda en su callback).
+// Nunca hay dos pendientes a la vez sobre el mismo root.
+const pendingTimers = new Map();
 const railObserver =
   typeof ResizeObserver !== 'undefined'
     ? new ResizeObserver(() => {
         if (!observedRoot) return;
+        // Si hay un switch/close EN VUELO sobre este root, no repintar: el rail
+        // está recogiéndose a 0 a propósito y un updateActiveRail aquí lo haría
+        // "saltar" a la altura nueva (reintroduce el vuelo que el switch evita,
+        // y pelea con el cierre). El propio timer hará el repintado al terminar.
+        if (pendingTimers.has(observedRoot)) return;
         const active = observedRoot.classList.contains('active')
           ? observedRoot
           : observedRoot.querySelector('.post.active');
@@ -218,37 +227,67 @@ export function refreshActiveRail() {
   if (active) updateActiveRail(observedRoot, active);
 }
 
-// ----- apagado animado del rail -----
+// ----- apagado + cambio de twoitt: animaciones diferidas del rail -----
 //
-// Al desactivar (clic fuera) no quitamos .thread-has-active de golpe: eso
-// haría desaparecer el rail amarillo y la barra al instante. En su lugar lo
-// "recogemos hacia arriba" (height→0 con top fijo, inverso de encender) y
-// fundimos la barra (.thread-closing), y sólo tras la animación quitamos las
-// clases y limpiamos las vars.
+// Dos gestos del rail necesitan un timer (recoger, esperar, y luego limpiar o
+// repintar). Nunca hay dos pendientes a la vez sobre el mismo root, así que un
+// único Map basta; clearPending() cancela el que hubiera.
+//
+//   APAGAR (clic fuera): no quitamos .thread-has-active de golpe (haría
+//   desaparecer rail+barra al instante). Lo "recogemos hacia arriba" (height→0
+//   con top fijo, inverso de encender) + fundimos la barra (.thread-closing), y
+//   sólo tras la animación quitamos las clases y limpiamos las vars.
+//
+//   CAMBIAR de twoitt: cambiar = apagar uno + encender otro, NO un "vuelo" del
+//   rail. switchActiveRail recoge el viejo hacia arriba (height→0, top intacto)
+//   y, al terminar, crece desde arriba en la nueva posición (paintActiveRail).
 //
 // syncThreadActiveFlags corre DOS veces por click (capture + bubble). Al
-// cambiar de un twoitt activo a otro del mismo hilo, la pasada de captura ve
-// "ningún activo" un instante y pediría cerrar; por eso scheduleRailClose
-// difiere con queueMicrotask y re-checa: si para cuando corre el root ya
-// recuperó un .active (la pasada de burbuja), aborta. cancelRailClose maneja
-// el caso de reactivar cuando el cierre YA empezó a animar.
-const RAIL_CLOSE_MS = 360; // > 320ms de la transición de height
-const closeTimers = new Map(); // root -> timeoutId del cleanup post-animación
+// cambiar de target, la pasada de captura ve "ningún activo" un instante y
+// pediría cerrar; por eso scheduleRailClose difiere con queueMicrotask y
+// re-checa: si para cuando corre el root ya recuperó un .active (la pasada de
+// burbuja), aborta. Y la rama activa llama cancelRailClose, que limpia tanto un
+// cierre como un cambio pendiente antes de programar el nuevo gesto.
+const RAIL_CLOSE_MS = 360;  // > 320ms de la transición de height (cleanup)
+const RAIL_SWITCH_MS = 340; // espera a que el viejo se recoja antes de crecer
+// pendingTimers se declara arriba (lo consulta el ResizeObserver).
+
+function clearPending(root) {
+  const t = pendingTimers.get(root);
+  if (t) { clearTimeout(t); pendingTimers.delete(root); }
+}
+
+// Cambiar de twoitt activo dentro del mismo thread: recoge el rail viejo y
+// luego lo enciende en el nuevo sitio (secuencial, no vuela).
+export function switchActiveRail(rootPost, activePost) {
+  clearPending(rootPost); // cancela un cierre/cambio en curso
+  // Fase A: recoger el viejo hacia arriba. height→0 con la transición por
+  // defecto; NO tocamos top/left, así se encoge en su sitio en vez de viajar.
+  rootPost.style.removeProperty('--active-rail-trans');
+  rootPost.style.setProperty('--active-rail-height', '0px');
+  // Fase B: tras recogerse, crecer desde arriba en la NUEVA posición.
+  const tid = setTimeout(() => {
+    pendingTimers.delete(rootPost);
+    paintActiveRail(rootPost, activePost);
+  }, RAIL_SWITCH_MS);
+  pendingTimers.set(rootPost, tid);
+}
 
 function startRailClose(root) {
-  if (closeTimers.has(root)) return; // ya cerrándose
+  if (root.classList.contains('thread-closing')) return; // ya cerrándose
+  clearPending(root); // cancela un cambio pendiente si lo había
   root.classList.add('thread-closing'); // funde la barra (CSS)
   root.style.setProperty('--active-rail-height', '0px'); // recoge hacia arriba
   unobserveActiveRoot(root);
   const tid = setTimeout(() => {
-    closeTimers.delete(root);
+    pendingTimers.delete(root);
     root.classList.remove('thread-has-active', 'thread-closing');
     root.style.removeProperty('--active-rail-top');
     root.style.removeProperty('--active-rail-left');
     root.style.removeProperty('--active-rail-height');
     root.style.removeProperty('--active-rail-trans');
   }, RAIL_CLOSE_MS);
-  closeTimers.set(root, tid);
+  pendingTimers.set(root, tid);
 }
 
 export function scheduleRailClose(root) {
@@ -261,7 +300,6 @@ export function scheduleRailClose(root) {
 }
 
 export function cancelRailClose(root) {
-  const tid = closeTimers.get(root);
-  if (tid) { clearTimeout(tid); closeTimers.delete(root); }
+  clearPending(root); // cancela cierre O cambio pendiente
   root.classList.remove('thread-closing');
 }

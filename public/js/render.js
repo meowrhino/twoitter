@@ -17,6 +17,7 @@ import {
   markExtendsToBottom,
   paintActiveRail,
   updateActiveRail,
+  switchActiveRail,
   observeActiveRoot,
   scheduleRailClose,
   cancelRailClose,
@@ -97,10 +98,14 @@ export function setupTapToActivate() {
 //   1. Muestra la barra de .post-actions (child directo del root)
 //   2. Activa el ::after del root que pinta el rail amarillo animado
 // Además gobierna la animación del rail amarillo con UNA sola gramática:
-//   - encender (no estaba activo) → paintActiveRail: crece desde arriba (0→full)
-//   - cambiar de target / reajustar → updateActiveRail: se desliza/estira suave
-//   - apagar (sin .active) → scheduleRailClose: se recoge hacia arriba y funde
-//     la barra (inverso de encender), no desaparece de golpe.
+//   - encender (no estaba activo)        → paintActiveRail: crece desde arriba
+//   - cambiar de twoitt (otro .active)   → paintActiveRail: el viejo desaparece
+//     de golpe y el nuevo crece desde arriba en su posición (cambiar = apagar
+//     uno + encender otro, NO un "vuelo" del rail de un sitio a otro).
+//   - mismo twoitt que cambia de altura  → updateActiveRail: estira/encoge suave
+//     (abrir reply-inline, imagen lazy que carga tarde, transcripción).
+//   - apagar (sin .active)               → scheduleRailClose: se recoge hacia
+//     arriba y funde la barra (inverso de encender), no desaparece de golpe.
 // Y dispara el blink de la barra cuando el .active cambia de twoitt en el mismo
 // thread. Evitamos un selector :has() en CSS porque su invalidación dinámica al
 // quitar una clase está bugueada en algunas versiones de Chromium.
@@ -113,14 +118,19 @@ function syncThreadActiveFlags() {
       cancelRailClose(root); // aborta un apagado en curso si lo había
       const prevId = root.dataset.lastActiveId;
       const nowId = active.dataset.id ?? '';
-      // wasActive: el rail ya estaba encendido → reajuste suave; si no, es un
-      // "encender" y crece desde 0. Se mide tras cancelRailClose (que quita
-      // .thread-closing) y ANTES de re-añadir la clase.
+      // Distinguimos "mismo twoitt creciendo" de "otro twoitt". Se mide tras
+      // cancelRailClose (que quita .thread-closing) y ANTES de re-añadir la clase.
       const wasActive = root.classList.contains('thread-has-active');
+      // Tres caminos según qué cambió:
+      //   sameTarget (mismo twoitt, sólo cambió de altura) → updateActiveRail suave
+      //   otro twoitt estando ya activo                    → switchActiveRail (apaga+enciende)
+      //   encendido desde cero                             → paintActiveRail (crece desde arriba)
+      const sameTarget = wasActive && prevId === nowId;
       root.classList.add('thread-has-active');
       observeActiveRoot(root);
-      if (wasActive) updateActiveRail(root, active);
-      else paintActiveRail(root, active);
+      if (sameTarget) updateActiveRail(root, active);      // mismo twoitt: suave
+      else if (wasActive) switchActiveRail(root, active);  // otro twoitt: apaga+enciende
+      else paintActiveRail(root, active);                  // encender: crece desde arriba
       if (prevId && prevId !== nowId) {
         // Cambio de target dentro del mismo thread: pequeño "blink" en la
         // barra para señalar que los botones ahora apuntan a otro twoitt.

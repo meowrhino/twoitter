@@ -158,7 +158,10 @@ export function setItemStatus(itemEl, kind, extra = {}) {
     status.classList.remove('indeterminate');
     status.classList.add('status-ok');
     fill.style.width = '100%';
-    label.textContent = extra.sizeMB ? `${extra.sizeMB} MB · listo` : 'comprimido';
+    // Incluye el formato resultante (p.ej. "1.59 MB · webp") para que se vea de
+    // un vistazo si la compresión a webp se aplicó o el navegador la ignoró.
+    const tag = extra.fmt ? `${extra.sizeMB} MB · ${extra.fmt}` : `${extra.sizeMB} MB · listo`;
+    label.textContent = extra.sizeMB ? tag : 'comprimido';
   } else if (kind === 'uploading') {
     if (extra.percent != null) {
       // % real desde xhr.upload.onprogress → barra determinada.
@@ -249,7 +252,12 @@ export async function attachFile(file, previewRoot, pending) {
       item.compressed = result;
       item.status = 'compressed';
       const sizeMB = (result.blob.size / (1024 * 1024)).toFixed(2);
-      setItemStatus(itemEl, 'compressed', { sizeMB });
+      // Mostramos el formato resultante (webp/jpeg/png…) además del tamaño:
+      // si una imagen sube SIN comprimir es porque el navegador no generó webp
+      // (toBlob ignora el tipo y devuelve otro). Ver el formato real en el
+      // preview permite diagnosticarlo desde el propio dispositivo.
+      const fmt = (result.blob.type || '').split('/')[1] || '?';
+      setItemStatus(itemEl, 'compressed', { sizeMB, fmt });
       return result;
     })
     .catch((err) => {

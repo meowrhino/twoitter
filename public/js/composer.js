@@ -229,15 +229,23 @@ export function makeInlineComposer(parentPostEl, parentId) {
       // Encoge el composer (simétrico a la apertura) y, al terminar, inserta
       // la respuesta y notifica el cambio. Secuencial: el composer se recoge y
       // luego aparece el reply, en vez de saltar de uno a otro.
+      // animateComposerClose ya hace form.remove() en su finish() — no lo
+      // repetimos aquí.
       animateComposerClose(form, () => {
-        form.remove();
         const el = renderThread(post, { asRoot: false });
-        if (el) nested.appendChild(el);
-        notifyThreadChanged({
-          parentPost: parentPostEl,
-          threadRoot: getThreadRoot(parentPostEl),
-          delta: +1,
-        });
+        // Guard isConnected: si el usuario borró el .post padre durante la
+        // ventana de animación (~320-440ms), `nested` queda detached y el reply
+        // se insertaría en un nodo fuera del DOM (creado en la API pero perdido
+        // en la UI). Si pasó, no insertamos ni notificamos: el reply existe en
+        // el server y aparecerá al recargar.
+        if (el && nested.isConnected) {
+          nested.appendChild(el);
+          notifyThreadChanged({
+            parentPost: parentPostEl,
+            threadRoot: getThreadRoot(parentPostEl),
+            delta: +1,
+          });
+        }
       });
     },
   });

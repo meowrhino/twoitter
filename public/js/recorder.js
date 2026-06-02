@@ -138,9 +138,11 @@ function stopRecording(form, button, preview, pending) {
     const filename = `nota-${uuid()}.${ext}`;
     const file = new File([blob], filename, { type: mime });
 
-    // reset visual
+    // reset visual. La etiqueta original se guardó en dataset.idleLabel al
+    // empezar a grabar (startRecording). Antes había también `state._idleLabel`,
+    // que nunca se asignaba en ningún sitio → rama muerta; eliminada.
     button.classList.remove('is-recording');
-    button.textContent = state._idleLabel || button.dataset.idleLabel || 'grabar';
+    button.textContent = button.dataset.idleLabel || 'grabar';
 
     state.active = false;
     state.rec = null;

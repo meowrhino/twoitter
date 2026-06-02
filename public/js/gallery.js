@@ -245,6 +245,11 @@ export async function swapStage(galleryEl, index) {
 
   // Limpiar el lock de altura tras la transición para que la galería siga
   // siendo responsive (resize del viewport, video que mueve sus dims, etc).
+  // El guard `=== myNav` evita que un cleanup tardío pise un swap posterior.
+  // Importante: este cleanup SÓLO se agenda en el swap "ganador" (el que llega
+  // aquí). Si un swap fue superado antes (returns de arriba), el lock de altura
+  // que dejó lo hereda el swap ganador, que SIEMPRE pasa por este setTimeout y
+  // por tanto lo limpia. Así nunca queda la altura bloqueada permanentemente.
   setTimeout(() => {
     if (galleryNav.get(galleryEl) === myNav) {
       stage.style.height = '';

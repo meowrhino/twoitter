@@ -364,10 +364,23 @@ export async function listHashtags(
 }
 
 export async function exportAll(db: D1Database) {
+  // Solo posts vivos: el resto de queries (listPosts/getPost/getReplies) filtran
+  // deleted_at IS NULL; el export debe respetar el mismo contrato y no sacar
+  // contenido de la papelera. media/hashtags cuelgan por post_id, pero al venir
+  // los posts ya filtrados, los media/hashtags de posts borrados quedan
+  // huérfanos en el JSON sin su post — los excluimos también con un subselect.
   const [posts, media, hashtags] = await Promise.all([
-    db.prepare("SELECT * FROM posts ORDER BY id").all(),
-    db.prepare("SELECT * FROM media ORDER BY post_id, position").all(),
-    db.prepare("SELECT * FROM hashtags ORDER BY post_id, tag").all(),
+    db.prepare("SELECT * FROM posts WHERE deleted_at IS NULL ORDER BY id").all(),
+    db
+      .prepare(
+        "SELECT * FROM media WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id, position",
+      )
+      .all(),
+    db
+      .prepare(
+        "SELECT * FROM hashtags WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id, tag",
+      )
+      .all(),
   ]);
   return {
     exported_at: new Date().toISOString(),

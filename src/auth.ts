@@ -29,11 +29,27 @@ async function hmac(secret: string, msg: string): Promise<string> {
     .replace(/=+$/, "");
 }
 
-// constant-time string compare (avoids early-exit timing leaks)
+// Comparación en tiempo constante (sin early-exit que filtre por timing).
+// Antes hacía `if (a.length !== b.length) return false` ANTES del bucle: eso
+// devolvía en tiempo distinto según coincidiera o no la longitud, filtrando la
+// longitud de la contraseña por tiempo de respuesta del login. Ahora siempre
+// recorremos la cadena más larga (acumulando la diferencia de longitud en el
+// resultado), así el trabajo no depende de si las longitudes coinciden. Sigue
+// devolviendo false ante cualquier diferencia (longitud o contenido).
+// Nota honesta: en JS puro la constant-time perfecta no existe (JIT/GC), pero
+// esto elimina la fuga obvia y de bajo coste; suficiente para un login con
+// un único secreto.
 export function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  const len = Math.max(a.length, b.length);
+  // Sembramos con la diferencia de longitud: si difieren, result ya es != 0 y
+  // ninguna combinación de chars puede volver a ponerlo a 0.
+  let result = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    // charCodeAt fuera de rango devuelve NaN; (NaN >>> 0 ? ...) lo evitamos con || 0.
+    const ca = a.charCodeAt(i) || 0;
+    const cb = b.charCodeAt(i) || 0;
+    result |= ca ^ cb;
+  }
   return result === 0;
 }
 

@@ -140,6 +140,22 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
   if (text && text.length > 4000) {
     return c.json({ error: "texto demasiado largo" }, 400);
   }
+  // Cap de media: la UI permite pocos adjuntos por post; sin tope, un cliente
+  // malicioso podría mandar miles de entradas y spamear la tabla media.
+  if (media.length > 12) {
+    return c.json({ error: "demasiados adjuntos" }, 400);
+  }
+  // Validación runtime de cada media: los tipos TS no se aplican en runtime y
+  // el schema no tiene CHECK, así que un body manipulado podría meter un kind
+  // inválido o un r2_key vacío. attachMedia confía en estos campos.
+  for (const m of media) {
+    if (m.kind !== "image" && m.kind !== "video" && m.kind !== "audio") {
+      return c.json({ error: "kind de media invalido" }, 400);
+    }
+    if (typeof m.r2_key !== "string" || !m.r2_key) {
+      return c.json({ error: "media sin r2_key" }, 400);
+    }
+  }
 
   if (body.parent_id != null) {
     const parent = await c.env.DB

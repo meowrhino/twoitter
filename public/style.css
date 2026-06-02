@@ -139,11 +139,14 @@ button:hover, .link-btn:hover, .btn-secondary:hover {
 .btn-secondary {
   display: inline-block;
   text-align: center;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
+  /* padding y border ya vienen de la regla base de botones; aquí solo lo
+     específico de la variante secondary. */
   color: var(--text-dim);
 }
-.btn-secondary:hover { border-bottom-color: var(--accent); }
+/* border-color (no border-bottom-color): coherente con el resto de botones,
+   que cambian todo el borde en hover. El border-bottom-color era copia del
+   patrón de los <a>. */
+.btn-secondary:hover { border-color: var(--accent); }
 
 input, textarea {
   font-family: var(--mono);
@@ -496,7 +499,10 @@ body.sidebar-hidden .side-col { display: none; }
 .media-preview .item .status.status-ok .status-bar-fill { background: var(--accent); }
 .media-preview .item .status.status-err .status-bar-fill { background: var(--danger); }
 .media-preview .item .status.indeterminate .status-bar-fill {
-  width: 35% !important;
+  /* Sin !important: al activar 'indeterminate', setItemStatus borra el width
+     inline (fill.style.width = ''), así que no hay inline que ganar y esta
+     regla aplica por sí sola. */
+  width: 35%;
   animation: status-indeterminate 1.1s infinite linear;
 }
 @keyframes status-indeterminate {
@@ -844,6 +850,11 @@ body.lightbox-open { overflow: hidden; }
   letter-spacing: -0.02em;
 }
 .post-foot .permalink:hover .post-id { color: var(--accent-dim); }
+/* .resp-count ("N resp") es un <a> dentro de .post-foot, así que ya hereda
+   color/hover de '.post-foot a'. Regla dedicada (aunque hoy no añade props
+   visuales) para que el contador tenga un punto de anclaje propio y no dependa
+   solo de la herencia si el footer cambia. */
+.post-foot .resp-count { font-variant-numeric: tabular-nums; }
 
 /* ver twoitt / responder / transcribir / ocultar / borrar — barra de
    acciones al FINAL del .post (DOM order: body → reply-inline? → replies →
@@ -893,8 +904,8 @@ body.lightbox-open { overflow: hidden; }
     opacity 200ms var(--curve-standard),
     transform 200ms var(--curve-standard);
 }
-.post-actions .vertwoitt-btn:hover { color: var(--accent); }
-.post-actions .reply-btn:hover { color: var(--accent); }
+.post-actions .vertwoitt-btn:hover,
+.post-actions .reply-btn:hover,
 .post-actions .transcribe-btn:hover { color: var(--accent); }
 .post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
 .post-actions .hide-btn:hover { color: var(--text-dim); }

@@ -96,11 +96,11 @@ app.get("/api/posts", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
   const tag = c.req.query("tag") || undefined;
   const q = c.req.query("q") || undefined;
-  // Default 500 para soportar el modelo TL "carrete plano" (cargar TODO
-  // hasta este tope, auto-fetch al llegar al fondo). El cap duro lo
-  // refuerza listPosts(): Math.min(500, limit).
-  const limitRaw = parseInt(c.req.query("limit") || "500");
-  const limit = Number.isFinite(limitRaw) ? limitRaw : 500;
+  // Default 100 por página; el frontend carga "todo" progresivamente con
+  // auto-fetch. listPosts capa a 100 (Math.min) por el límite de subrequests
+  // y de parámetros vinculados de D1.
+  const limitRaw = parseInt(c.req.query("limit") || "100");
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 100;
   // voterId solo si el visitante ya tiene cookie firmada — no emitimos
   // cookies en GETs: la primera cookie nace al votar.
   const voterId = await readVoterId(c);

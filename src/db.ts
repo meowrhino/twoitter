@@ -54,10 +54,44 @@ export interface Post extends PostRow {
   parent_excerpt?: ParentExcerpt | null;
 }
 
-// Carga en bloque (1 query por relación, N posts) los extras de cada post:
-// media, hashtags, reply_count y poll. voterId opcional → si viene, cada
-// PollPublic resultante incluye `my_vote_id` para que el frontend pinte el
-// estado "ya votaste" sin un segundo fetch.
+// D1 limita los parámetros vinculados por query (~100). Cualquier lista de
+// IDs que metamos en un `IN (?,?,…)` hay que trocearla por debajo de ese
+// tope. Sin esto, pedir ~200+ posts de golpe reventaba con 500 "internal".
+const D1_MAX_BIND = 90;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// Ejecuta `SELECT … WHERE col IN (?…)` por lotes de IDs y concatena las filas.
+// `sqlFor` recibe el string de placeholders ("?,?,?"). `prefixBind` son binds
+// que van ANTES de los ids (p.ej. voter_id en la query de "mi voto"); restan
+// del tamaño de lote para no pasarnos del tope. Los lotes corren en paralelo.
+async function selectByIds<T>(
+  db: D1Database,
+  ids: number[],
+  sqlFor: (placeholders: string) => string,
+  prefixBind: unknown[] = [],
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const batches = chunk(ids, D1_MAX_BIND - prefixBind.length);
+  const res = await Promise.all(
+    batches.map((b) =>
+      db
+        .prepare(sqlFor(b.map(() => "?").join(",")))
+        .bind(...prefixBind, ...b)
+        .all<T>(),
+    ),
+  );
+  return res.flatMap((r) => r.results);
+}
+
+// Carga en bloque (1 query por relación, troceada por lotes) los extras de
+// cada post: media, hashtags, reply_count y poll. voterId opcional → si viene,
+// cada PollPublic resultante incluye `my_vote_id` para que el frontend pinte
+// el estado "ya votaste" sin un segundo fetch.
 async function attachMediaAndTags(
   db: D1Database,
   posts: PostRow[],
@@ -65,95 +99,87 @@ async function attachMediaAndTags(
 ): Promise<Post[]> {
   if (posts.length === 0) return [];
   const ids = posts.map((p) => p.id);
-  const placeholders = ids.map(() => "?").join(",");
 
-  // Query del voto del visitante: solo si tenemos voterId, evitamos un
-  // query inútil cuando nadie ha emitido cookie todavía.
-  const myVotesPromise: Promise<{ results: Array<{ post_id: number; option_id: number }> }> = voterId
-    ? db
-        .prepare(
-          `SELECT post_id, option_id FROM poll_votes WHERE voter_id = ? AND post_id IN (${placeholders})`,
-        )
-        .bind(voterId, ...ids)
-        .all<{ post_id: number; option_id: number }>()
-    : Promise.resolve({ results: [] });
-
-  const [mediaRes, tagRes, repliesRes, pollsRes, optionsRes, voteCountsRes, myVotesRes] =
+  // Cada relación es una query troceada en lotes ≤ D1_MAX_BIND (D1 capa los
+  // parámetros vinculados ~100). selectByIds concatena los lotes.
+  const [mediaRows, tagRows, replyRows, pollRows, optionRows, voteCountRows, myVoteRows] =
     await Promise.all([
-      db
-        .prepare(
-          `SELECT * FROM media WHERE post_id IN (${placeholders}) ORDER BY post_id, position`,
-        )
-        .bind(...ids)
-        .all<MediaRow>(),
-      db
-        .prepare(
-          `SELECT post_id, tag FROM hashtags WHERE post_id IN (${placeholders})`,
-        )
-        .bind(...ids)
-        .all<{ post_id: number; tag: string }>(),
-      db
-        .prepare(
-          `SELECT parent_id, COUNT(*) as c FROM posts WHERE parent_id IN (${placeholders}) GROUP BY parent_id`,
-        )
-        .bind(...ids)
-        .all<{ parent_id: number; c: number }>(),
-      db
-        .prepare(
-          `SELECT post_id FROM polls WHERE post_id IN (${placeholders})`,
-        )
-        .bind(...ids)
-        .all<{ post_id: number }>(),
-      db
-        .prepare(
-          `SELECT id, post_id, position, label FROM poll_options WHERE post_id IN (${placeholders}) ORDER BY post_id, position`,
-        )
-        .bind(...ids)
-        .all<{ id: number; post_id: number; position: number; label: string }>(),
-      db
-        .prepare(
-          `SELECT o.post_id, v.option_id, COUNT(*) as c
+      selectByIds<MediaRow>(
+        db,
+        ids,
+        (ph) => `SELECT * FROM media WHERE post_id IN (${ph}) ORDER BY post_id, position`,
+      ),
+      selectByIds<{ post_id: number; tag: string }>(
+        db,
+        ids,
+        (ph) => `SELECT post_id, tag FROM hashtags WHERE post_id IN (${ph})`,
+      ),
+      selectByIds<{ parent_id: number; c: number }>(
+        db,
+        ids,
+        (ph) => `SELECT parent_id, COUNT(*) as c FROM posts WHERE parent_id IN (${ph}) GROUP BY parent_id`,
+      ),
+      selectByIds<{ post_id: number }>(
+        db,
+        ids,
+        (ph) => `SELECT post_id FROM polls WHERE post_id IN (${ph})`,
+      ),
+      selectByIds<{ id: number; post_id: number; position: number; label: string }>(
+        db,
+        ids,
+        (ph) => `SELECT id, post_id, position, label FROM poll_options WHERE post_id IN (${ph}) ORDER BY post_id, position`,
+      ),
+      selectByIds<{ post_id: number; option_id: number; c: number }>(
+        db,
+        ids,
+        (ph) => `SELECT o.post_id, v.option_id, COUNT(*) as c
              FROM poll_votes v JOIN poll_options o ON o.id = v.option_id
-             WHERE o.post_id IN (${placeholders})
+             WHERE o.post_id IN (${ph})
              GROUP BY o.post_id, v.option_id`,
-        )
-        .bind(...ids)
-        .all<{ post_id: number; option_id: number; c: number }>(),
-      myVotesPromise,
+      ),
+      // Voto del visitante: solo si hay cookie. voterId va como prefixBind.
+      voterId
+        ? selectByIds<{ post_id: number; option_id: number }>(
+            db,
+            ids,
+            (ph) => `SELECT post_id, option_id FROM poll_votes WHERE voter_id = ? AND post_id IN (${ph})`,
+            [voterId],
+          )
+        : Promise.resolve([] as Array<{ post_id: number; option_id: number }>),
     ]);
 
   const mediaByPost = new Map<number, MediaRow[]>();
-  for (const m of mediaRes.results) {
+  for (const m of mediaRows) {
     const arr = mediaByPost.get(m.post_id) || [];
     arr.push(m);
     mediaByPost.set(m.post_id, arr);
   }
   const tagsByPost = new Map<number, string[]>();
-  for (const t of tagRes.results) {
+  for (const t of tagRows) {
     const arr = tagsByPost.get(t.post_id) || [];
     arr.push(t.tag);
     tagsByPost.set(t.post_id, arr);
   }
   const repliesByPost = new Map<number, number>();
-  for (const r of repliesRes.results) {
+  for (const r of replyRows) {
     repliesByPost.set(r.parent_id, r.c);
   }
-  const pollPostIds = new Set<number>(pollsRes.results.map((p) => p.post_id));
+  const pollPostIds = new Set<number>(pollRows.map((p) => p.post_id));
   const optionsByPost = new Map<number, PollOptionPublic[]>();
-  for (const o of optionsRes.results) {
+  for (const o of optionRows) {
     const arr = optionsByPost.get(o.post_id) || [];
     arr.push({ id: o.id, position: o.position, label: o.label, votes: 0 });
     optionsByPost.set(o.post_id, arr);
   }
   // Volcar conteos sobre las opciones ya posicionadas.
-  for (const v of voteCountsRes.results) {
+  for (const v of voteCountRows) {
     const arr = optionsByPost.get(v.post_id);
     if (!arr) continue;
     const opt = arr.find((o) => o.id === v.option_id);
     if (opt) opt.votes = v.c;
   }
   const myVoteByPost = new Map<number, number>();
-  for (const mv of myVotesRes.results) {
+  for (const mv of myVoteRows) {
     myVoteByPost.set(mv.post_id, mv.option_id);
   }
 
@@ -170,15 +196,13 @@ async function attachMediaAndTags(
   ];
   const parentExcerptByPost = new Map<number, ParentExcerpt>();
   if (parentIds.length > 0) {
-    const pPlaceholders = parentIds.map(() => "?").join(",");
-    const parentRows = await db
-      .prepare(
-        `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
-           FROM posts WHERE id IN (${pPlaceholders})`,
-      )
-      .bind(...parentIds)
-      .all<{ id: number; snippet: string; deleted_at: string | null }>();
-    const byParentId = new Map(parentRows.results.map((r) => [r.id, r]));
+    const parentRows = await selectByIds<{ id: number; snippet: string; deleted_at: string | null }>(
+      db,
+      parentIds,
+      (ph) => `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
+           FROM posts WHERE id IN (${ph})`,
+    );
+    const byParentId = new Map(parentRows.map((r) => [r.id, r]));
     for (const p of posts) {
       if (p.parent_id == null) continue;
       const row = byParentId.get(p.parent_id);
@@ -229,10 +253,11 @@ export async function listPosts(
   db: D1Database,
   opts: { cursor?: string; tag?: string; q?: string; limit: number; voterId?: string | null },
 ): Promise<{ posts: Post[]; nextCursor: string | null }> {
-  // Cap subido a 500 para soportar el modelo TL "carrete plano" (cargar TODO
-  // hasta este tope, luego auto-fetch al llegar cerca del fondo). El cap
-  // duro evita queries gigantes si el corpus crece a 10k+.
-  const limit = Math.min(500, Math.max(1, opts.limit));
+  // Cap 100 por página: el frontend carga "todo" de forma progresiva con
+  // auto-fetch (IntersectionObserver) al llegar al fondo. 100 mantiene la
+  // respuesta ligera y el nº de subrequests de D1 bajo control (cada lote
+  // de IN-query es un subrequest; en plan free el tope es 50/petición).
+  const limit = Math.min(100, Math.max(1, opts.limit));
   // Devolvemos TODOS los posts (no solo roots): cada reply es su propio
   // ítem en la TL con header "en respuesta a (…)". El BLOQUE del padre
   // sigue rindiéndose anidado en el frontend usando .replies.
@@ -285,26 +310,27 @@ export async function listPosts(
   // Dedup por id porque un descendiente puede estar también en la página.
   // El level cap (256) es defensa contra ciclos accidentales en parent_id o
   // threads patológicamente profundos.
+  // CTE recursiva troceada igual que el resto (≤ D1_MAX_BIND seeds por lote).
+  // Cada lote recurre desde su subconjunto de raíces; el dedup posterior
+  // absorbe los solapes entre lotes y con la propia página.
   const pageIds = page.map((p) => p.id);
-  const placeholders = pageIds.map(() => "?").join(",");
-  const descRes = await db
-    .prepare(
-      `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
+  const descRows = await selectByIds<PostRow>(
+    db,
+    pageIds,
+    (ph) => `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
          SELECT p.id, p.text, p.parent_id, p.created_at, 1
-           FROM posts p WHERE p.parent_id IN (${placeholders}) AND p.deleted_at IS NULL
+           FROM posts p WHERE p.parent_id IN (${ph}) AND p.deleted_at IS NULL
          UNION ALL
          SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
            FROM posts c JOIN descendants d ON c.parent_id = d.id
            WHERE d.level < 256 AND c.deleted_at IS NULL
        )
        SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
-    )
-    .bind(...pageIds)
-    .all<PostRow>();
+  );
 
   const seenIds = new Set<number>();
   const combined: PostRow[] = [];
-  for (const row of [...page, ...descRes.results]) {
+  for (const row of [...page, ...descRows]) {
     if (seenIds.has(row.id)) continue;
     seenIds.add(row.id);
     combined.push(row);

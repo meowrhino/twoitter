@@ -17,21 +17,6 @@ import { hide } from './hidden.js';
 
 // ----- render HTML de las barras -----
 
-// Barra del single root: condicional, sólo botones que aplican al propio
-// post; "ver twoitt" no porque ya estamos en su single view; "ocultar" no
-// porque ocultar el post principal te dejaría con la página en blanco.
-export function renderSinglePostActions(p) {
-  const reply = isAuthed() ? '<button class="reply-btn" type="button">responder</button>' : '';
-  const audioMedia = (p.media || []).filter((m) => m.kind === 'audio');
-  const hasUntranscribed = audioMedia.some((m) => !m.transcript);
-  const transcribe = isAuthed() && hasUntranscribed
-    ? '<button class="transcribe-btn" type="button">transcribir</button>'
-    : '';
-  const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  if (!reply && !transcribe && !del) return '';
-  return `<div class="post-actions">${reply}${transcribe}${del}</div>`;
-}
-
 // Barra única por thread (timeline / replies anidados). Renderiza TODOS los
 // botones disponibles según auth; "transcribir" se muestra/oculta dinámicamente
 // según el .post.active vigente (refreshThreadTranscribeBtn).
@@ -146,7 +131,7 @@ function doHide(targetEl) {
   toast('post ocultado en este navegador', 'info');
 }
 
-async function doDelete(targetEl, { single = false } = {}) {
+async function doDelete(targetEl) {
   if (!confirm('¿borrar este post?')) return;
   // capturar parent + thread root ANTES del DOM removal — closest() no
   // funciona en nodos detached.
@@ -154,7 +139,6 @@ async function doDelete(targetEl, { single = false } = {}) {
   const root = getThreadRoot(targetEl);
   const { ok } = await api(`/api/posts/${targetEl.dataset.id}`, { method: 'DELETE' });
   if (!ok) { toast('error al borrar', 'error'); return; }
-  if (single) { location.href = '/'; return; }
   removeFromDom(targetEl, { parentPost, root });
 }
 
@@ -198,25 +182,6 @@ function bindButtonsOnBar(bar, rules) {
 
 // ----- binds concretos -----
 
-// Single-view: la barra opera siempre sobre el propio postEl. No hay vertwoitt
-// (ya estamos en su single). transcribe se autodestruye tras éxito porque sólo
-// aplica a este post.
-export function bindSinglePostActions(postEl, p) {
-  const bar = postEl.querySelector(':scope > .post-actions');
-  if (!bar) return;
-  // Barra siempre visible en single-view: fija sus índices de cascada una vez
-  // (entran escalonados de derecha a izquierda al cargar la página).
-  staggerActionButtons(bar);
-  bindButtonsOnBar(bar, {
-    '.reply-btn': () => openReplyComposer(postEl, p.id),
-    '.transcribe-btn': async (btn) => {
-      await doTranscribe(postEl, btn);
-      if (btn.hidden) btn.remove();
-    },
-    '.delete-btn': () => doDelete(postEl, { single: true }),
-  });
-}
-
 // Thread bar: target dinámico (el .post.active vigente). Si el root del thread
 // es él mismo .active, querySelector no lo matchearía (sólo busca descendientes),
 // así que comprobamos el root explícitamente con .matches() antes.
@@ -229,9 +194,12 @@ export function bindThreadActions(threadRootEl) {
       : threadRootEl.querySelector('.post.clickable.active');
 
   bindButtonsOnBar(bar, {
+    // "ver twoitt" ya no navega a /post/:id (vista eliminada). Pone el hash
+    // al id del post; el listener de hashchange (en render.js) hace el
+    // scrollIntoView + focus. Mismo resultado, sin recargar la página.
     '.vertwoitt-btn': () => {
       const t = target();
-      if (t) location.href = `/post/${t.dataset.id}`;
+      if (t) location.hash = '#' + t.dataset.id;
     },
     '.reply-btn': () => {
       const t = target();
@@ -248,7 +216,7 @@ export function bindThreadActions(threadRootEl) {
     },
     '.delete-btn': () => {
       const t = target();
-      if (t) return doDelete(t, { single: false });
+      if (t) return doDelete(t);
     },
   });
 }

@@ -541,8 +541,8 @@ body.sidebar-hidden .side-col { display: none; }
 
 /* skeletons del loader inicial: cajas con forma de twoitt que "brillan"
    mientras llega el primer fetch. Van estáticas en el HTML (paint inmediato,
-   antes incluso de que corra app.js) y las limpia loadTimeline/loadSinglePost
-   al pintar el contenido real. Misma sangría que un .post para que no salten. */
+   antes incluso de que corra app.js) y las limpia loadTimeline al pintar el
+   contenido real. Misma sangría que un .post para que no salten. */
 .skeleton { padding: 18px 4px 0 var(--post-pad-x); }
 .skeleton + .skeleton { margin-top: 18px; }
 .sk-line {
@@ -630,6 +630,34 @@ body.sidebar-hidden .side-col { display: none; }
   background: var(--accent);
   transition: background 0.15s ease;
 }
+
+/* Header "↓ en respuesta a: «snippet»" en posts que son reply y se
+   muestran como ítem propio en la TL (estilo x.com/with_replies). Solo
+   aparece cuando renderPost recibe topLevel=true; dentro del BLOQUE del
+   padre el contexto ya se entiende, así que no se duplica. */
+.reply-context {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--text-dim);
+  text-decoration: none;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reply-context:hover { color: var(--accent); }
+.reply-context .parent-snippet {
+  font-style: italic;
+  color: var(--muted);
+}
+/* Si el padre está borrado, no es un link — no debe verse hovereable. */
+.reply-context-deleted {
+  color: var(--muted);
+  cursor: default;
+}
+.reply-context-deleted:hover { color: var(--muted); }
 
 .post-text {
   font-family: var(--mono);
@@ -1233,4 +1261,185 @@ body.lightbox-open { overflow: hidden; }
   color: var(--muted);
   text-align: center;
   padding: 60px 0;
+}
+
+/* ---------- encuestas ---------- */
+
+/* El bloque va dentro de .post-body, entre la galería y el footer.
+   Mismas dos columnas visuales que el resto: barra de fondo + fila con
+   %, etiqueta y marca de tu voto. Resultados siempre visibles → la
+   barra se rellena incluso para visitantes que aún no votaron. */
+.poll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 12px;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+}
+.poll-option {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--bg-warm);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  /* z-index: queremos que el contenido (poll-row) gane al fondo (poll-bar)
+     pero ambos vivan dentro del mismo cuadro sin truco de absolute para
+     el contenido — basta con stack context implícito por position. */
+}
+button.poll-option:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button.poll-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Variante "ya votaste": deja de ser interactivo. Mismo cuadro, sin hover.
+   Renderizamos como <div> en el markup, este selector cubre por defensa
+   el caso de tener una clase que lo fuerce. */
+.poll-option-static {
+  cursor: default;
+}
+.poll-option-static:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+.poll-option-mine {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.poll-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+  z-index: 0;
+  transition: width 280ms ease;
+}
+.poll-option-mine .poll-bar {
+  background: rgba(232, 176, 74, 0.12); /* tinte accent muy bajo */
+  border-right-color: var(--accent-dim);
+}
+.poll-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.poll-pct {
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.poll-option-mine .poll-pct { color: var(--accent); }
+.poll-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.poll-mine-dot {
+  color: var(--accent);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+.poll-foot {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+/* ---------- composer: bloque encuesta ---------- */
+
+.composer-poll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  background: var(--bg-warm);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.composer-poll[hidden] { display: none; }
+.composer-poll-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.composer-poll-head .grow { flex: 1; }
+.composer-poll-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-poll-row input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  padding: 6px 8px;
+  border-radius: 2px;
+}
+.composer-poll-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.composer-poll-row .poll-remove {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.composer-poll-row .poll-remove:hover {
+  color: var(--danger);
+  border-color: var(--faint);
+}
+.composer-poll-row .poll-remove[hidden] { display: none; }
+.composer-poll-add {
+  align-self: flex-start;
+  margin-top: 2px;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.composer-poll-add:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+.composer-poll-add[hidden] { display: none; }
+
+/* Botón "encuesta" del composer: hereda del .file-btn / .rec-btn la línea
+   sobria; cuando está activo (bloque abierto) cambia color para indicar
+   estado. */
+.poll-btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent-dim);
 }

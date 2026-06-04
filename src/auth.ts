@@ -4,6 +4,19 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 const COOKIE_NAME = "twoitter_auth";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 60; // 60 days
 
+// Cookie de votante anónimo para encuestas. Identidad opaca: un UUID v4
+// firmado con HMAC(AUTH_SECRET). No es PII: no se cruza con IP ni con la
+// cookie de auth. Cookie de larga duración para que un mismo dispositivo
+// siga siendo "el mismo votante" entre sesiones.
+//
+// Tope 400 días: es el máximo que permite la spec de cookies (Chrome lo
+// capa ahí) y Hono lo valida — setCookie LANZA si Max-Age > 34.560.000s.
+// Antes estaba a 2 años (730 días) y reventaba el PRIMER voto de cada
+// visitante con un 500 "internal", porque el primer voto es justo cuando
+// se emite la cookie. 400 días es de sobra para el caso de uso.
+const VOTER_COOKIE_NAME = "tv_id";
+const VOTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 400;
+
 // Bindings mínimas que auth necesita. Cualquier Hono Context con un Bindings
 // que contenga estas dos claves (más extras) es compatible — usamos un
 // genérico con constraint en lugar de un tipo fijo para no chocar con el
@@ -105,4 +118,48 @@ export function requireAuth<E extends AuthEnv>() {
     }
     await next();
   };
+}
+
+// ---------- voter cookie (anónimo, para encuestas) ----------
+
+// Lee la cookie tv_id si es válida (firma OK). Devuelve null si no hay
+// cookie o la firma no cuadra. NO emite cookies — solo lectura. Útil para
+// resolver `my_vote_id` en /api/posts sin tener que crear cookie a cada
+// visitante que pasa por el feed.
+export async function readVoterId<E extends AuthEnv>(
+  c: Context<{ Bindings: E }>,
+): Promise<string | null> {
+  const raw = getCookie(c, VOTER_COOKIE_NAME);
+  if (!raw) return null;
+  const [id, sig] = raw.split(".");
+  if (!id || !sig) return null;
+  const expected = await hmac(c.env.AUTH_SECRET, id);
+  if (!timingSafeEqual(expected, sig)) return null;
+  return id;
+}
+
+// Igual que readVoterId pero, si no existe cookie válida, crea una nueva
+// (UUID v4 firmado) y la emite con Set-Cookie. Devuelve siempre un id.
+// Pensado para el endpoint POST /poll/vote: el primer voto del visitante
+// también "inscribe" su identidad anónima.
+export async function getOrIssueVoterId<E extends AuthEnv>(
+  c: Context<{ Bindings: E }>,
+): Promise<string> {
+  const existing = await readVoterId(c);
+  if (existing) return existing;
+  // crypto.randomUUID está disponible en Workers desde hace tiempo.
+  const id = crypto.randomUUID();
+  const sig = await hmac(c.env.AUTH_SECRET, id);
+  setCookie(c, VOTER_COOKIE_NAME, `${id}.${sig}`, {
+    httpOnly: true,
+    secure: true,
+    // SameSite Lax: la cookie se manda en navegación normal y en POSTs
+    // same-site. Suficiente para votar desde la propia página, y bloquea
+    // que un sitio externo intente forzar votos vía submission cross-site
+    // (además de la guarda CSRF de header).
+    sameSite: "Lax",
+    maxAge: VOTER_COOKIE_MAX_AGE,
+    path: "/",
+  });
+  return id;
 }

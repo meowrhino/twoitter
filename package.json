@@ -14,6 +14,8 @@
     "db:migrate:001:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/001_add_deleted_at.sql",
     "db:migrate:002": "wrangler d1 execute twoitter-db --local --file=migrations/002_add_audio_transcript.sql",
     "db:migrate:002:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/002_add_audio_transcript.sql",
+    "db:migrate:003": "wrangler d1 execute twoitter-db --local --file=migrations/003_add_polls.sql",
+    "db:migrate:003:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/003_add_polls.sql",
     "r2:create": "wrangler r2 bucket create twoitter-storage"
   },
   "dependencies": {

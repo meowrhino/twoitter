@@ -10,7 +10,8 @@
 // Las barras de acciones (responder/ocultar/borrar/transcribir/ver twoitt)
 // y sus handlers viven en post-actions.js — render.js sólo invoca su API.
 
-import { fmt, hoursAgo, escapeHtml, linkify } from './utils.js';
+import { fmt, hoursAgo, escapeHtml, linkify, toast } from './utils.js';
+import { api } from './api.js';
 import { renderPostGallery } from './gallery.js';
 import { isHidden } from './hidden.js';
 import {
@@ -23,24 +24,114 @@ import {
   cancelRailClose,
 } from './rails.js';
 import {
-  renderSinglePostActions,
   renderThreadActionsHtml,
-  bindSinglePostActions,
   bindThreadActions,
   refreshThreadTranscribeBtn,
   staggerActionButtons,
 } from './post-actions.js';
 
 function renderPostFoot(p) {
+  // Permalink ahora es un hash a la posición del post en la TL (no /post/:id,
+  // que ya no existe). Server redirige 301 los enlaces antiguos.
   const respLink = p.reply_count
-    ? `<a class="resp-count" href="/post/${p.id}">${fmt(p.reply_count)} resp</a>`
+    ? `<a class="resp-count" href="#${p.id}">${fmt(p.reply_count)} resp</a>`
     : '';
   return `
     <div class="post-foot">
-      <a href="/post/${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
+      <a href="#${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
       ${respLink}
     </div>
   `;
+}
+
+// ----- encuesta -----
+//
+// Markup de un bloque de encuesta. Resultados siempre visibles: la barra
+// se rellena al % aunque no hayas votado. Si ya votaste (poll.my_vote_id),
+// los botones quedan como divs estáticos con marca "tu voto". Si no, son
+// botones clicables.
+//
+// Esquema del payload:
+//   poll: {
+//     options: [{ id, position, label, votes }],
+//     total_votes: number,
+//     my_vote_id: number | null,
+//   }
+function renderPoll(poll) {
+  if (!poll) return '';
+  const total = poll.total_votes || 0;
+  const voted = poll.my_vote_id != null;
+  const items = poll.options
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((o) => {
+      const pct = total > 0 ? Math.round((o.votes / total) * 100) : 0;
+      const mine = poll.my_vote_id === o.id;
+      const tag = voted ? 'div' : 'button';
+      const typeAttr = voted ? '' : 'type="button"';
+      const cls = ['poll-option'];
+      if (voted) cls.push('poll-option-static');
+      if (mine) cls.push('poll-option-mine');
+      const mineDot = mine ? '<span class="poll-mine-dot" aria-label="tu voto">●</span>' : '';
+      return `
+        <${tag} ${typeAttr} class="${cls.join(' ')}" data-option-id="${o.id}">
+          <span class="poll-bar" style="width: ${pct}%"></span>
+          <span class="poll-row">
+            <span class="poll-pct">${pct}%</span>
+            <span class="poll-label">${escapeHtml(o.label)}</span>
+            ${mineDot}
+          </span>
+        </${tag}>
+      `;
+    })
+    .join('');
+  const totalLabel = total === 1 ? '1 voto' : `${fmt(total)} votos`;
+  return `
+    <div class="poll" data-poll data-voted="${voted ? '1' : '0'}">
+      ${items}
+      <div class="poll-foot">${totalLabel}</div>
+    </div>
+  `;
+}
+
+// Wire de los botones clicables del bloque encuesta. Sólo se llama si
+// el visitante aún no ha votado (los <div> estáticos no necesitan
+// handler). Optimismo controlado: tras éxito repintamos el bloque con
+// la respuesta del servidor (que ya trae my_vote_id) en lugar de
+// estimar localmente.
+function bindPollActions(postEl, p) {
+  const block = postEl.querySelector(':scope > .post-body .poll');
+  if (!block) return;
+  if (block.dataset.voted === '1') return;
+  const buttons = block.querySelectorAll('.poll-option');
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      // stopPropagation: en el feed, hacer clic en una opción no debe
+      // activar el post (eso lo gestiona activation.js a nivel document).
+      e.stopPropagation();
+      if (btn.disabled) return;
+      const optionId = parseInt(btn.dataset.optionId, 10);
+      buttons.forEach((b) => (b.disabled = true));
+      const { ok, status, data } = await api(`/api/posts/${p.id}/poll/vote`, {
+        method: 'POST',
+        body: { option_id: optionId },
+      });
+      // 409 = ya votaste: aún así el server devuelve poll actualizado.
+      if (!ok && status !== 409) {
+        toast(data?.error || 'error al votar', 'error');
+        buttons.forEach((b) => (b.disabled = false));
+        return;
+      }
+      const newPoll = data?.poll;
+      if (newPoll) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = renderPoll(newPoll);
+        const fresh = wrap.firstElementChild;
+        block.replaceWith(fresh);
+        // tras votar es estático → no necesita rewire.
+      }
+    });
+  });
 }
 
 // ----- bindings (encadenan eventos a un .post ya pintado) -----
@@ -77,7 +168,8 @@ function bindPostClickToNavigate(postEl, p) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if (e.target !== postEl) return; // ignorar si el focus está en un hijo interactivo
     e.preventDefault();
-    location.href = `/post/${p.id}`;
+    // hash en vez de navegar — el listener de hashchange hace scroll+activación.
+    location.hash = '#' + p.id;
   });
   postEl.classList.add('clickable');
 }
@@ -85,6 +177,10 @@ function bindPostClickToNavigate(postEl, p) {
 // Global: click fuera de cualquier .post.clickable quita .active de todos.
 // Click dentro de .post-actions no toca nada (deja que el botón actúe).
 // Se llama una sola vez desde el entry point.
+//
+// También registra el listener de `hashchange`: cuando el hash cambia (por
+// click en un permalink, en "↓ en respuesta a", en "ver twoitt" o por
+// edición manual de la URL), centramos el post y lo activamos.
 export function setupTapToActivate() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('.post-actions')) return; // dejar que el botón actúe
@@ -94,6 +190,34 @@ export function setupTapToActivate() {
     });
     syncThreadActiveFlags();
   }, true);
+  window.addEventListener('hashchange', () => focusPostFromHash('smooth'));
+}
+
+// Foco programático del post identificado por location.hash. Casos de uso:
+//   - hashchange (click interno en un link #id)
+//   - cierre del primer render del feed: si entras con /#42 directamente,
+//     loadTimeline lo llama con 'instant' tras pintar los chunks.
+//
+// Tolerante: si el id no existe en el DOM aún (post no cargado o eliminado),
+// no-op silencioso — el usuario verá la TL desde arriba como en x.com cuando
+// un id viejo no está en cache.
+//
+// Detalle de la duplicación reply (ítem suelto + anidado): querySelector
+// devuelve el primero en orden DOM, que con cron desc suele ser la
+// versión "ítem propio" — el comportamiento esperado.
+export function focusPostFromHash(behavior = 'smooth') {
+  const id = location.hash.replace(/^#/, '');
+  if (!id) return;
+  const el = document.querySelector(`article.post[data-id="${CSS.escape(id)}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior, block: 'center' });
+  // Activación atómica: quitar .active de cualquier otro y poner a este.
+  document.querySelectorAll('.post.active').forEach((other) => {
+    if (other !== el) other.classList.remove('active');
+  });
+  el.classList.add('active');
+  refreshThreadTranscribeBtn(el);
+  syncThreadActiveFlags();
 }
 
 // Mantiene la clase .thread-has-active en el .post root de cada thread cuando
@@ -158,7 +282,12 @@ function syncThreadActiveFlags() {
 
 // ----- renderPost / renderThread -----
 
-export function renderPost(p, { single = false } = {}) {
+// renderPost(p, {topLevel}). topLevel=true significa "este post es root de
+// su BLOQUE en la TL". Solo en ese caso pintamos el header "↓ en respuesta
+// a (…)" cuando p es una reply (parent_id != null): dentro del BLOQUE del
+// padre se renderiza también anidado, pero allí el contexto ya se entiende
+// y no repetimos el header.
+export function renderPost(p, { topLevel = true } = {}) {
   const el = document.createElement('article');
   el.className = 'post';
   el.dataset.id = p.id;
@@ -170,18 +299,29 @@ export function renderPost(p, { single = false } = {}) {
   el.dataset.hasUntranscribed = audios.some((m) => !m.transcript) ? '1' : '0';
   el.innerHTML = `
     <div class="post-body">
+      ${topLevel ? renderReplyContext(p.parent_excerpt) : ''}
       <div class="post-text">${linkify(p.text || '')}</div>
+      ${renderPoll(p.poll)}
       ${renderPostGallery(p.media)}
       ${renderPostFoot(p)}
     </div>
-    ${single ? renderSinglePostActions(p) : ''}
   `;
-  if (single) {
-    bindSinglePostActions(el, p);
-  } else {
-    bindPostClickToNavigate(el, p);
-  }
+
+  if (p.poll) bindPollActions(el, p);
+  bindPostClickToNavigate(el, p);
   return el;
+}
+
+// Header "↓ en respuesta a: «snippet del padre»" (estilo x.com/with_replies).
+// excerpt viene del backend (parent_excerpt). Si el padre está borrado, no
+// linkamos: clicar #<id-borrado> no haría nada útil.
+function renderReplyContext(excerpt) {
+  if (!excerpt) return '';
+  if (excerpt.deleted) {
+    return `<span class="reply-context reply-context-deleted">↓ en respuesta a un twoitt borrado</span>`;
+  }
+  const snippet = escapeHtml(excerpt.text_snippet || '').trim() || `#${excerpt.id}`;
+  return `<a class="reply-context" href="#${excerpt.id}">↓ en respuesta a: <span class="parent-snippet">${snippet}</span></a>`;
 }
 
 // Recursivo: renderiza un post + sus replies anidados.
@@ -194,7 +334,10 @@ export function renderPost(p, { single = false } = {}) {
 // no lleva barra propia — usará la del thread root.
 export function renderThread(p, { asRoot = true } = {}) {
   if (isHidden(p.id)) return null;
-  const el = renderPost(p);
+  // topLevel coincide con asRoot: solo el root del BLOQUE muestra el
+  // header "en respuesta a (…)" si es una reply. Los descendientes ya
+  // están dentro del BLOQUE de su padre — repetir el header sería ruido.
+  const el = renderPost(p, { topLevel: asRoot });
   if (p.replies && p.replies.length) {
     const nested = document.createElement('div');
     nested.className = 'thread-replies';

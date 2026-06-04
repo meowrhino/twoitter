@@ -5,17 +5,9 @@
 // modificadas desde fuera del módulo "dueño", se exporta una función
 // setter explícita en ese módulo, no aquí.
 
-export const PAGE = location.pathname.startsWith('/post/') ? 'post' : 'timeline';
-// POST_ID es null si la URL no es /post/ o si el segmento no es un entero
-// válido (ej. /post/abc). loadSinglePost lo trata como "post no encontrado"
-// en vez de hacer un fetch a /api/posts/NaN que el server rechazaría.
-function parsePostId() {
-  if (PAGE !== 'post') return null;
-  const raw = location.pathname.split('/')[2];
-  const n = parseInt(raw, 10);
-  return Number.isInteger(n) && n > 0 && String(n) === raw ? n : null;
-}
-export const POST_ID = parsePostId();
+// Ya no hay vista "single-post" — la TL es un carrete plano y un link
+// a un post es la URL /#<id>. El server redirige /post/:id (legado) con
+// 301 a /#<id> (ver src/index.ts).
 
 export const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
 export const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };

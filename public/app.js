@@ -11,9 +11,11 @@
 //   js/composer.js   → wireComposer, makeInlineComposer, paste global
 //   js/render.js     → renderPost, renderThread, bindings
 //   js/rails.js      → getThreadRoot, notifyThreadChanged (rails son CSS puro)
-//   js/pages.js      → loadTimeline, loadSinglePost, setupComposers
+//   js/pages.js      → loadTimeline, setupTimelineComposer
+//
+// Ya no hay vista single-post (post.html): la TL es un carrete plano y un
+// link a un post es la URL /#<id>. /post/:id (legado) redirige 301.
 
-import { PAGE } from './js/state.js';
 import { checkAuth } from './js/auth.js';
 import { setupMenu, setupFilterBanner } from './js/menu.js';
 import { setupGlobalPasteHandler } from './js/composer.js';
@@ -21,10 +23,7 @@ import { setupTapToActivate } from './js/render.js';
 import { setupGallery } from './js/gallery.js';
 import { setupAudioPlayers } from './js/audio-player.js';
 import { loadHashtags } from './js/hashtags.js';
-import {
-  loadTimeline, setupTimelineComposer,
-  loadSinglePost, setupReplyForm,
-} from './js/pages.js';
+import { loadTimeline, setupTimelineComposer } from './js/pages.js';
 
 (async () => {
   await checkAuth();
@@ -34,15 +33,10 @@ import {
   setupGallery();
   setupAudioPlayers();
 
-  if (PAGE === 'timeline') {
-    setupTimelineComposer();
-    setupFilterBanner();
-    loadTimeline(true);
-    if (!document.body.classList.contains('sidebar-hidden')) {
-      loadHashtags();
-    }
-  } else if (PAGE === 'post') {
-    await loadSinglePost();
-    setupReplyForm();
+  setupTimelineComposer();
+  setupFilterBanner();
+  loadTimeline(true);
+  if (!document.body.classList.contains('sidebar-hidden')) {
+    loadHashtags();
   }
 })();

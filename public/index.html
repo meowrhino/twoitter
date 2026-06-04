@@ -35,12 +35,24 @@
       <form id="composer" class="composer" data-authed-only hidden>
         <textarea id="text" placeholder="pega aquí (cmd+v) o escribe... usa #tags"></textarea>
         <div id="mediaPreview" class="media-preview"></div>
+        <!-- Bloque de encuesta. Oculto por defecto; el botón "encuesta" del
+             foot lo despliega. composer.js cablea filas y add/remove. -->
+        <div id="composerPoll" class="composer-poll" hidden>
+          <div class="composer-poll-head">
+            <span>encuesta</span>
+            <span class="grow"></span>
+            <button type="button" class="link-btn poll-close" title="cerrar encuesta">×</button>
+          </div>
+          <div class="composer-poll-rows"></div>
+          <button type="button" class="composer-poll-add">+ añadir opción</button>
+        </div>
         <div class="composer-foot">
           <label class="file-btn">
             adjuntar
             <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple hidden />
           </label>
           <button type="button" id="btnRecord" class="rec-btn" aria-label="grabar nota de voz">grabar</button>
+          <button type="button" id="btnPoll" class="rec-btn poll-btn" aria-pressed="false" aria-label="añadir encuesta">encuesta</button>
           <span class="hint">cmd+v para pegar</span>
           <button type="submit" id="btnPost" class="btn-primary">publicar</button>
         </div>

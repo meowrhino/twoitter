@@ -8,6 +8,7 @@ stack: cloudflare workers + hono + d1 + r2 + workers ai (whisper).
 
 - composer con paste (cmd+v) de imágenes, vídeos y texto
 - drag & drop de archivos (imagen / vídeo / audio)
+- **encuestas**: botón "encuesta" en el composer; 2-10 opciones, voto único e inmutable, votantes anónimos por cookie firmada, resultados siempre visibles
 - **notas de voz**: botón "grabar" en el composer (MediaRecorder, opus)
 - **transcripción** de notas de voz vía Workers AI Whisper (botón "transcribir" en las acciones del post; cachea en BD, no llama dos veces)
 - multi-media por post, hilos (replies), hashtags `#tag` con sidebar
@@ -73,6 +74,7 @@ los `npm run db:migrate:NNN[:remote]` aplican `migrations/NNN_*.sql` y son **ide
 |-----------|----------|
 | 001       | `posts.deleted_at` (soft delete) |
 | 002       | `media.transcript` (cache de transcripciones de audio) |
+| 003       | `polls`, `poll_options`, `poll_votes` (encuestas) |
 
 al añadir una migración nueva: actualizar `schema.sql` (para clones desde cero) Y crear el `.sql` en `migrations/` (para DBs vivas).
 

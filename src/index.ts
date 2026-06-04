@@ -5,10 +5,14 @@ import {
   setAuthCookie,
   clearAuthCookie,
   timingSafeEqual,
+  readVoterId,
+  getOrIssueVoterId,
 } from "./auth";
 import type { Context, Next } from "hono";
 import {
   attachMedia,
+  castVote,
+  createPoll,
   createPost,
   deletePost,
   exportAll,
@@ -92,18 +96,25 @@ app.get("/api/posts", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
   const tag = c.req.query("tag") || undefined;
   const q = c.req.query("q") || undefined;
-  const limitRaw = parseInt(c.req.query("limit") || "20");
-  const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
-  const result = await listPosts(c.env.DB, { cursor, tag, q, limit });
+  // Default 500 para soportar el modelo TL "carrete plano" (cargar TODO
+  // hasta este tope, auto-fetch al llegar al fondo). El cap duro lo
+  // refuerza listPosts(): Math.min(500, limit).
+  const limitRaw = parseInt(c.req.query("limit") || "500");
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 500;
+  // voterId solo si el visitante ya tiene cookie firmada — no emitimos
+  // cookies en GETs: la primera cookie nace al votar.
+  const voterId = await readVoterId(c);
+  const result = await listPosts(c.env.DB, { cursor, tag, q, limit, voterId });
   return c.json(result);
 });
 
 app.get("/api/posts/:id", async (c) => {
   const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
-  const post = await getPost(c.env.DB, id);
+  const voterId = await readVoterId(c);
+  const post = await getPost(c.env.DB, id, voterId);
   if (!post) return c.json({ error: "no encontrado" }, 404);
-  const replies = await getReplies(c.env.DB, id);
+  const replies = await getReplies(c.env.DB, id, voterId);
   return c.json({ post, replies });
 });
 
@@ -113,6 +124,11 @@ app.get("/api/hashtags", async (c) => {
 });
 
 // ---------- API: writes (gated) ----------
+
+// Límites de encuesta. Tope blando, fácil de subir si hace falta.
+const POLL_MAX_OPTIONS = 10;
+const POLL_MIN_OPTIONS = 2;
+const POLL_OPTION_MAX_LEN = 80;
 
 app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
   let body: {
@@ -125,6 +141,7 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
       width?: number | null;
       height?: number | null;
     }>;
+    poll?: { options?: unknown } | null;
   };
   try {
     body = await c.req.json();
@@ -134,7 +151,31 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
 
   const text = (body.text ?? "").trim() || null;
   const media = body.media ?? [];
-  if (!text && media.length === 0) {
+
+  // Validar payload de encuesta (si viene). Una encuesta sola, sin texto
+  // y sin media, no tiene mucho sentido (no hay pregunta), pero la
+  // dejamos pasar: la decisión de diseño fue "texto del post = pregunta",
+  // y obligar texto aquí complica el caso (raro pero válido) de una
+  // encuesta cuya pregunta es solo media (p. ej. "¿cuál te gusta más?"
+  // con dos imágenes).
+  let pollOptions: string[] | null = null;
+  if (body.poll && Array.isArray(body.poll.options)) {
+    const opts = body.poll.options
+      .map((o) => (typeof o === "string" ? o.trim() : ""))
+      .filter((o) => o.length > 0);
+    if (opts.length < POLL_MIN_OPTIONS) {
+      return c.json({ error: "la encuesta necesita al menos 2 opciones" }, 400);
+    }
+    if (opts.length > POLL_MAX_OPTIONS) {
+      return c.json({ error: `máximo ${POLL_MAX_OPTIONS} opciones` }, 400);
+    }
+    if (opts.some((o) => o.length > POLL_OPTION_MAX_LEN)) {
+      return c.json({ error: `opciones de máx ${POLL_OPTION_MAX_LEN} caracteres` }, 400);
+    }
+    pollOptions = opts;
+  }
+
+  if (!text && media.length === 0 && !pollOptions) {
     return c.json({ error: "post vacio" }, 400);
   }
   if (text && text.length > 4000) {
@@ -178,8 +219,16 @@ app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
     })),
   );
   await syncHashtags(c.env.DB, post.id, text);
+  if (pollOptions) {
+    await createPoll(c.env.DB, post.id, pollOptions);
+  }
 
-  const full = await getPost(c.env.DB, post.id);
+  // El autor (logueado) tiene su propio voterId si ya votó alguna vez,
+  // pero lo más probable es que aún no haya cookie. Si no la tiene,
+  // pasamos null y my_vote_id queda en null — sin emitir cookies en
+  // este endpoint para no mezclar auth con identidad de voto.
+  const voterId = await readVoterId(c);
+  const full = await getPost(c.env.DB, post.id, voterId);
   return c.json(full, 201);
 });
 
@@ -261,6 +310,55 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
   return c.json({ ok: true, transcript, cached: false });
 });
 
+// Votar en una encuesta. Público (no requireAuth) — los visitantes anónimos
+// son el caso de uso principal. Sí pasa por requireCsrf: el header
+// x-twoitter-csrf evita que un sitio externo dispare votos vía form POST.
+// Voto inmutable: si ya votaste devuelve 409 con tu voto previo, no permite
+// cambiarlo.
+app.post("/api/posts/:id/poll/vote", requireCsrf(), async (c) => {
+  const id = parseInt(c.req.param("id") ?? "");
+  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+
+  let body: { option_id?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "json invalido" }, 400);
+  }
+  const optionId = Number(body.option_id);
+  if (!Number.isFinite(optionId) || optionId <= 0) {
+    return c.json({ error: "option_id invalido" }, 400);
+  }
+
+  // Comprobamos que el post existe y no está borrado antes de tocar
+  // cookies — así no emitimos tv_id por votos a posts inexistentes.
+  const exists = await c.env.DB
+    .prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL")
+    .bind(id)
+    .first<{ id: number }>();
+  if (!exists) return c.json({ error: "post no encontrado" }, 404);
+
+  const voterId = await getOrIssueVoterId(c);
+  const result = await castVote(c.env.DB, id, voterId, optionId);
+  if (!result.ok) {
+    if (result.error === "no_poll") {
+      return c.json({ error: "este post no tiene encuesta" }, 404);
+    }
+    if (result.error === "bad_option") {
+      return c.json({ error: "opción no pertenece a esta encuesta" }, 400);
+    }
+    if (result.error === "already_voted") {
+      // Devolvemos el estado actualizado para que el cliente pueda pintar
+      // la encuesta con el voto previo aunque haya perdido contexto.
+      const full = await getPost(c.env.DB, id, voterId);
+      return c.json({ error: "ya votaste", poll: full?.poll ?? null }, 409);
+    }
+    return c.json({ error: "no se pudo votar" }, 500);
+  }
+  const full = await getPost(c.env.DB, id, voterId);
+  return c.json({ ok: true, poll: full?.poll ?? null });
+});
+
 app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
   const ct = c.req.header("x-content-type") || c.req.header("content-type") || "";
   const folderHint = c.req.header("x-folder") as
@@ -333,9 +431,13 @@ app.get("/r2/*", async (c) => {
 app.get("/", (c) =>
   c.env.ASSETS.fetch(new Request(new URL("/index.html", c.req.url))),
 );
-app.get("/post/:id", (c) =>
-  c.env.ASSETS.fetch(new Request(new URL("/post.html", c.req.url))),
-);
+// /post/:id quedó obsoleto: ya no hay vista detalle. El feed es ahora un
+// "carrete plano" donde cada post es una posición. Redirigimos 301 a /#id
+// para no romper enlaces antiguos compartidos fuera (RSS, capturas, etc.).
+app.get("/post/:id", (c) => {
+  const id = c.req.param("id");
+  return c.redirect(`/#${id}`, 301);
+});
 
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 

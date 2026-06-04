@@ -88,12 +88,11 @@ export async function loadTimeline(reset = false) {
     $('#loadMore').hidden = !nextCursor;
     if (reset) {
       setupSentinelObserver();
-      // Si la URL trae /#42 al cargar, posicionar la TL en ese post sin
-      // animación (ya está donde debe). Solo la primera vez; en cargas
-      // posteriores el hash ya quedó procesado.
+      // Si la URL trae /#42 al cargar, posicionar la TL en ese post. Solo la
+      // primera vez; en cargas posteriores el hash ya quedó procesado.
       if (!firstPaintDone) {
         firstPaintDone = true;
-        if (location.hash) focusPostFromHash('instant');
+        if (location.hash) loadUntilHashPost('instant');
       }
     }
   } catch (err) {
@@ -106,6 +105,38 @@ export async function loadTimeline(reset = false) {
     loading = false;
   }
 }
+
+// Deep-link a una posición del carrete: si el post del hash aún no está en el
+// DOM (cae en una página posterior), seguimos auto-cargando hasta que aparezca
+// o se agote la TL, y entonces lo centramos. Así un /#id a un post antiguo
+// posiciona el carrete cargando las páginas intermedias.
+//   - Post ya cargado (caso común) → el while no entra, centra al instante.
+//   - Si hubo que cargar páginas → 'instant' (un scroll suave a través de
+//     miles de px recién insertados sería absurdo).
+//   - Cap de 60 páginas por si el id no existe (link roto): evita bucle.
+async function loadUntilHashPost(preferred = 'smooth') {
+  const id = location.hash.replace(/^#/, '');
+  if (!id) return;
+  const sel = `article.post[data-id="${CSS.escape(id)}"]`;
+  let loadedPages = 0;
+  while (!document.querySelector(sel) && nextCursor && loadedPages < 60) {
+    await loadTimeline(false);
+    loadedPages++;
+  }
+  const behavior = loadedPages > 0 ? 'instant' : preferred;
+  // Doble rAF antes de centrar: si tuvimos que cargar páginas, el render por
+  // chunks puede no haber asentado el layout en este mismo tick y un scroll
+  // inmediato se queda corto. Esperar al frame siguiente garantiza medir con
+  // el layout ya flusheado.
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => focusPostFromHash(behavior)),
+  );
+}
+
+// Click en un permalink / "en respuesta a" / "ver twoitt", o edición manual
+// de la URL → cargar hasta el post y centrarlo. Lo gobierna pages.js (no
+// render.js) porque aquí está el acceso a la paginación (loadTimeline).
+window.addEventListener('hashchange', () => loadUntilHashPost('smooth'));
 
 export function setupTimelineComposer() {
   wireComposer({

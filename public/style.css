@@ -376,8 +376,7 @@ body.sidebar-hidden .side-col { display: none; }
      flex-end + gap:16. En mobile estrecho, sin flex-wrap, el último botón
      se recortaba. Permitir wrap a 2 filas cuando no caben. */
   .post-actions { flex-wrap: wrap; gap: 8px 12px; }
-  .post.thread-has-active > .post-actions,
-  .single-post #postContainer > .post > .post-actions {
+  .post.thread-has-active > .post-actions {
     max-height: 100px;  /* sube el cap para acomodar 2 filas */
   }
 }
@@ -603,10 +602,8 @@ body.sidebar-hidden .side-col { display: none; }
 /* Recorte de los rails extendidos al bottom del thread. Los .post-actions
    son último hijo del root, así que el bottom del root = bottom de la
    barra. Cualquier ::before con bottom:-9999px (los .extends-to-bottom)
-   queda clipeado aquí. Aplicar tanto al root de timeline (.thread > .post)
-   como al root de cada thread en single view (#replies > .post). */
-.thread > .post,
-#replies > .post {
+   queda clipeado aquí. Aplica al root de cada thread del timeline. */
+.thread > .post {
   overflow: hidden;
 }
 /* Click sigue ligado a todo el .post (ver bindPostClickToNavigate en
@@ -681,13 +678,9 @@ body.sidebar-hidden .side-col { display: none; }
 /* padding-right: 0 hace que el footer de cada nivel quede alineado en la
    misma columna X derecha que el root, en vez de irse 4px hacia dentro
    por cada nivel de anidamiento.
-   también aplica a los replies de nivel 1 en /post/:id (van directos a
-   #replies sin envoltura .thread-replies) para que se alineen con los
-   anidados de niveles 2+.
    padding-bottom lo decide .post.clickable (más abajo) para reservar
    espacio a los botones absolutos. */
-.thread-replies > .post,
-.single-post #replies > .post {
+.thread-replies > .post {
   padding-top: 14px;
   padding-right: 0;
 }
@@ -1109,11 +1102,7 @@ body.lightbox-open { overflow: hidden; }
    meter una segunda variable de color.
    El fondo va al .post-body (no al .post): así un padre activo y un
    hijo activo enmarcan SU contenido, no el subtree entero. La caja del
-   active es simétrica para root y replies.
-   En /post/:id el post principal NO lleva fondo: ya está aislado en su
-   propia página, marcarlo como "activo" queda redundante y se lee como
-   un hover pegado. La barra de acciones del root sí se muestra siempre
-   en single-view (ver más abajo). */
+   active es simétrica para root y replies. */
 .post.clickable.active > .post-body {
   background: rgba(232, 176, 74, 0.08);
   border-radius: 4px;
@@ -1169,10 +1158,8 @@ body.lightbox-open { overflow: hidden; }
    .post root de cada thread (ver syncThreadActiveFlags en render.js):
    evitamos un selector :has() porque su invalidación dinámica al quitar una
    clase está bugueada en algunas versiones de Chromium (el computed style
-   se queda "pegado"). En single-view, la barra del root principal es
-   siempre visible. */
-.post.thread-has-active > .post-actions,
-.single-post #postContainer > .post > .post-actions {
+   se queda "pegado"). */
+.post.thread-has-active > .post-actions {
   pointer-events: auto;
   max-height: 60px;
   /* padding-bottom: 0 → los botones quedan flush contra el bottom de la
@@ -1183,8 +1170,7 @@ body.lightbox-open { overflow: hidden; }
 }
 /* Cada botón entra: fade 0→1 + slide a su sitio, escalonado por --si (desde la
    derecha) para la cascada derecha→izquierda sincronizada con el rail. */
-.post.thread-has-active > .post-actions button,
-.single-post #postContainer > .post > .post-actions button {
+.post.thread-has-active > .post-actions button {
   opacity: 1;
   transform: none;
   transition-delay: calc(var(--si, 0) * 30ms);
@@ -1227,40 +1213,14 @@ body.lightbox-open { overflow: hidden; }
   color: var(--text-dim);
 }
 
-/* ---------- single post / replies ---------- */
+/* ---------- columna estrecha centrada (páginas legales) ---------- */
 
+/* .single-post era el contenedor de la vista /post/:id (eliminada); hoy lo
+   reutiliza aviso-legal.html como columna estrecha centrada. */
 .single-post {
   max-width: 640px;
   margin: 64px auto 0;
-  /* padding-bottom generoso (no margin para evitar margin-collapse hacia
-     fuera del body, mismo razonamiento que .layout): respiración al final
-     del thread para que el último reply no quede pegado al borde. */
   padding: 0 24px 40vh;
-}
-/* solo el post principal (hijo directo de #postContainer) recibe el padding
-   especial. los replies de abajo siguen con el .post base — si no, hereda
-   padding-left 4px y el rail pisa el texto. en single ocultamos rail y
-   border-bottom para que el post protagonista quede limpio. */
-.single-post > #postContainer > .post {
-  padding: 24px 4px 28px 16px;
-}
-.single-post > #postContainer > .post::before { display: none; }
-.single-post > #postContainer > .post > .post-body > .post-text { font-size: 1.08em; }
-.replies-header {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  font-weight: 500;
-  margin: 24px 0 4px;
-  color: var(--muted);
-  letter-spacing: 0.05em;
-}
-.reply-composer { margin: 18px 0 0; }
-
-.not-found {
-  font-family: var(--mono);
-  color: var(--muted);
-  text-align: center;
-  padding: 60px 0;
 }
 
 /* ---------- encuestas ---------- */

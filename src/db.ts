@@ -187,6 +187,11 @@ async function attachMediaAndTags(
   // En bloque: una query con los parent_ids únicos. NO filtramos deleted_at
   // — queremos saber si el padre está borrado para pintar "en respuesta a un
   // twoitt borrado" en el frontend.
+  const parentExcerptByPost = new Map<number, ParentExcerpt>();
+  // Muchos padres ya vienen en `posts` (la TL carga el árbol del BLOQUE), así
+  // que sacamos su snippet de memoria y solo consultamos a la BD los padres
+  // ausentes — ahorra una query entera cuando el padre está co-cargado.
+  const postsById = new Map(posts.map((p) => [p.id, p]));
   const parentIds = [
     ...new Set(
       posts
@@ -194,18 +199,31 @@ async function attachMediaAndTags(
         .filter((pid): pid is number => pid != null),
     ),
   ];
-  const parentExcerptByPost = new Map<number, ParentExcerpt>();
-  if (parentIds.length > 0) {
-    const parentRows = await selectByIds<{ id: number; snippet: string; deleted_at: string | null }>(
-      db,
-      parentIds,
-      (ph) => `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
-           FROM posts WHERE id IN (${ph})`,
-    );
-    const byParentId = new Map(parentRows.map((r) => [r.id, r]));
-    for (const p of posts) {
-      if (p.parent_id == null) continue;
-      const row = byParentId.get(p.parent_id);
+  const missingParentIds = parentIds.filter((pid) => !postsById.has(pid));
+  // Padres ausentes: query troceada. NO filtramos deleted_at — queremos saber
+  // si el padre está borrado para pintar "en respuesta a un twoitt borrado".
+  // (Los presentes en `posts` ya están vivos por construcción: listPosts y
+  // getReplies filtran deleted_at IS NULL.)
+  const fetchedParents = missingParentIds.length
+    ? await selectByIds<{ id: number; snippet: string; deleted_at: string | null }>(
+        db,
+        missingParentIds,
+        (ph) => `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
+             FROM posts WHERE id IN (${ph})`,
+      )
+    : [];
+  const fetchedById = new Map(fetchedParents.map((r) => [r.id, r]));
+  for (const p of posts) {
+    if (p.parent_id == null) continue;
+    const inMem = postsById.get(p.parent_id);
+    if (inMem) {
+      parentExcerptByPost.set(p.id, {
+        id: p.parent_id,
+        text_snippet: (inMem.text ?? "").slice(0, 120),
+        deleted: false,
+      });
+    } else {
+      const row = fetchedById.get(p.parent_id);
       parentExcerptByPost.set(p.id, {
         id: p.parent_id,
         text_snippet: row?.snippet ?? "",

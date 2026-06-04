@@ -376,6 +376,21 @@ export function makeInlineComposer(parentPostEl, parentId) {
             delta: +1,
           });
         }
+        // TL plana: la reply también es un ítem propio arriba de la TL (con su
+        // header "↓ en respuesta a"), tal como aparecería al recargar. Es
+        // independiente del anidado de arriba: aunque el padre se haya borrado
+        // durante la animación, el ítem suelto sigue siendo válido.
+        const timeline = document.getElementById('timeline');
+        if (timeline) {
+          const topEl = renderThread(post); // asRoot:true → muestra reply-context
+          if (topEl) {
+            const wrap = document.createElement('div');
+            wrap.className = 'thread';
+            wrap.appendChild(topEl);
+            timeline.prepend(wrap);
+            notifyThreadChanged({ threadRoot: wrap });
+          }
+        }
       });
     },
   });

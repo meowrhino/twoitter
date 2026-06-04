@@ -177,10 +177,6 @@ function bindPostClickToNavigate(postEl, p) {
 // Global: click fuera de cualquier .post.clickable quita .active de todos.
 // Click dentro de .post-actions no toca nada (deja que el botón actúe).
 // Se llama una sola vez desde el entry point.
-//
-// También registra el listener de `hashchange`: cuando el hash cambia (por
-// click en un permalink, en "↓ en respuesta a", en "ver twoitt" o por
-// edición manual de la URL), centramos el post y lo activamos.
 export function setupTapToActivate() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('.post-actions')) return; // dejar que el botón actúe
@@ -190,17 +186,17 @@ export function setupTapToActivate() {
     });
     syncThreadActiveFlags();
   }, true);
-  window.addEventListener('hashchange', () => focusPostFromHash('smooth'));
+  // El manejo de `hashchange` vive en pages.js (loadUntilHashPost): necesita
+  // la paginación para cargar el post si aún no está en el DOM. Aquí solo
+  // exponemos focusPostFromHash, que pages.js invoca tras asegurar la carga.
 }
 
-// Foco programático del post identificado por location.hash. Casos de uso:
-//   - hashchange (click interno en un link #id)
-//   - cierre del primer render del feed: si entras con /#42 directamente,
-//     loadTimeline lo llama con 'instant' tras pintar los chunks.
+// Foco programático del post identificado por location.hash: scroll + activa.
+// Lo invoca pages.js (loadUntilHashPost) tras asegurarse de que el post esté
+// cargado, tanto en la carga inicial con /#id como en cada hashchange.
 //
-// Tolerante: si el id no existe en el DOM aún (post no cargado o eliminado),
-// no-op silencioso — el usuario verá la TL desde arriba como en x.com cuando
-// un id viejo no está en cache.
+// Tolerante: si el id no existe en el DOM (link roto / post borrado), no-op
+// silencioso tras agotar la paginación.
 //
 // Detalle de la duplicación reply (ítem suelto + anidado): querySelector
 // devuelve el primero en orden DOM, que con cron desc suele ser la

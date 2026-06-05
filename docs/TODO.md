@@ -7,22 +7,16 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 > Estado al cierre de la sesión 2026-06-05: TODO lo de valor alto/medio está
 > hecho y desplegado (ver "Done" abajo). Lo que queda es lo de abajo, con mi
 > recomendación honesta baked-in para retomarlo en frío.
+>
+> Segunda pasada el 2026-06-05 (review en frío con la app en vivo + un agente
+> Explore): NO salieron bugs nuevos. El backend aguanta los edge-cases (id no
+> numérico→400, negativo/gigante→404, limit absurdo→capa a 100, JSON roto→400,
+> poll de 1 opción→400, texto >4000→400, path traversal en `/r2/`→404). Los
+> "hallazgos" del agente eran falsos positivos (la cookie `tv_id` persistente
+> es por diseño; el shape del 409 de voto está justificado; el botón
+> transcribir ya tiene guard anti-doble-click). Sigue en pie SÓLO lo de abajo.
 
-### Lo único con valor real pendiente
-
-- [ ] **Frontend tests del flujo CON RED** — `composer.js` (publicar un post) y
-  `pages.js` (`loadTimeline` + auto-fetch del IntersectionObserver).
-  **Por qué:** son los flujos cliente que más cambiaron esta sesión y los únicos
-  sin cubrir. `render.js` ya está cubierto (test/render.test.ts: reply-context,
-  colapso, contador, encuesta, anti-XSS) y los endpoints HTTP también
-  (test/routes.test.ts vía `app.request`).
-  **Cómo:** entorno happy-dom (como render.test.ts); mockear `fetch` global con
-  `vi.stubGlobal('fetch', vi.fn())` que devuelva respuestas canned. Para el
-  composer: montar el `<form id="composer">` mínimo, `wireComposer`, simular
-  submit con texto, comprobar que `onPosted` rinde el thread. Para pages:
-  montar `#timeline`, mockear `/api/posts` → `{posts, nextCursor}`, llamar
-  `loadTimeline(true)`, comprobar el render por chunks + el sentinel.
-  **Recomendación:** SÍ, si se quiere más cobertura. Esfuerzo medio.
+### Lo que queda pendiente (todo menor / opcional)
 
 - [ ] **Cobertura de backend que aún falta** (menor): el endpoint `/transcribe`
   (caching, sin-audio, fallo de Whisper, 422) y los helpers `getAudioMediaForPost`
@@ -40,11 +34,18 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ### Descartado a propósito (NO hacer salvo que cambie el contexto)
 
-- [ ] ~~**Modularizar `style.css`**~~ (~1400 líneas). DESRECOMENDADO: churn +
-  riesgo de romper la cascada en un archivo que funciona y está bien seccionado
-  con comentarios. Sin bundler habría que montar un build que concatene en orden
-  o servir varios `<link>`/`@import` (waterfall). Mal ratio valor/riesgo — misma
-  conclusión que con los tokens de spacing.
+- [x] **Reordenar `style.css` in-situ** (HECHO 2026-06-05): los 5 trozos
+  dispersos del `.post` ahora van juntos, audio con media, índice al principio
+  + títulos en las secciones que no los tenían. Reordenado por bloques con un
+  script validado por `sort` (mismas líneas exactas, solo reubicadas → cero
+  pérdida) y verificado en el browser (incluida la cascada móvil). De grasa real:
+  quitado `--serif`/Merriweather del `@import` (fuente que nadie usaba) y
+  arreglado un bug latente (botón "borrar" recortado en móvil: el `@media` estaba
+  pisado por la regla base; movido para que gane).
+- [ ] ~~**Partir `style.css` en varios archivos**~~. SIGUE DESCARTADO sin bundler:
+  o un build que concatene, o varios `<link>` (mantener el orden en 3 HTML), o
+  `@import` (waterfall). El reorden in-situ de arriba ya dio la mantenibilidad
+  sin el riesgo de carga. Reconsiderar solo si entra un bundler.
 - [ ] ~~**CSRF dual-token**~~. DESRECOMENDADO para esta app: un solo usuario,
   `SameSite=Lax` ya previene el cross-origin. Es endurecimiento contra un
   escenario hipotético (servir la cookie con `SameSite=None`, p.ej. embed/
@@ -75,6 +76,47 @@ Reorganización grande de la TL + encuestas + revisión:
 - [x] **Táctil 44px** en `.post-actions button`, login fluido en móvil, tokens de radio.
 - [x] Borradas reglas CSS muertas (`.audio-transcript[hidden]`, `.menu-link letter-spacing`).
 - [x] README al día.
+
+Segunda pasada (review en frío + tests de frontend + refactor CSS + acordeón):
+- [x] **Reorden de `style.css` + limpieza** (ver "Descartado" arriba, ahora [x]):
+  índice + secciones agrupadas + `--serif`/Merriweather fuera + fix del botón
+  "borrar" en móvil. Verificado en browser, cero regresiones.
+- [x] **Acordeón multinivel de respuestas**: cada post con replies nace plegado
+  con su propio toggle "N respuestas" (antes solo el root del BLOQUE colapsaba y
+  al abrirlo se mostraban TODOS los niveles de golpe). Ahora el hilo se abre capa
+  a capa: abrir #88 muestra #89 plegado, abrir #89 muestra #90. `render.js`
+  (collapsible por nivel) + `rails.js` (el contador usa toggle a cualquier nivel).
+  3 tests nuevos/actualizados → 170 totales. El permalink `#id`→scroll intacto.
+- [x] **Scroll-spy: la URL `/#id` sigue al post visible** (inspirado en la web de
+  mirandaperezhita): conforme scrolleas, `history.replaceState` actualiza el hash
+  al post cuyo borde superior cruza la línea de activación (40% del viewport), sin
+  disparar `hashchange` (→ sin scroll-jump). Arranca con la URL limpia (solo actúa
+  al scrollear). En `pages.js`: listener de scroll + throttle por timestamp (NO
+  IntersectionObserver ni rAF — ninguno de los dos dispara fiable en el preview
+  headless). Cierra la simetría del permalink: clic en #id→scroll, y scroll→#id.
+  ⚠️ Verificación: el código y el mecanismo están confirmados (el módulo carga y
+  el hash se actualiza; lógica probada con handler equivalente), pero el
+  SEGUIMIENTO exacto no se pudo demostrar end-to-end en el preview porque su
+  `getBoundingClientRect` no se sincroniza con `scrollTo` programático. Confirmar
+  con un scroll real en el navegador.
+- [x] **Fix: el `.status` tapaba el player de audio en el composer**. El overlay
+  de estado (barra de subida + "X MB · formato", `position:absolute; bottom:0`
+  con gradiente negro) está pensado para la esquina de un thumbnail cuadrado;
+  sobre el `.item-audio` (player horizontal) se superponía a la barra de progreso
+  y los tiempos, oscureciéndolos. Fix (`style.css`): para `.item-audio`, el item
+  pasa a `flex column` y el `.status` va EN FLUJO debajo del player (no overlay,
+  sin gradiente). Confirmado por medición: `statusTapaProgress` true → false.
+- [x] **Frontend tests del flujo CON RED** (16 nuevos → 168 totales):
+  `test/composer.test.ts` (8) cubre `wireComposer`: POST /api/posts con CSRF +
+  body correcto, parent_id en replies, reset de textarea/preview al publicar,
+  feedback del botón ("publicando…" + disabled→restaurado), form vacío sin
+  fetch, error de red que conserva el texto, y encuesta (poll.options en el
+  body + validación cliente de <2 opciones). `test/pages.test.ts` (8) cubre
+  `loadTimeline`: render por chunks, `#loadMore` según `nextCursor`, limpieza de
+  skeletons, paginación con cursor (append, no replace), robustez ante 5xx /
+  respuesta sin `posts`, y el auto-fetch del IntersectionObserver (sentinel que
+  intersecta → carga la página siguiente con su cursor; no intersecta → nada).
+  Patrón happy-dom + `fetch` stubbeado, igual que render.test.ts.
 
 Backlog atacado al final de la sesión:
 - [x] **Rate limit en endpoints authed** (WRITE_LIMITER 100/min para upload+posts,
@@ -120,6 +162,20 @@ Evaluado y descartado (falso positivo) en esta sesión:
 
 ## Cosas que se evaluaron y se decidieron NO hacer
 
+- **"El rail amarillo se corta antes de la barra de acciones"** (investigado a
+  fondo el 2026-06-05, BLOQUE con replies expandidos + root activo): NO es un
+  corte real. Verificado con `outline` sobre el `::after` + un marker absoluto a
+  `root.top + railTop + railHeight`: el rail llega EXACTO al bottom de la barra
+  (`measureRail` usa `rootRect.bottom` cuando el activo tiene `.extends-to-bottom`,
+  ver [rails.js](../public/js/rails.js) `measureRail`). Es **percepción**: el
+  `--accent` (#e8b04a, mostaza apagado) de 2px sobre fondo negro se "apaga"
+  ópticamente en los últimos ~54px porque a su izquierda queda zona vacía (los
+  botones de `.post-actions` van a la derecha, sin nada que enmarque el rail).
+  Prueba: con `background: fuchsia` y el mismo `width:2px` se ve largo entero;
+  con `--accent` se ve corto; geometría idéntica en ambos. Si algún día molesta
+  de verdad, opción mínima (1 línea): en `measureRail` recortar al bottom del
+  ÚLTIMO reply en vez de `rootRect.bottom` (el rail dejaría de "incluir" la
+  barra, que pasa a leerse como metadatos). Por ahora se deja como está.
 - **Animación de fill top-down del rail amarillo**: probada (con `paintActiveRail` JS + transition height), causaba bugs visuales de rail bleeding entre threads cuando cambiabas de activo rápido. Reemplazada por color fade instantáneo via CSS — más simple y robusto.
 - **Reddit-style staircase rails** (cada rail termina al fin de su subtree, en escalera): rechazado porque el usuario prefiere uniformidad — todos los rails llegan al mismo Y (bottom de la barra).
 - **`/api/me` shape changes**: el audit decía que era inconsistente, pero ya devuelve `{ authed: bool }` correcto.

@@ -6,6 +6,14 @@ stack: cloudflare workers + hono + d1 + r2 + workers ai (whisper).
 
 ## features
 
+- **timeline tipo carrete**: la TL muestra TODOS los twoitts (roots y
+  respuestas) ordenados por fecha, más recientes arriba. Cada respuesta es un
+  ítem propio con cabecera "↓ en respuesta a (…)" y además sigue colgando del
+  hilo de su padre. Un link a un post ya no es una página aparte: es `/#id`
+  (una posición del carrete; el feed hace scroll y lo centra, auto-cargando
+  páginas si hace falta).
+- **respuestas colapsables**: el subárbol de respuestas de cada hilo arranca
+  colapsado; un toggle "▸ N respuestas" en el pie lo despliega in-situ.
 - composer con paste (cmd+v) de imágenes, vídeos y texto
 - drag & drop de archivos (imagen / vídeo / audio)
 - **encuestas**: botón "encuesta" en el composer; 2-10 opciones, voto único e inmutable, votantes anónimos por cookie firmada, resultados siempre visibles
@@ -14,7 +22,8 @@ stack: cloudflare workers + hono + d1 + r2 + workers ai (whisper).
 - multi-media por post, hilos (replies), hashtags `#tag` con sidebar
 - thumbnail de vídeo generado en cliente
 - player de audio custom (monoespaciado, accent, sin chrome nativo feo)
-- permalinks por post (`/post/:id`) para citar
+- permalinks por post (`/#id`) para citar — posición en el carrete (la vieja
+  ruta `/post/:id` redirige 301 a `/#id`)
 - export json completo (`/api/export`)
 - **loader** de skeletons al abrir, así no hay pantallazo en blanco mientras carga el primer fetch
 - **feedback de subida**: barra por cada media (compresión y subida con % real vía XHR) + el botón pasa a "publicando…" durante el submit
@@ -61,6 +70,7 @@ luego:
 npm run db:migrate          # aplica schema.sql a la D1 LOCAL (.wrangler/)
 npm run db:migrate:001      # + migraciones, en local
 npm run db:migrate:002
+npm run db:migrate:003
 npm run dev                 # http://localhost:8787
 ```
 
@@ -88,20 +98,25 @@ al añadir una migración nueva: actualizar `schema.sql` (para clones desde cero
 
 ```
 src/
-  index.ts        rutas Hono: auth, posts CRUD, upload, transcribe, export, proxy /r2
-  auth.ts         cookie de sesión firmada (HMAC) + requireAuth
-  middleware.ts   CSRF (header x-twoitter-csrf) + manejo de errores
-  db.ts           queries D1 (posts, replies, hashtags, soft-delete)
+  index.ts        rutas Hono: auth, posts CRUD, polls/voto, upload, transcribe,
+                  export, proxy /r2 + middleware CSRF (header x-twoitter-csrf)
+  auth.ts         cookie de sesión firmada (HMAC) + requireAuth + cookie de
+                  votante anónimo (tv_id) para encuestas
+  db.ts           queries D1 (posts, replies, hashtags, polls, soft-delete);
+                  IN-queries troceadas por el límite de parámetros de D1
   media.ts        validación/clasificación de uploads a R2
   hashtags.ts     extracción de #tags
 
 public/
   app.js          entry point: orquesta los módulos
   js/
-    pages.js          loadTimeline / loadSinglePost
-    render.js         render de posts + flujo de activación (.active)
+    pages.js          loadTimeline (pagina + auto-fetch al scroll) + deep-link
+                      por hash (loadUntilHashPost) + setupTimelineComposer
+    render.js         render de posts/hilos + activación (.active) + colapso
     rails.js          rail vertical: estructura, geometría y bookkeeping del thread
     composer.js       composer principal + reply-inline + paste global
+    composer-poll.js  UI de creación de encuestas en el composer
+    composer-anim.js  animación de apertura/cierre del reply-inline (lockstep rail)
     media.js          compresión + subida (XHR con progreso) + preview
     compressor.js     barril → compressor-video.js (ffmpeg.wasm) / compressor-image.js (canvas)
     gallery.js, audio-player.js, recorder.js   UI de media

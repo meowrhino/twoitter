@@ -35,6 +35,8 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 12px;
+  /* velo del acento sobre fondos (hover de posts y rail). Repetido en 2 sitios. */
+  --accent-overlay-light: rgba(232, 176, 74, 0.04);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -406,7 +408,7 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .composer.drag-over {
   border-color: var(--accent);
-  background: rgba(232, 176, 74, 0.04);
+  background: var(--accent-overlay-light);
 }
 .composer textarea { border: none; background: transparent; padding: 4px 0; min-height: 56px; }
 .composer textarea:focus { outline: none; }
@@ -627,7 +629,7 @@ body.sidebar-hidden .side-col { display: none; }
    de su nivel. */
 .post.clickable { cursor: pointer; }
 .post.clickable > .post-body:hover {
-  background: rgba(232, 176, 74, 0.04);
+  background: var(--accent-overlay-light);
 }
 /* Rail estructural en amarillo cuando el .post-body propio está en hover.
    :has() con :hover está bien soportado en browsers modernos; a diferencia

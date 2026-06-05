@@ -67,17 +67,32 @@ html, body { height: 100%; }
 body {
   font-family: var(--mono);
   background-color: var(--bg);
-  background-image:
-    radial-gradient(ellipse 55% 50% at 50% 45%, var(--bg) 0%, var(--bg) 30%, transparent 75%),
-    radial-gradient(var(--dots) 1px, transparent 1px);
-  background-size: auto, 22px 22px;
-  background-position: 0 0, 0 0;
-  background-attachment: fixed, fixed;
   color: var(--text);
   min-height: 100vh;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Textura de fondo (viñeta central + puntitos) anclada al VIEWPORT mediante un
+   pseudo-elemento position:fixed. Antes era `background-attachment: fixed` en el
+   body, pero el WebKit de iOS (Brave/Safari en iPhone) dimensiona ese fondo
+   contra TODO el documento, no contra el viewport: la elipse en % caía a media
+   página y se veían bandas (lisa vs punteada) que se desplazaban al hacer
+   scroll. Un elemento fixed real lo fija bien en todos los navegadores.
+   z-index:-1 lo deja detrás del contenido; pointer-events:none, inofensivo. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 55% 50% at 50% 45%, var(--bg) 0%, var(--bg) 30%, transparent 75%),
+    radial-gradient(var(--dots) 1px, transparent 1px);
+  background-size: auto, 22px 22px;
+  background-position: 0 0, 0 0;
 }
 
 a {

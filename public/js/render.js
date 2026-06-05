@@ -317,7 +317,7 @@ export function renderPost(p, { topLevel = true } = {}) {
       <div class="post-text">${linkify(p.text || '')}</div>
       ${renderPoll(p.poll)}
       ${renderPostGallery(p.media)}
-      ${renderPostFoot(p, { collapsible: topLevel })}
+      ${renderPostFoot(p, { collapsible: !!(p.replies && p.replies.length) })}
     </div>
   `;
 
@@ -367,15 +367,14 @@ export function renderThread(p, { asRoot = true } = {}) {
     }
     if (appended > 0) {
       el.appendChild(nested);
-      // En el root del BLOQUE, el subárbol entero arranca COLAPSADO: el feed
-      // por defecto es una lista compacta de twoitts y el hilo se revela a
-      // demanda con el toggle "N respuestas" del foot. Solo el root colapsa
-      // (los niveles internos se muestran enteros al expandir).
-      if (asRoot) {
-        nested.classList.add('replies-collapsed');
-        const toggle = el.querySelector(':scope > .post-body > .post-foot > .resp-toggle');
-        if (toggle) bindRepliesToggle(toggle, nested);
-      }
+      // Acordeón de niveles: CADA post con respuestas arranca con su subárbol
+      // COLAPSADO y su propio toggle "N respuestas". Al expandir un nivel se ven
+      // sus hijos directos, cada uno plegado a su vez — el hilo se abre capa a
+      // capa en lugar de desplegar todo el subárbol de golpe. (Antes solo el
+      // root del BLOQUE colapsaba; al abrirlo se mostraban todos los niveles.)
+      nested.classList.add('replies-collapsed');
+      const toggle = el.querySelector(':scope > .post-body > .post-foot > .resp-toggle');
+      if (toggle) bindRepliesToggle(toggle, nested);
     }
   }
   if (asRoot) {

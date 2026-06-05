@@ -101,15 +101,40 @@ describe('colapso del subárbol + toggle', () => {
     expect(foot.querySelector('.resp-count')).toBeNull();
   });
 
-  it('reply anidada con sus propias replies usa enlace .resp-count, no toggle', () => {
+  it('acordeón: una reply anidada con sus propias replies usa toggle + subárbol colapsado', () => {
     const grandchild = makePost({ id: 3, parent_id: 2 });
     const child = makePost({ id: 2, parent_id: 1, reply_count: 1, replies: [grandchild] });
     const root = makePost({ reply_count: 1, replies: [child] });
     const el = renderThread(root);
     const childEl = el.querySelector('article.post[data-id="2"]')!;
     const childFoot = childEl.querySelector(':scope > .post-body > .post-foot')!;
-    expect(childFoot.querySelector('a.resp-count')).toBeTruthy();
-    expect(childFoot.querySelector('.resp-toggle')).toBeNull();
+    // acordeón: cada nivel pliega y usa toggle (antes los anidados usaban .resp-count)
+    expect(childFoot.querySelector('.resp-toggle')).toBeTruthy();
+    expect(childFoot.querySelector('a.resp-count')).toBeNull();
+    const childNested = childEl.querySelector(':scope > .thread-replies')!;
+    expect(childNested.classList.contains('replies-collapsed')).toBe(true);
+  });
+
+  it('acordeón multinivel: cada nivel con replies nace plegado con su toggle; la hoja no', () => {
+    // thread de 3 niveles: 1 → 2 → 3. (Como #88→#89→#90 del feed real.)
+    const lvl3 = makePost({ id: 3, parent_id: 2 });
+    const lvl2 = makePost({ id: 2, parent_id: 1, reply_count: 1, replies: [lvl3] });
+    const root = makePost({ id: 1, reply_count: 1, replies: [lvl2] });
+    const el = renderThread(root);
+
+    const togOf = (id: number) =>
+      el.querySelector(`article.post[data-id="${id}"] > .post-body > .post-foot > .resp-toggle`);
+    const nestedOf = (id: number) =>
+      el.querySelector(`article.post[data-id="${id}"] > .thread-replies`);
+
+    // niveles 1 y 2: toggle "1 respuesta" + subárbol colapsado
+    expect(togOf(1)).toBeTruthy();
+    expect(nestedOf(1)!.classList.contains('replies-collapsed')).toBe(true);
+    expect(togOf(2)).toBeTruthy();
+    expect(nestedOf(2)!.classList.contains('replies-collapsed')).toBe(true);
+    // nivel 3 (hoja): ni toggle ni subárbol
+    expect(togOf(3)).toBeNull();
+    expect(nestedOf(3)).toBeNull();
   });
 });
 
@@ -140,6 +165,27 @@ describe('updateReplyCount (contador dinámico)', () => {
     const rootEl = wrap.querySelector('article.post[data-id="1"]') as HTMLElement;
     updateReplyCount(rootEl, -1);
     expect(rootEl.querySelector('.resp-toggle')).toBeNull();
+  });
+
+  it('acordeón: responder a una reply ANIDADA le materializa un toggle (no un enlace)', () => {
+    // root (1) → child (2) sin replies aún. Llega una reply al child en vivo:
+    // su contador debe aparecer como toggle plegable, no como enlace .resp-count.
+    const root = makePost({ id: 1, reply_count: 1, replies: [makePost({ id: 2, parent_id: 1 })] });
+    const wrap = document.createElement('div');
+    wrap.className = 'thread';
+    wrap.appendChild(renderThread(root));
+    document.body.appendChild(wrap);
+    const childEl = wrap.querySelector('article.post[data-id="2"]') as HTMLElement;
+    // simular la inserción de la respuesta nueva bajo el child (como hace el composer)
+    const nested = document.createElement('div');
+    nested.className = 'thread-replies';
+    nested.appendChild(renderThread(makePost({ id: 3, parent_id: 2 }), { asRoot: false }));
+    childEl.querySelector(':scope > .post-body')!.after(nested);
+    updateReplyCount(childEl, +1);
+    const foot = childEl.querySelector(':scope > .post-body > .post-foot')!;
+    expect(foot.querySelector('.resp-toggle')).toBeTruthy();
+    expect(foot.querySelector('a.resp-count')).toBeNull();
+    expect(foot.querySelector('.resp-toggle')!.textContent!.trim()).toBe('1 respuesta');
   });
 });
 

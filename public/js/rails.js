@@ -38,28 +38,11 @@ export function updateReplyCount(postEl, delta) {
   const next = Math.max(0, current + delta);
   postEl.dataset.replyCount = String(next);
 
-  // Dos affordances de contador según el tipo de post:
-  //   - root del BLOQUE → botón .resp-toggle (colapsa/expande el subárbol)
-  //   - reply anidada    → enlace .resp-count (salta a su posición)
-  // Un root es un .post que NO cuelga de ningún .thread-replies.
-  if (!postEl.closest('.thread-replies')) {
-    syncRootToggle(postEl, next);
-    return;
-  }
-  const foot = postEl.querySelector(':scope > .post-body > .post-foot');
-  if (!foot) return;
-  const permalink = foot.querySelector('.permalink');
-  let countLink = foot.querySelector('a.resp-count');
-  if (next === 0) { countLink?.remove(); return; }
-  if (countLink) {
-    countLink.textContent = `${fmt(next)} resp`;
-  } else if (permalink) {
-    countLink = document.createElement('a');
-    countLink.className = 'resp-count';
-    countLink.href = permalink.getAttribute('href');
-    countLink.textContent = `${fmt(next)} resp`;
-    permalink.after(countLink);
-  }
+  // Acordeón: CUALQUIER nivel usa el toggle "N respuestas" que colapsa/expande
+  // su propio subárbol (antes los anidados usaban un enlace .resp-count; ahora
+  // todos pliegan). syncRootToggle crea/actualiza/elimina el botón según el
+  // count y bindea el colapso de su .thread-replies — sirve para root y anidado.
+  syncRootToggle(postEl, next);
 }
 
 // Animación del colapso de replies: misma curva y duración que el reply-inline

@@ -18,24 +18,17 @@ import { toast } from './utils.js';
 import { reprocessItem } from './media.js';
 import { computeDisplayBox } from './editor-geom.js';
 import { createCropBox } from './editor-cropbox.js';
+import { ensureModal, trapTab } from './modal.js';
 
 let editorEl = null;
 let prevFocus = null;
 let ctx = null; // contexto de la sesión de edición abierta (o null)
 
 function ensureEditor() {
-  if (editorEl && editorEl.isConnected) return editorEl;
-  if (editorEl) {
-    document.body.appendChild(editorEl);
-    return editorEl;
-  }
-  editorEl = document.createElement('div');
-  editorEl.className = 'editor';
-  editorEl.setAttribute('role', 'dialog');
-  editorEl.setAttribute('aria-modal', 'true');
-  editorEl.setAttribute('aria-label', 'editar medio');
-  editorEl.hidden = true;
-  editorEl.innerHTML = `
+  editorEl = ensureModal(editorEl, {
+    className: 'editor',
+    label: 'editar medio',
+    html: `
     <div class="editor-panel">
       <div class="editor-stage"></div>
       <div class="editor-toolbar">
@@ -45,8 +38,8 @@ function ensureEditor() {
         <button class="editor-apply btn-primary" type="button">aplicar</button>
       </div>
     </div>
-  `;
-  document.body.appendChild(editorEl);
+  `,
+  });
   return editorEl;
 }
 
@@ -210,26 +203,8 @@ function onItemRemoved(e) {
   if (ctx && e.detail?.localId === ctx.localId) closeEditor();
 }
 
-// Focus-trap: ciclo de Tab dentro del modal (clon de gallery.js trapTab).
-function trapTab(e) {
-  const focusables = editorEl.querySelectorAll(
-    'button:not([hidden]):not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-  );
-  if (focusables.length === 0) return;
-  const first = focusables[0];
-  const last = focusables[focusables.length - 1];
-  const active = document.activeElement;
-  if (e.shiftKey && active === first) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && active === last) {
-    e.preventDefault();
-    first.focus();
-  } else if (!editorEl.contains(active)) {
-    e.preventDefault();
-    first.focus();
-  }
-}
+// El focus-trap (trapTab) vive en modal.js; se invoca desde el keydown de abajo.
+// El editor no añade selectores extra (no hay <video controls> en el modal).
 
 // ─── wiring global (idempotente) ────────────────────────────────
 
@@ -265,7 +240,7 @@ export function setupEditor() {
   document.addEventListener('keydown', (e) => {
     if (!editorEl || editorEl.hidden) return;
     if (e.key === 'Escape') { e.preventDefault(); closeEditor(); }
-    else if (e.key === 'Tab') trapTab(e);
+    else if (e.key === 'Tab') trapTab(editorEl, e);
   });
 
   document.addEventListener('twoitter:item-removed', onItemRemoved);

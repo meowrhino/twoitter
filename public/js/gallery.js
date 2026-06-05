@@ -14,6 +14,7 @@
 
 import { escapeHtml, nextFrame, wait } from './utils.js';
 import { audioPlayerMarkup } from './audio-player.js';
+import { ensureModal, trapTab } from './modal.js';
 
 // Duración de cada fase (fade-out y fade-in/altura). Debe coincidir con
 // la CSS: .gallery > .stage / .lightbox-stage  transition: ... Xms ...
@@ -247,22 +248,17 @@ let lbNav = 0;
 let lightboxPrevFocus = null;
 
 function ensureLightbox() {
-  if (lightboxEl && lightboxEl.isConnected) return lightboxEl;
-  if (lightboxEl) { document.body.appendChild(lightboxEl); return lightboxEl; }
-  lightboxEl = document.createElement('div');
-  lightboxEl.className = 'lightbox';
-  lightboxEl.setAttribute('role', 'dialog');
-  lightboxEl.setAttribute('aria-modal', 'true');
-  lightboxEl.setAttribute('aria-label', 'visor de medios');
-  lightboxEl.hidden = true;
-  lightboxEl.innerHTML = `
+  lightboxEl = ensureModal(lightboxEl, {
+    className: 'lightbox',
+    label: 'visor de medios',
+    html: `
     <button class="lightbox-close" type="button" aria-label="cerrar">×</button>
     <button class="lightbox-prev" type="button" aria-label="anterior">‹</button>
     <button class="lightbox-next" type="button" aria-label="siguiente">›</button>
     <div class="lightbox-stage"></div>
     <div class="lightbox-counter" aria-live="polite"></div>
-  `;
-  document.body.appendChild(lightboxEl);
+  `,
+  });
   return lightboxEl;
 }
 
@@ -411,32 +407,11 @@ export function setupGallery() {
     if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); lightboxNav(-1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); lightboxNav(1); }
-    else if (e.key === 'Tab') trapTab(e);
+    else if (e.key === 'Tab') trapTab(lightboxEl, e, 'video[controls]');
   });
 
-  // Focus trap: lista los focusables del lightbox y hace ciclo dentro de
-  // ellos al tabular (Shift+Tab al revés). Sin esto, Tab se va a elementos
-  // de detrás del overlay y rompe la promesa de aria-modal=true.
-  function trapTab(e) {
-    const focusables = lightboxEl.querySelectorAll(
-      'button:not([hidden]):not([disabled]), [href], video[controls], [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const active = document.activeElement;
-    if (e.shiftKey && active === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    } else if (!lightboxEl.contains(active)) {
-      // Foco se escapó por algún motivo — devolver al primero.
-      e.preventDefault();
-      first.focus();
-    }
-  }
+  // El focus-trap (trapTab) vive en modal.js; el lightbox suma 'video[controls]'
+  // a los focusables (un vídeo con controles es tabulable dentro del visor).
 
   let touchStartX = null;
   document.addEventListener('touchstart', (e) => {

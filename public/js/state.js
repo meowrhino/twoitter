@@ -18,6 +18,11 @@ export const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
 // los valores ya actualizados después de checkAuth.
 export const POLL_LIMITS = { min: 2, max: 10, optLen: 80 };
 
+// Topes de tamaño de upload (bytes) por tipo. Mismo patrón que POLL_LIMITS:
+// defaults sensatos que checkAuth() sobreescribe con los del server (/api/me).
+// Permiten avisar al usuario antes de subir; el server los revalida.
+export const MEDIA_LIMITS = { image: 10485760, video: 52428800, audio: 26214400 };
+
 // Estado por composer (no contamina el nodo DOM con props ad-hoc).
 // WeakMap permite GC automático cuando el <form> sale del DOM y ya nadie
 // más lo referencia. shape: { pending: Map<localId, mediaState>, preview }

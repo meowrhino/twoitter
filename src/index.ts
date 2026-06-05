@@ -97,6 +97,13 @@ app.get("/api/me", async (c) => {
       max: POLL_MAX_OPTIONS,
       optLen: POLL_OPTION_MAX_LEN,
     },
+    // Topes de tamaño (bytes) por tipo, para que el cliente avise ANTES de
+    // subir en vez de tras el upload. El server los revalida igualmente.
+    media: {
+      image: maxBytesFor("image"),
+      video: maxBytesFor("video"),
+      audio: maxBytesFor("audio"),
+    },
   });
 });
 

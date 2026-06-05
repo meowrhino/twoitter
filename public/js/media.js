@@ -9,7 +9,7 @@
 // imagen via canvas WebP. La compresión arranca al adjuntar para aprovechar
 // el tiempo que el usuario tarda escribiendo el post.
 
-import { CSRF_HEADERS } from './state.js';
+import { CSRF_HEADERS, MEDIA_LIMITS } from './state.js';
 import { uuid } from './utils.js';
 import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
 import { audioPlayerMarkup } from './audio-player.js';
@@ -249,6 +249,21 @@ export async function attachFile(file, previewRoot, pending) {
   })
     .then((result) => {
       if (!pending.has(localId)) return null;
+      // Validación de tamaño en cliente: si tras comprimir el blob aún supera
+      // el tope del server (MEDIA_LIMITS, traído por /api/me), marcamos error
+      // YA — sin esperar a que el upload entero falle al final. El server lo
+      // revalida igual. uploadPendingFiles aborta el submit si hay un item en
+      // error, así que la preview muestra el porqué y el usuario lo quita.
+      const limit = MEDIA_LIMITS[kind];
+      if (limit && result.blob.size > limit) {
+        item.status = 'error';
+        const overMB = (result.blob.size / (1024 * 1024)).toFixed(1);
+        const maxMB = Math.round(limit / (1024 * 1024));
+        const msg = `demasiado grande: ${overMB} MB (máx ${maxMB} MB)`;
+        item.compressionError = new Error(msg);
+        setItemStatus(itemEl, 'error', { message: msg });
+        return null;
+      }
       item.compressed = result;
       item.status = 'compressed';
       const sizeMB = (result.blob.size / (1024 * 1024)).toFixed(2);

@@ -4,8 +4,12 @@
 // input de usuario va escapado antes de innerHTML; estos tests LO BLINDAN: si
 // un cambio futuro mete un valor de usuario sin escapar, fallan aquí en vez de
 // convertirse en un XSS en producción.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderPost } from '../public/js/render.js';
+import { MemStorage } from './helpers/mem-storage';
+
+// happy-dom v20 no expone localStorage como global (ver test/helpers/mem-storage.ts).
+vi.stubGlobal('localStorage', new MemStorage());
 
 const PAYLOAD = '<img src=x onerror="alert(1)">';
 

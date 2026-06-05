@@ -11,6 +11,10 @@
 // (hace su propia carga inicial) en lugar de asumir un estado limpio.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadTimeline } from '../public/js/pages.js';
+import { MemStorage } from './helpers/mem-storage';
+
+// happy-dom v20 no expone localStorage como global (ver test/helpers/mem-storage.ts).
+vi.stubGlobal('localStorage', new MemStorage());
 
 // ---- fetch mock que registra las URLs y responde según un responder ----
 let fetchCalls: Array<{ url: string; opts: RequestInit | undefined }> = [];

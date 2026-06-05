@@ -4,10 +4,14 @@
 // "↓ en respuesta a", el colapso del subárbol con su toggle, la distinción
 // root (botón .resp-toggle) vs reply anidada (enlace .resp-count), el contador
 // dinámico (updateReplyCount) y el render de encuestas.
-import { describe, it, expect, beforeEach } from 'vitest';
-import { renderPost, renderThread } from '../public/js/render.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { renderPost, renderThread, focusPostFromHash } from '../public/js/render.js';
 import { updateReplyCount } from '../public/js/rails.js';
 import { hide, clearHidden } from '../public/js/hidden.js';
+import { MemStorage } from './helpers/mem-storage';
+
+// happy-dom v20 no expone localStorage como global (ver test/helpers/mem-storage.ts).
+vi.stubGlobal('localStorage', new MemStorage());
 
 function reset() {
   document.body.innerHTML = '';
@@ -212,6 +216,31 @@ describe('posts ocultos', () => {
     const el = renderPost(makePost({ id: 7 }), { topLevel: true });
     expect(el.classList.contains('post-hidden')).toBe(false);
     expect(el.querySelector('.hidden-stub')).toBeNull();
+  });
+});
+
+describe('focusPostFromHash (deep-link)', () => {
+  beforeEach(reset);
+
+  it('al llegar por hash a un post OCULTO, la barra ofrece "desocultar" (refresca el botón como la ruta de click)', () => {
+    // Regresión #1: focusPostFromHash debe refrescar el botón ocultar/desocultar
+    // igual que bindPostClickToNavigate. Sin refreshThreadHideBtn, un post
+    // alcanzado por /#id mostraba "ocultar" estando ya oculto.
+    hide(42);
+    const wrap = document.createElement('div');
+    wrap.className = 'thread';
+    wrap.appendChild(renderThread(makePost({ id: 42 })));
+    document.body.appendChild(wrap);
+    const rootEl = wrap.querySelector('article.post[data-id="42"]') as HTMLElement;
+
+    location.hash = '#42';
+    focusPostFromHash('instant');
+
+    const bar = rootEl.querySelector(':scope > .post-actions')!;
+    const hideBtn = bar.querySelector('.hide-btn') as HTMLButtonElement;
+    const unhideBtn = bar.querySelector('.unhide-btn') as HTMLButtonElement;
+    expect(unhideBtn.hidden).toBe(false); // se ofrece "desocultar"
+    expect(hideBtn.hidden).toBe(true);    // y no "ocultar"
   });
 });
 

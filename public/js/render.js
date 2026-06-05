@@ -230,7 +230,13 @@ export function focusPostFromHash(behavior = 'smooth') {
     if (other !== el) other.classList.remove('active');
   });
   el.classList.add('active');
+  // refreshThread*Btn ANTES de sync (igual que bindPostClickToNavigate): fijan
+  // qué botones se ven para que staggerActionButtons cuente solo los visibles.
+  // Sin el de ocultar, un post alcanzado por /#id mostraba "ocultar" estando ya
+  // oculto (la barra es única por thread y conserva el estado de la activación
+  // anterior).
   refreshThreadTranscribeBtn(el);
+  refreshThreadHideBtn(el);
   syncThreadActiveFlags();
 }
 

@@ -90,7 +90,7 @@ al añadir una migración nueva: actualizar `schema.sql` (para clones desde cero
 
 ## notas de voz + transcripción
 
-- el botón "grabar" usa `MediaRecorder` con prioridad `audio/webm;codecs=opus` → `audio/ogg;codecs=opus` → `audio/mp4`. opus pesa ~16 KB/s, no recomprimimos en cliente.
+- el botón "grabar" usa `MediaRecorder` con prioridad `audio/webm;codecs=opus` → `audio/ogg;codecs=opus` → `audio/mp4`. grabamos opus a 24 kbps mono (~3 KB/s, ver recorder.js), no recomprimimos en cliente.
 - al pulsar "transcribir" en las acciones del post (sólo visible si hay audio sin transcript y estás logueado), se llama a `POST /api/posts/:id/transcribe` que descarga el blob de R2 y lo pasa por `@cf/openai/whisper-large-v3-turbo` con `language: "es"`. el resultado se guarda en `media.transcript` y queda cacheado.
 - cuota: el free tier de Workers AI da ~10k neuronas/día, suficiente para decenas de minutos de transcripción. para cambiar el idioma (auto-detectar o forzar otro), editar `WHISPER_LANGUAGE` en `src/index.ts`.
 

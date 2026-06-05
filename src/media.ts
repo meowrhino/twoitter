@@ -50,8 +50,9 @@ const ALLOWED_AUDIO = new Set([
 // Si llega algo más grande es señal de que la compresión no se aplicó.
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;  // 10 MB
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;  // 50 MB
-// Opus a calidad de voz ~16 KB/s → 25 MB son ~25 minutos. Workers AI Whisper
-// admite hasta 25 MB en la request, así que tope coherente con eso.
+// 25 MB = lo que admite Workers AI Whisper por request, así que el tope cuadra
+// con eso. Holgadísimo para voz: nuestras notas son opus 24 kbps mono (~3 KB/s,
+// ver recorder.js) → horas; aun si entra un audio subido más denso, 25 MB sobran.
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 export function classifyContentType(

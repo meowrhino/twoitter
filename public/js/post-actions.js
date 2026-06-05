@@ -149,8 +149,16 @@ export function refreshThreadHideBtn(postEl) {
 function doHide(targetEl) {
   const id = targetEl.dataset.id;
   hide(id);
-  document.querySelectorAll(`.post[data-id="${CSS.escape(id)}"]`).forEach(markPostHidden);
-  refreshThreadHideBtn(targetEl); // la barra del activo pasa a "desocultar"
+  // Colapsar a stub TODAS las copias (sale como ítem suelto + anidado) y
+  // DESACTIVARLAS: si el post quedara activo, el rail seguiría midiendo el stub
+  // (queda colgando) y el ResizeObserver apuntando a un nodo ya colapsado.
+  // Quedando inactivo, releaseRail lo suelta y se ve un stub limpio. Para
+  // recuperarlo: click en el stub → revela + activa → "desocultar" en la barra.
+  document.querySelectorAll(`.post[data-id="${CSS.escape(id)}"]`).forEach((el) => {
+    el.classList.remove('active');
+    markPostHidden(el);
+  });
+  releaseRail();
   toast('post ocultado en este navegador', 'info');
 }
 

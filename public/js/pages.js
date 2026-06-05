@@ -123,14 +123,17 @@ async function loadUntilHashPost(preferred = 'smooth') {
     await loadTimeline(false);
     loadedPages++;
   }
-  const behavior = loadedPages > 0 ? 'instant' : preferred;
-  // Doble rAF antes de centrar: si tuvimos que cargar páginas, el render por
-  // chunks puede no haber asentado el layout en este mismo tick y un scroll
-  // inmediato se queda corto. Esperar al frame siguiente garantiza medir con
-  // el layout ya flusheado.
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => focusPostFromHash(behavior)),
-  );
+  if (loadedPages > 0) {
+    // Cargamos páginas: el render por chunks puede no haber asentado el layout
+    // en este tick. Doble rAF para medir con el layout ya flusheado.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => focusPostFromHash('instant')),
+    );
+  } else {
+    // Caso común (hashchange in-app: el post ya está en el DOM): centramos YA,
+    // sin rAF — directo y fiable (no dependemos del loop de pintado).
+    focusPostFromHash(preferred);
+  }
 }
 
 // Click en un permalink / "en respuesta a" / "ver twoitt", o edición manual

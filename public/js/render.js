@@ -221,6 +221,9 @@ export function focusPostFromHash(behavior = 'smooth') {
   if (!id) return;
   const el = document.querySelector(`article.post[data-id="${CSS.escape(id)}"]`);
   if (!el) return;
+  // Si navegas a un post que ocultaste, lo revelamos: vienes a verlo, no a
+  // toparte con el stub. Sigue marcado como oculto (la barra ofrece desocultar).
+  if (el.classList.contains('post-hidden')) el.classList.add('revealed');
   el.scrollIntoView({ behavior, block: 'center' });
   // Activación atómica: quitar .active de cualquier otro y poner a este.
   document.querySelectorAll('.post.active').forEach((other) => {

@@ -69,6 +69,16 @@ describe('validatePostBody', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.parentId).toBe(parent.id);
   });
+
+  it('rechaza reply a un parent BORRADO (404)', async () => {
+    const parent = await createPost(db, 'a borrar', null);
+    await db
+      .prepare('UPDATE posts SET deleted_at = ? WHERE id = ?')
+      .bind('2026-01-01T00:00:00.000Z-x', parent.id)
+      .run();
+    const r = await validatePostBody(db, { text: 'reply', parent_id: parent.id });
+    expect(r).toMatchObject({ ok: false, status: 404 });
+  });
 });
 
 describe('persistPost', () => {

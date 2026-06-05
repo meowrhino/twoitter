@@ -228,8 +228,10 @@ export async function validatePostBody(
   }
 
   if (body.parent_id != null) {
+    // deleted_at IS NULL: no se puede responder a un post borrado (su id sigue
+    // en la BD pero no debe aceptar replies nuevas).
     const parent = await db
-      .prepare("SELECT id FROM posts WHERE id = ?")
+      .prepare("SELECT id FROM posts WHERE id = ? AND deleted_at IS NULL")
       .bind(body.parent_id)
       .first<{ id: number }>();
     if (!parent) return { ok: false, error: "parent no existe", status: 404 };
@@ -379,8 +381,10 @@ app.post("/api/posts/:id/poll/vote", requireCsrf(), async (c) => {
     if (!success) {
       return c.json({ error: "demasiados votos, espera un momento" }, 429);
     }
-  } catch {
-    /* limitador no disponible: seguimos */
+  } catch (e) {
+    // Fail-open a propósito (no bloquear votos legítimos si el limitador cae),
+    // pero lo logueamos para enterarnos si el binding falla de verdad.
+    console.error("VOTE_LIMITER no disponible:", e);
   }
 
   let body: { option_id?: number };

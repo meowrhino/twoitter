@@ -4,6 +4,8 @@
 // (ffmpeg.wasm multi-thread lo requiere — ver detectCapabilities). El thumbnail
 // se genera aparte con canvas, sin ffmpeg.
 
+import { roundEvenCrop } from './editor-geom.js';
+
 // Preset único 720p. CRF 10 con techo 2000k: VBR limitado, CRF como piso de
 // calidad. Resultado típico: 1080p H.264 15Mbps → 720p VP8 ~2Mbps (-86%).
 const PRESET = {
@@ -102,9 +104,53 @@ function extractVideoMetadata(file) {
   });
 }
 
+// ─── construcción de argumentos ffmpeg (PURA, testeable) ────────
+// Separada de compressVideo para poder testearla sin tocar el FS de ffmpeg.
+//   - trim: { start, duration } en segundos → -ss/-t DESPUÉS de -i
+//     (output-seeking): con re-encode es frame-accurate y no descuadra el
+//     filtergraph ni el audio.
+//   - crop: { x, y, w, h } en px de ORIGEN → se redondea a par (libvpx) y se
+//     antepone al scale en el -vf (crop ANTES de scale).
+// Sin trim ni crop, el array es idéntico al de siempre (cero regresión).
+export function buildVideoArgs({ input, output, trim = null, crop = null, srcW = 0, srcH = 0, preset = PRESET }) {
+  const args = ['-i', input];
+
+  if (trim && trim.duration > 0) {
+    args.push('-ss', String(trim.start), '-t', String(trim.duration));
+  }
+
+  args.push(
+    '-c:v', VIDEO_CODEC,
+    '-crf', String(preset.crf),
+    '-b:v', preset.videoBitrate,
+    '-cpu-used', String(preset.cpuUsed),
+    '-lag-in-frames', '16',
+    '-auto-alt-ref', '1',
+    '-c:a', AUDIO_CODEC,
+    '-b:a', preset.audioBitrate,
+    '-threads', '2',
+  );
+
+  // Filtro que preserva orientación: encuadra en caja maxBox×maxBox respetando
+  // aspect ratio, y trunca a paridad (libvpx exige par).
+  const scaleFilter =
+    `scale=w='min(${preset.maxBox},iw)':h='min(${preset.maxBox},ih)':force_original_aspect_ratio=decrease,` +
+    `scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+
+  let vf = scaleFilter;
+  if (crop) {
+    const c = roundEvenCrop(crop, srcW, srcH);
+    vf = `crop=${c.w}:${c.h}:${c.x}:${c.y},` + scaleFilter;
+  }
+  args.push('-vf', vf, output);
+  return args;
+}
+
 // ─── compressVideo ──────────────────────────────────────────────
 
-export async function compressVideo(file, onProgress) {
+// `editParams` (opcional) puede traer { trim, crop } en unidades de ORIGEN; el
+// editor de medios los produce. Sin él, comprime el vídeo entero como siempre.
+export async function compressVideo(file, onProgress, editParams = null) {
   await loadFFmpeg(onProgress);
   const meta = await extractVideoMetadata(file);
 
@@ -129,26 +175,15 @@ export async function compressVideo(file, onProgress) {
 
     const actualInput = usedWorkerFS ? `${mountPoint}/${file.name}` : inputName;
 
-    // Filtro que preserva orientación: encuadra en caja maxBox×maxBox
-    // respetando aspect ratio, y trunca a paridad (libvpx exige par).
-    const scaleFilter =
-      `scale=w='min(${PRESET.maxBox},iw)':h='min(${PRESET.maxBox},ih)':force_original_aspect_ratio=decrease,` +
-      `scale=trunc(iw/2)*2:trunc(ih/2)*2`;
-
-    const args = [
-      '-i', actualInput,
-      '-c:v', VIDEO_CODEC,
-      '-crf', String(PRESET.crf),
-      '-b:v', PRESET.videoBitrate,
-      '-cpu-used', String(PRESET.cpuUsed),
-      '-lag-in-frames', '16',
-      '-auto-alt-ref', '1',
-      '-c:a', AUDIO_CODEC,
-      '-b:a', PRESET.audioBitrate,
-      '-threads', '2',
-      '-vf', scaleFilter,
-      outputName,
-    ];
+    const args = buildVideoArgs({
+      input: actualInput,
+      output: outputName,
+      trim: editParams?.trim ?? null,
+      crop: editParams?.crop ?? null,
+      srcW: meta.width,
+      srcH: meta.height,
+      preset: PRESET,
+    });
 
     const progressHandler = ({ progress }) => {
       const pct = Math.min(Math.round(progress * 100), 99);
@@ -184,7 +219,12 @@ export async function compressVideo(file, onProgress) {
 // ─── thumbnail nativo (canvas) ──────────────────────────────────
 // 480 lado largo, jpeg 78 → ~20KB. Suficiente para poster del <video>.
 
-export function generateVideoThumb(file) {
+// `opts.atTime` (segundos, opcional): instante base del que sacar el poster.
+// Para un clip recortado se pasa trim.start, así el poster sale de DENTRO del
+// rango conservado y casa con la salida. El thumb se dibuja del File original
+// (decoder canvas fiable); no aplica el crop espacial (poster de 480px, no
+// compensa).
+export function generateVideoThumb(file, opts = {}) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
     v.preload = 'metadata';
@@ -201,7 +241,8 @@ export function generateVideoThumb(file) {
     };
     const timer = setTimeout(() => finish(reject, new Error('thumb timeout')), 10_000);
     v.onloadeddata = () => {
-      v.currentTime = Math.min(0.5, (v.duration || 1) / 4);
+      const base = opts.atTime != null ? opts.atTime : 0;
+      v.currentTime = base + Math.min(0.5, (v.duration || 1) / 4);
     };
     v.onseeked = () => {
       const w0 = v.videoWidth || 640;
@@ -222,4 +263,63 @@ export function generateVideoThumb(file) {
     };
     v.onerror = () => finish(reject, new Error('video load error'));
   });
+}
+
+// ─── trim de audio (ffmpeg) ─────────────────────────────────────
+// Recorta una nota de voz a [start, start+duration]. Intenta primero COPIAR el
+// stream sin pérdida (-c:a copy): ffmpeg.wasm NO sabe ENCODEAR opus (issue #591)
+// pero sí copiarlo, así que una nota webm/ogg-opus se recorta sin recodificar —
+// cero pérdida y mismo peso por segundo. Si el contenedor no admite el copy
+// (mp3/m4a/wav, o si el copy descuadra), cae a re-encode libvorbis → ogg, el
+// mismo códec que ya usamos para el audio de los vídeos. Requiere ffmpeg (SAB),
+// igual que el vídeo; el caller sólo ofrece editar audio si hay capacidades.
+export async function trimAudio(file, trim, onProgress) {
+  await loadFFmpeg(onProgress);
+  onProgress?.({ phase: 'compressing', percent: 0, label: 'recortando audio' });
+
+  const ext = (file.name.split('.').pop() || 'webm').toLowerCase();
+  const inputName = `audio-in.${ext}`;
+  const buf = await file.arrayBuffer();
+
+  const progressHandler = ({ progress }) => {
+    const pct = Math.min(Math.round(progress * 100), 99);
+    onProgress?.({ phase: 'compressing', percent: pct, label: 'recortando audio' });
+  };
+
+  // Ejecuta un intento (copy o re-encode) y limpia el FS pase lo que pase.
+  const run = async (outName, codecArgs, type) => {
+    await ffmpeg.writeFile(inputName, new Uint8Array(buf));
+    ffmpeg.on('progress', progressHandler);
+    try {
+      const code = await ffmpeg.exec([
+        '-ss', String(trim.start),
+        '-i', inputName,
+        '-t', String(trim.duration),
+        '-vn',
+        ...codecArgs,
+        outName,
+      ]);
+      if (code !== 0) throw new Error(`ffmpeg exit ${code}`);
+      const data = await ffmpeg.readFile(outName);
+      return new Blob([data.buffer], { type });
+    } finally {
+      ffmpeg.off('progress', progressHandler);
+      await ffmpeg.deleteFile(inputName).catch(() => {});
+      await ffmpeg.deleteFile(outName).catch(() => {});
+    }
+  };
+
+  // El copy sólo vale si el contenedor de salida admite el códec de origen: para
+  // notas grabadas (webm/ogg) copiamos en el mismo contenedor; el resto va al
+  // re-encode directo.
+  if (ext === 'webm' || ext === 'ogg') {
+    try {
+      const blob = await run(`audio-out.${ext}`, ['-c:a', 'copy'], file.type || `audio/${ext}`);
+      return { blob, width: null, height: null };
+    } catch (e) {
+      console.warn('audio copy-trim falló, re-encode a ogg/vorbis', e);
+    }
+  }
+  const blob = await run('audio-out.ogg', ['-c:a', 'libvorbis', '-b:a', '96k'], 'audio/ogg');
+  return { blob, width: null, height: null };
 }

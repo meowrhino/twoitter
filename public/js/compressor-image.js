@@ -26,6 +26,8 @@
 // desktop saldrá WebP igualmente; en iOS saldrá PNG, pero es mejor subir algo
 // que fallar. setItemStatus muestra el formato real, así que un PNG colado se ve.
 
+import { clamp, cropAndScaleDims } from './editor-geom.js';
+
 const IMAGE_QUALITY = 85;          // 0..100 para jsquash (toBlob usa 0..1)
 const IMAGE_MAX_DIM = 2000;
 
@@ -84,7 +86,10 @@ function loadWebpEncoder() {
 }
 
 // Dibuja el File en un canvas reescalado y devuelve { canvas, ctx, w, h }.
-async function drawToCanvas(file) {
+// `crop` (opcional) es un sub-rect { sx, sy, sw, sh } en píxeles del bitmap ya
+// orientado — el MISMO espacio en el que el editor dibuja la caja, porque ambos
+// decodifican con 'from-image'. Si no hay crop, se usa el frame entero.
+async function drawToCanvas(file, crop = null) {
   let bitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
@@ -92,20 +97,27 @@ async function drawToCanvas(file) {
     // navegadores antiguos sin la opción imageOrientation
     bitmap = await createImageBitmap(file);
   }
-  const w0 = bitmap.width;
-  const h0 = bitmap.height;
-  const max = IMAGE_MAX_DIM;
-  let w = w0, h = h0;
-  if (w0 > max || h0 > max) {
-    const r = w0 > h0 ? max / w0 : max / h0;
-    w = Math.round(w0 * r);
-    h = Math.round(h0 * r);
+  const srcW = bitmap.width;
+  const srcH = bitmap.height;
+
+  // Sub-rect de origen: el recorte (clampado por defensa) o la imagen completa.
+  let sx = 0, sy = 0, sw = srcW, sh = srcH;
+  if (crop) {
+    sx = clamp(crop.sx, 0, srcW - 1);
+    sy = clamp(crop.sy, 0, srcH - 1);
+    sw = clamp(crop.sw, 1, srcW - sx);
+    sh = clamp(crop.sh, 1, srcH - sy);
   }
+
+  // Escala el RECORTE (no la imagen entera) para que su lado largo ≤ IMAGE_MAX_DIM.
+  const { w, h } = cropAndScaleDims(sw, sh, IMAGE_MAX_DIM);
+
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0, w, h);
+  // drawImage de 9 args: toma (sx,sy,sw,sh) del bitmap → (0,0,w,h) del canvas.
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
   bitmap.close?.();
   return { canvas, ctx, w, h };
 }
@@ -121,8 +133,10 @@ function canvasToBlob(canvas, type, quality) {
   });
 }
 
-export async function compressImage(file) {
-  const { canvas, ctx, w, h } = await drawToCanvas(file);
+// `editParams` (opcional) puede traer { crop: { sx, sy, sw, sh } } en px de
+// origen — el editor lo produce; sin él, comprime la imagen entera como siempre.
+export async function compressImage(file, editParams = null) {
+  const { canvas, ctx, w, h } = await drawToCanvas(file, editParams?.crop ?? null);
 
   // Camino principal: encoder WebP en WASM → WebP real en todos los navegadores.
   try {

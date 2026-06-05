@@ -6,7 +6,7 @@
 // front (media.js) importe desde un único sitio.
 //
 //   compressor-video.js → detectCapabilities, loadFFmpeg, compressVideo,
-//                         generateVideoThumb
+//                         generateVideoThumb, trimAudio
 //   compressor-image.js → compressImage
 
 export {
@@ -14,5 +14,6 @@ export {
   loadFFmpeg,
   compressVideo,
   generateVideoThumb,
+  trimAudio,
 } from './compressor-video.js';
 export { compressImage } from './compressor-image.js';

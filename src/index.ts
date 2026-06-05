@@ -54,6 +54,8 @@ type Bindings = {
   PASSWORD: string;
   AUTH_SECRET: string;
   VOTE_LIMITER: RateLimit;
+  WRITE_LIMITER: RateLimit;
+  TRANSCRIBE_LIMITER: RateLimit;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -70,6 +72,24 @@ function requireCsrf() {
   return async (c: Context, next: Next) => {
     if (c.req.header("x-twoitter-csrf") !== "1") {
       return c.json({ error: "csrf" }, 403);
+    }
+    await next();
+  };
+}
+
+// Rate limit por IP usando el binding nativo de Workers que se elija. Fail-open
+// a propósito (no bloqueamos por un fallo del limitador) pero logueado. `pick`
+// selecciona el binding del env (VOTE_LIMITER / WRITE_LIMITER / TRANSCRIBE_LIMITER).
+function rateLimit(pick: (env: Bindings) => RateLimit) {
+  return async (c: Context<{ Bindings: Bindings }>, next: Next) => {
+    try {
+      const ip = c.req.header("cf-connecting-ip") || "local";
+      const { success } = await pick(c.env).limit({ key: ip });
+      if (!success) {
+        return c.json({ error: "demasiadas peticiones, espera un momento" }, 429);
+      }
+    } catch (e) {
+      console.error("rate limiter no disponible:", e);
     }
     await next();
   };
@@ -265,7 +285,7 @@ export async function persistPost(
   return post.id;
 }
 
-app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
+app.post("/api/posts", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LIMITER), async (c) => {
   let body: PostBody;
   try {
     body = await c.req.json();
@@ -306,7 +326,7 @@ app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
 // Detrás de auth+CSRF: solo el dueño puede gastar la cuota. Idempotente:
 // si el media ya tiene transcript, lo devuelve sin volver a llamar al modelo
 // (cachea para siempre — el blob de R2 es inmutable).
-app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) => {
+app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e) => e.TRANSCRIBE_LIMITER), async (c) => {
   const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
 
@@ -367,25 +387,11 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
 // x-twoitter-csrf evita que un sitio externo dispare votos vía form POST.
 // Voto inmutable: si ya votaste devuelve 409 con tu voto previo, no permite
 // cambiarlo.
-app.post("/api/posts/:id/poll/vote", requireCsrf(), async (c) => {
+// Rate limit (VOTE_LIMITER) vía middleware: este endpoint es PÚBLICO, un script
+// podría spamear votos rotando cookies tv_id. 30/min por IP frena el abuso.
+app.post("/api/posts/:id/poll/vote", requireCsrf(), rateLimit((e) => e.VOTE_LIMITER), async (c) => {
   const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
-
-  // Rate limit por IP: este endpoint es PÚBLICO (anónimo), así que un script
-  // podría spamear votos rotando cookies tv_id. 30/min por IP frena el abuso
-  // sin molestar a un humano. Fail-open si el binding no está (p.ej. dev viejo)
-  // — no queremos bloquear votos legítimos por un fallo del limitador.
-  try {
-    const ip = c.req.header("cf-connecting-ip") || "local";
-    const { success } = await c.env.VOTE_LIMITER.limit({ key: ip });
-    if (!success) {
-      return c.json({ error: "demasiados votos, espera un momento" }, 429);
-    }
-  } catch (e) {
-    // Fail-open a propósito (no bloquear votos legítimos si el limitador cae),
-    // pero lo logueamos para enterarnos si el binding falla de verdad.
-    console.error("VOTE_LIMITER no disponible:", e);
-  }
 
   let body: { option_id?: number };
   try {
@@ -427,7 +433,7 @@ app.post("/api/posts/:id/poll/vote", requireCsrf(), async (c) => {
   return c.json({ ok: true, poll: full?.poll ?? null });
 });
 
-app.post("/api/upload", requireAuth(), requireCsrf(), async (c) => {
+app.post("/api/upload", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LIMITER), async (c) => {
   const ct = c.req.header("x-content-type") || c.req.header("content-type") || "";
   const folderHint = c.req.header("x-folder") as
     | "images"

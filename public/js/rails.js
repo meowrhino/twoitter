@@ -62,17 +62,101 @@ export function updateReplyCount(postEl, delta) {
   }
 }
 
+// Animación del colapso de replies: misma curva y duración que el reply-inline
+// (composer-anim.js), con el rail en lockstep, para que abrir/cerrar el hilo se
+// sienta igual de fluido que abrir/cerrar el cuadro de responder. height:auto no
+// es animable en CSS, así que medimos la altura natural y animamos con WAAPI.
+const REPLIES_ANIM_MS = 320;
+const REPLIES_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+// ¿podemos animar? (WAAPI presente y el usuario no pidió reduced-motion).
+// En reduced-motion o sin WAAPI (p.ej. tests headless) caemos a toggle directo.
+function canAnimateReplies(nested) {
+  return typeof nested.animate === 'function' && !prefersReducedMotion();
+}
+
+function animateRepliesOpen(nested) {
+  // Quitamos .replies-collapsed YA (pasa a display:block) para medir la altura
+  // natural; la animación la lleva de 0 a esa altura.
+  nested.classList.remove('replies-collapsed');
+  if (!canAnimateReplies(nested)) { refreshActiveRail(); return; }
+  const h = nested.offsetHeight;
+  nested._repliesAnimating = true;
+  lockstepRail(REPLIES_ANIM_MS + 60); // el rail crece pegado al subárbol
+  const anim = nested.animate(
+    [
+      { height: '0px', opacity: 0, overflow: 'hidden' },
+      { height: `${h}px`, opacity: 1, overflow: 'hidden' },
+    ],
+    { duration: REPLIES_ANIM_MS, easing: REPLIES_CURVE },
+  );
+  // settle: idempotente. Lo dispara onfinish/oncancel y, como red, un setTimeout
+  // que NO depende de onfinish (en headless/background onfinish puede no llegar).
+  // El setTimeout además fuerza anim.finish() para asentar la altura a natural.
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    nested._repliesAnimating = false;
+    refreshActiveRail();
+  };
+  anim.onfinish = settle;
+  anim.oncancel = settle;
+  setTimeout(() => { try { anim.finish(); } catch { /* ya terminó */ } settle(); }, REPLIES_ANIM_MS + 120);
+}
+
+function animateRepliesClose(nested) {
+  if (!canAnimateReplies(nested)) {
+    nested.classList.add('replies-collapsed');
+    refreshActiveRail();
+    return;
+  }
+  const h = nested.offsetHeight;
+  nested._repliesAnimating = true;
+  lockstepRail(REPLIES_ANIM_MS + 60); // el rail encoge pegado al subárbol
+  const anim = nested.animate(
+    [
+      { height: `${h}px`, opacity: 1, overflow: 'hidden' },
+      { height: '0px', opacity: 0, overflow: 'hidden' },
+    ],
+    { duration: REPLIES_ANIM_MS, easing: REPLIES_CURVE },
+  );
+  // El .replies-collapsed se añade al TERMINAR (si no, display:none cortaría la
+  // animación). Guard + fallback como en animateComposerClose: garantiza que
+  // corre aunque onfinish no dispare (pestaña en background).
+  let fired = false;
+  const finish = () => {
+    if (fired) return;
+    fired = true;
+    nested.classList.add('replies-collapsed');
+    nested._repliesAnimating = false;
+    refreshActiveRail();
+  };
+  anim.onfinish = finish;
+  anim.oncancel = finish;
+  setTimeout(finish, REPLIES_ANIM_MS + 120);
+}
+
 // Toggle de colapso del subárbol de replies de un BLOQUE. Colapsado por
-// defecto (.replies-collapsed → display:none en CSS). Al expandir, el cambio
-// de altura del root se refleja en el riel amarillo (refreshActiveRail), igual
-// que el reply-inline al abrir/cerrar. Lo usan el render inicial (render.js) y
-// syncRootToggle al crear el botón dinámicamente.
+// defecto (.replies-collapsed → display:none en CSS). Anima la altura con la
+// misma curva que el reply-inline y deja el riel amarillo en lockstep. Lo usan
+// el render inicial (render.js) y syncRootToggle al crear el botón.
 export function bindRepliesToggle(toggle, nested) {
   toggle.addEventListener('click', (e) => {
     e.stopPropagation();
-    const collapsed = nested.classList.toggle('replies-collapsed');
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    refreshActiveRail();
+    // Ignoramos clicks mientras una animación está en curso (evita solapar dos
+    // height-animations sobre el mismo subárbol).
+    if (nested._repliesAnimating) return;
+    const wasCollapsed = nested.classList.contains('replies-collapsed');
+    if (wasCollapsed) animateRepliesOpen(nested);
+    else animateRepliesClose(nested);
+    // Tras el toggle, expanded = estaba colapsado. El caret (▸/▾) rota ya.
+    toggle.setAttribute('aria-expanded', String(wasCollapsed));
   });
 }
 

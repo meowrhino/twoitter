@@ -7,7 +7,7 @@
 // animamos con la Web Animations API; al terminar, el form vuelve a su CSS
 // natural (height auto) y el textarea puede volver a crecer al escribir.
 
-import { refreshActiveRail, lockstepRail } from './rails.js';
+import { refreshActiveRail, animateHeight } from './rails.js';
 import { prefersReducedMotion } from './utils.js';
 
 const RAIL_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
@@ -38,35 +38,32 @@ export function animateComposerOpen(form) {
   // (openReplyComposer ya no llama refreshActiveRail — delega aquí).
   if (prefersReducedMotion()) { refreshActiveRail(); return; }
   const { collapsed, natural } = composerFrames(form);
-  lockstepRail(COMPOSER_ANIM_MS + 60); // el rail crece pegado al composer
-  const anim = form.animate([collapsed, natural], { duration: COMPOSER_ANIM_MS, easing: RAIL_CURVE });
-  // Asegura el estado final del rail aunque el lockstep/ResizeObserver no haya
-  // corrido (p.ej. pestaña en background, donde WAAPI y RO se pausan).
-  const settle = () => refreshActiveRail();
-  anim.onfinish = settle;
-  anim.oncancel = settle;
+  // Sin fallback: si onfinish no llega, asentar el rail no es crítico al abrir
+  // (el ResizeObserver acaba poniéndolo a medida); evitamos un timer redundante.
+  animateHeight(form, [collapsed, natural], {
+    duration: COMPOSER_ANIM_MS,
+    easing: RAIL_CURVE,
+    fallback: false,
+    onSettle: () => refreshActiveRail(),
+  });
 }
 
 // Encoge el composer y ejecuta `done` (lógica que puede ser CRÍTICA, p.ej.
-// insertar la respuesta enviada). `done` se ejecuta SIEMPRE y SÓLO una vez:
-//   - guard `fired` evita doble ejecución (onfinish + fallback a la vez)
-//   - fallback setTimeout garantiza que corre aunque la animación nunca termine
-//     (en background WAAPI se pausa y onfinish no dispara → sin esto, la
-//     respuesta no se insertaría y el composer no se cerraría).
+// insertar la respuesta enviada). `done` se ejecuta SIEMPRE y SÓLO una vez: el
+// onSettle idempotente de animateHeight + su fallback setTimeout garantizan que
+// corre aunque la animación nunca termine (en background WAAPI se pausa y
+// onfinish no dispara → sin esto, la respuesta no se insertaría).
 export function animateComposerClose(form, done) {
-  let fired = false;
-  const finish = () => {
-    if (fired) return;
-    fired = true;
+  const settle = () => {
     form.remove();
     done();
     refreshActiveRail(); // asienta el rail a su altura final ya sin composer
   };
-  if (prefersReducedMotion()) { finish(); return; }
+  if (prefersReducedMotion()) { settle(); return; }
   const { collapsed, natural } = composerFrames(form);
-  lockstepRail(COMPOSER_ANIM_MS + 60); // el rail encoge pegado al composer
-  const anim = form.animate([natural, collapsed], { duration: COMPOSER_ANIM_MS, easing: RAIL_CURVE });
-  anim.onfinish = finish;
-  anim.oncancel = finish;
-  setTimeout(finish, COMPOSER_ANIM_MS + 120);
+  animateHeight(form, [natural, collapsed], {
+    duration: COMPOSER_ANIM_MS,
+    easing: RAIL_CURVE,
+    onSettle: settle,
+  });
 }

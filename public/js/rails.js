@@ -58,6 +58,36 @@ function canAnimateReplies(nested) {
   return typeof nested.animate === 'function' && !prefersReducedMotion();
 }
 
+// Primitiva compartida (la usan el acordeón de replies de aquí y el composer
+// inline en composer-anim.js): anima una altura 0↔natural con WAAPI dejando el
+// rail en lockstep, y garantiza que `onSettle` corre EXACTAMENTE una vez. El
+// fallback con setTimeout es la red para pestañas en background, donde WAAPI
+// (onfinish) y el ResizeObserver se pausan y el estado final no se asentaría.
+//   keyframes   — pares de la animación (height/opacity; el composer suma padding/margin)
+//   onSettle    — corre al terminar (onfinish/oncancel o el fallback); idempotente
+//   fallback    — añade el setTimeout(duración+120) de red (animateComposerOpen no lo usa)
+//   forceFinish — el fallback además llama anim.finish() para asentar la altura
+//                 (el acordeón al abrir lo necesita; el resto no)
+export function animateHeight(el, keyframes, { duration, easing, onSettle, fallback = true, forceFinish = false }) {
+  lockstepRail(duration + 60); // el rail crece/encoge pegado a la animación
+  const anim = el.animate(keyframes, { duration, easing });
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    onSettle();
+  };
+  anim.onfinish = settle;
+  anim.oncancel = settle;
+  if (fallback) {
+    setTimeout(() => {
+      if (forceFinish) { try { anim.finish(); } catch { /* ya terminó */ } }
+      settle();
+    }, duration + 120);
+  }
+  return anim;
+}
+
 function animateRepliesOpen(nested) {
   // Quitamos .replies-collapsed YA (pasa a display:block) para medir la altura
   // natural; la animación la lleva de 0 a esa altura.
@@ -65,27 +95,15 @@ function animateRepliesOpen(nested) {
   if (!canAnimateReplies(nested)) { refreshActiveRail(); return; }
   const h = nested.offsetHeight;
   nested._repliesAnimating = true;
-  lockstepRail(REPLIES_ANIM_MS + 60); // el rail crece pegado al subárbol
-  const anim = nested.animate(
-    [
-      { height: '0px', opacity: 0, overflow: 'hidden' },
-      { height: `${h}px`, opacity: 1, overflow: 'hidden' },
-    ],
-    { duration: REPLIES_ANIM_MS, easing: REPLIES_CURVE },
-  );
-  // settle: idempotente. Lo dispara onfinish/oncancel y, como red, un setTimeout
-  // que NO depende de onfinish (en headless/background onfinish puede no llegar).
-  // El setTimeout además fuerza anim.finish() para asentar la altura a natural.
-  let settled = false;
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    nested._repliesAnimating = false;
-    refreshActiveRail();
-  };
-  anim.onfinish = settle;
-  anim.oncancel = settle;
-  setTimeout(() => { try { anim.finish(); } catch { /* ya terminó */ } settle(); }, REPLIES_ANIM_MS + 120);
+  animateHeight(nested, [
+    { height: '0px', opacity: 0, overflow: 'hidden' },
+    { height: `${h}px`, opacity: 1, overflow: 'hidden' },
+  ], {
+    duration: REPLIES_ANIM_MS,
+    easing: REPLIES_CURVE,
+    forceFinish: true, // asienta la altura a natural si onfinish no llega
+    onSettle: () => { nested._repliesAnimating = false; refreshActiveRail(); },
+  });
 }
 
 function animateRepliesClose(nested) {
@@ -96,28 +114,20 @@ function animateRepliesClose(nested) {
   }
   const h = nested.offsetHeight;
   nested._repliesAnimating = true;
-  lockstepRail(REPLIES_ANIM_MS + 60); // el rail encoge pegado al subárbol
-  const anim = nested.animate(
-    [
-      { height: `${h}px`, opacity: 1, overflow: 'hidden' },
-      { height: '0px', opacity: 0, overflow: 'hidden' },
-    ],
-    { duration: REPLIES_ANIM_MS, easing: REPLIES_CURVE },
-  );
-  // El .replies-collapsed se añade al TERMINAR (si no, display:none cortaría la
-  // animación). Guard + fallback como en animateComposerClose: garantiza que
-  // corre aunque onfinish no dispare (pestaña en background).
-  let fired = false;
-  const finish = () => {
-    if (fired) return;
-    fired = true;
-    nested.classList.add('replies-collapsed');
-    nested._repliesAnimating = false;
-    refreshActiveRail();
-  };
-  anim.onfinish = finish;
-  anim.oncancel = finish;
-  setTimeout(finish, REPLIES_ANIM_MS + 120);
+  // .replies-collapsed se añade al TERMINAR (si no, display:none cortaría la
+  // animación), vía onSettle.
+  animateHeight(nested, [
+    { height: `${h}px`, opacity: 1, overflow: 'hidden' },
+    { height: '0px', opacity: 0, overflow: 'hidden' },
+  ], {
+    duration: REPLIES_ANIM_MS,
+    easing: REPLIES_CURVE,
+    onSettle: () => {
+      nested.classList.add('replies-collapsed');
+      nested._repliesAnimating = false;
+      refreshActiveRail();
+    },
+  });
 }
 
 // Toggle de colapso del subárbol de replies de un BLOQUE. Colapsado por

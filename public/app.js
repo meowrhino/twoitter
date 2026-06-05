@@ -22,6 +22,7 @@ import { setupGlobalPasteHandler } from './js/composer.js';
 import { setupTapToActivate } from './js/render.js';
 import { setupGallery } from './js/gallery.js';
 import { setupAudioPlayers } from './js/audio-player.js';
+import { setupEditor } from './js/editor.js';
 import { loadHashtags } from './js/hashtags.js';
 import { loadTimeline, setupTimelineComposer } from './js/pages.js';
 
@@ -32,6 +33,7 @@ import { loadTimeline, setupTimelineComposer } from './js/pages.js';
   setupTapToActivate();
   setupGallery();
   setupAudioPlayers();
+  setupEditor();
 
   setupTimelineComposer();
   setupFilterBanner();

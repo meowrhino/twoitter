@@ -13,7 +13,10 @@ import {
   castVote,
   deletePost,
   restorePost,
+  listHashtags,
+  exportAll,
 } from '../src/db';
+import { syncHashtags } from '../src/hashtags';
 
 const R2_STUB = {} as unknown as R2Bucket; // deletePost no lo usa (_storage)
 
@@ -202,6 +205,40 @@ describe('deletePost (soft-delete en cascada) + restorePost', () => {
 
   it('deletePost de un id inexistente devuelve null', async () => {
     expect(await deletePost(db, R2_STUB, 9999)).toBeNull();
+  });
+});
+
+describe('hashtags', () => {
+  it('syncHashtags inserta y listHashtags los cuenta', async () => {
+    const a = await createPost(db, 'hola #tech y #spain', null);
+    await syncHashtags(db, a.id, 'hola #tech y #spain');
+    const b = await createPost(db, 'otro #tech', null);
+    await syncHashtags(db, b.id, 'otro #tech');
+    const tags = await listHashtags(db);
+    const byTag = Object.fromEntries(tags.map((t) => [t.tag, t.count]));
+    expect(byTag.tech).toBe(2);
+    expect(byTag.spain).toBe(1);
+  });
+
+  it('syncHashtags reemplaza los del post (no acumula)', async () => {
+    const a = await createPost(db, '#uno', null);
+    await syncHashtags(db, a.id, '#uno');
+    await syncHashtags(db, a.id, '#dos'); // re-sync con otro tag
+    const tags = (await listHashtags(db)).map((t) => t.tag);
+    expect(tags).toContain('dos');
+    expect(tags).not.toContain('uno');
+  });
+});
+
+describe('exportAll', () => {
+  it('excluye posts borrados y sus hijos huérfanos', async () => {
+    const vivo = await createPost(db, 'vivo', null);
+    const muerto = await createPost(db, 'a borrar', null);
+    await deletePost(db, R2_STUB, muerto.id);
+    const dump = await exportAll(db);
+    const ids = dump.posts.map((p: { id: number }) => p.id);
+    expect(ids).toContain(vivo.id);
+    expect(ids).not.toContain(muerto.id);
   });
 });
 

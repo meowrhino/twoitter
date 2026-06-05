@@ -4,24 +4,53 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ## Pendiente
 
-### Media prioridad
+> Estado al cierre de la sesión 2026-06-05: TODO lo de valor alto/medio está
+> hecho y desplegado (ver "Done" abajo). Lo que queda es lo de abajo, con mi
+> recomendación honesta baked-in para retomarlo en frío.
 
-- [ ] **Frontend tests del flujo con red** para `composer.js` (publicar) y `pages.js` (loadTimeline, auto-fetch).
-  `render.js` ya cubierto (reply-context, colapso, contador, encuesta, anti-XSS) y los endpoints HTTP también (test/routes.test.ts). Falta el submit del composer y la carga de timeline en el cliente — necesitan mockear `fetch`/`api()`.
+### Lo único con valor real pendiente
 
-- [ ] **Modularizar `public/style.css`** (~1400 líneas monolíticas, creció con carrete/colapso/responsive).
-  División propuesta por dominio: `_colors.css`, `_typography.css`, `_layout.css`, `_post.css`, `_post-actions.css`, `_composer.css`, `_audio-player.css`, `_gallery.css`, `_menu.css`, `_toast.css`, `_login.css`, `_a11y.css`.
-  Sin bundler, opción más simple: un script de build que concatene en orden, o servir varios `<link>` con `@import` (con coste de waterfall).
+- [ ] **Frontend tests del flujo CON RED** — `composer.js` (publicar un post) y
+  `pages.js` (`loadTimeline` + auto-fetch del IntersectionObserver).
+  **Por qué:** son los flujos cliente que más cambiaron esta sesión y los únicos
+  sin cubrir. `render.js` ya está cubierto (test/render.test.ts: reply-context,
+  colapso, contador, encuesta, anti-XSS) y los endpoints HTTP también
+  (test/routes.test.ts vía `app.request`).
+  **Cómo:** entorno happy-dom (como render.test.ts); mockear `fetch` global con
+  `vi.stubGlobal('fetch', vi.fn())` que devuelva respuestas canned. Para el
+  composer: montar el `<form id="composer">` mínimo, `wireComposer`, simular
+  submit con texto, comprobar que `onPosted` rinde el thread. Para pages:
+  montar `#timeline`, mockear `/api/posts` → `{posts, nextCursor}`, llamar
+  `loadTimeline(true)`, comprobar el render por chunks + el sentinel.
+  **Recomendación:** SÍ, si se quiere más cobertura. Esfuerzo medio.
 
-### Baja prioridad / quick wins
+- [ ] **Cobertura de backend que aún falta** (menor): el endpoint `/transcribe`
+  (caching, sin-audio, fallo de Whisper, 422) y los helpers `getAudioMediaForPost`
+  / `setMediaTranscript`. El resto del backend ya tiene tests (db.test.ts,
+  post-handler.test.ts, routes.test.ts). El de transcribe necesita stubbear
+  `c.env.AI.run` + `c.env.STORAGE.get`.
 
-- [ ] **README** con diagrama data flow (client → API → D1/R2/Workers AI), convenciones (snake_case server vs camelCase client, CSRF header `x-twoitter-csrf`, error shape `{ error: string }`), y workflow de migraciones.
-- [ ] **CHANGELOG.md** o tags semver. Hoy no hay versionado de cambios de API shape.
+### Útil pero baja urgencia
 
-### Bugs latentes / vulnerabilidades
+- [ ] **Docs**: en el README, un diagrama del data-flow (cliente → API →
+  D1/R2/Workers AI) + convenciones (snake_case server vs camelCase client, header
+  CSRF `x-twoitter-csrf`, error shape `{ error: string }`, los 3 rate-limiters).
+  Y un **CHANGELOG.md** (hoy no hay versionado de cambios de API shape).
+  **Recomendación:** rápido y agradable cuando apetezca.
 
-- [ ] **CSRF dual-token** (defense in depth). Hoy basta el header `x-twoitter-csrf: 1`, que no es estrictamente un token — depende de SameSite=Lax cookie para prevenir cross-origin. Si en algún momento la cookie se sirviera con SameSite=None (subdomain, embed), sería bypasseable.
-- [ ] **sessionStorage no se limpia** en `state.js` — `CSRF_HEADERS=1` se guarda siempre. No es una vuln pero queda contaminando.
+### Descartado a propósito (NO hacer salvo que cambie el contexto)
+
+- [ ] ~~**Modularizar `style.css`**~~ (~1400 líneas). DESRECOMENDADO: churn +
+  riesgo de romper la cascada en un archivo que funciona y está bien seccionado
+  con comentarios. Sin bundler habría que montar un build que concatene en orden
+  o servir varios `<link>`/`@import` (waterfall). Mal ratio valor/riesgo — misma
+  conclusión que con los tokens de spacing.
+- [ ] ~~**CSRF dual-token**~~. DESRECOMENDADO para esta app: un solo usuario,
+  `SameSite=Lax` ya previene el cross-origin. Es endurecimiento contra un
+  escenario hipotético (servir la cookie con `SameSite=None`, p.ej. embed/
+  subdominio) que hoy no aplica. Reconsiderar SOLO si eso cambia.
+- [ ] **sessionStorage**: `state.js` guarda `CSRF_HEADERS` siempre. Cosmético,
+  no es vuln. Trivial si molesta.
 
 ## Done (sesión 2026-06-05)
 

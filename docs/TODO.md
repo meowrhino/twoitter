@@ -28,27 +28,50 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 - [ ] **`/api/posts` POST handler** ([src/index.ts:116-167](src/index.ts)) mezcla validación, lógica y persistencia en 78 líneas.
   Partir en `validatePostBody()` (devuelve errores temprano) + `persistPost()` (db logic). Más legible y testeable individualmente.
 
-- [ ] **CTE recursivo duplicado** en `listPosts` ([src/db.ts:152-160](src/db.ts)) y `getReplies` ([src/db.ts:198-207](src/db.ts)).
-  Misma query `WITH RECURSIVE descendants(...)`. Extraer a `getDescendants(db, parentIds, opts)`.
-
-- [ ] **Modularizar `public/style.css`** (~1100 líneas monolíticas).
+- [ ] **Modularizar `public/style.css`** (~1400 líneas monolíticas, creció con carrete/colapso/responsive).
   División propuesta por dominio: `_colors.css`, `_typography.css`, `_layout.css`, `_post.css`, `_post-actions.css`, `_composer.css`, `_audio-player.css`, `_gallery.css`, `_menu.css`, `_toast.css`, `_login.css`, `_a11y.css`.
   Sin bundler, opción más simple: un script de build que concatene en orden, o servir varios `<link>` con `@import` (con coste de waterfall).
 
 ### Baja prioridad / quick wins
 
-- [ ] CSS token `--breakpoint-tablet: 720px` (hardcoded en 2 sitios).
 - [ ] Token `--accent-overlay-light: rgba(232, 176, 74, 0.04)` (hardcoded en hover de body y otros sitios).
-- [ ] Borrar reglas CSS muertas: `.audio-transcript[hidden]` (redundante con global `[hidden]`), `.menu-link { letter-spacing: 0 }` (default).
-- [ ] Validar tamaño de upload en cliente antes de mandarlo al server (`media.js` / `attachFile`). Hoy el server rechaza si excede `MAX_*_BYTES` pero el usuario sólo ve el error al final del upload.
 - [ ] **README** con diagrama data flow (client → API → D1/R2/Workers AI), convenciones (snake_case server vs camelCase client, CSRF header `x-twoitter-csrf`, error shape `{ error: string }`), y workflow de migraciones.
 - [ ] **CHANGELOG.md** o tags semver. Hoy no hay versionado de cambios de API shape.
 
 ### Bugs latentes / vulnerabilidades
 
 - [ ] **CSRF dual-token** (defense in depth). Hoy basta el header `x-twoitter-csrf: 1`, que no es estrictamente un token — depende de SameSite=Lax cookie para prevenir cross-origin. Si en algún momento la cookie se sirviera con SameSite=None (subdomain, embed), sería bypasseable.
-- [ ] **innerHTML sin escape** en `public/js/composer.js:96` con templates literales. Hoy los templates no aceptan user input, pero es frágil — si alguien interpola texto del usuario en el futuro sin escapar, XSS.
+- [ ] **innerHTML sin escape** en `public/js/composer-poll.js` (filas de opciones) y otros templates literales. Hoy no aceptan user input, pero es frágil — si alguien interpola texto del usuario en el futuro sin escapar, XSS.
 - [ ] **sessionStorage no se limpia** en `state.js` — `CSRF_HEADERS=1` se guarda siempre. No es una vuln pero queda contaminando.
+
+## Done (sesión 2026-06-05)
+
+Reorganización grande de la TL + encuestas + revisión:
+
+- [x] **Carrete plano**: la TL muestra TODOS los posts (root + replies) por
+  fecha; cada reply es ítem propio con "↓ en respuesta a (…)" Y sigue anidada.
+  Link a un post = `/#id` (posición; scroll + auto-fetch hasta encontrarlo).
+- [x] **Vista `/post/:id` ELIMINADA** (y `post.html`, `loadSinglePost`, `POST_ID`).
+  El server redirige 301 `/post/:id → /#id`. → invalida el `[x]` de abajo sobre
+  validar `POST_ID`/`loadSinglePost` (ese código ya no existe).
+- [x] **Encuestas (polls)**: tablas + voto anónimo por cookie firmada `tv_id`.
+  Fix: la cookie a 2 años reventaba el voto (Hono capa Max-Age a 400 días).
+- [x] **Respuestas colapsables**: subárbol colapsado por defecto + toggle
+  "▸ N respuestas". Fix del contador dinámico (root usa `.resp-toggle`).
+- [x] **Troceado de queries D1** (`selectByIds`) por el límite de ~100 params
+  — el `limit=500` reventaba el timeline en prod con 500.
+- [x] **`getDescendants()`**: extraído el CTE recursivo duplicado de listPosts/getReplies.
+- [x] **Extraídos `composer-poll.js` y `composer-anim.js`** (composer.js 441→259).
+- [x] **Límites poll + media desde el server** (`/api/me` → `POLL_LIMITS`/`MEDIA_LIMITS`),
+  fuente única; y validación de tamaño de upload en cliente antes de subir.
+- [x] **Táctil 44px** en `.post-actions button`, login fluido en móvil, tokens de radio.
+- [x] Borradas reglas CSS muertas (`.audio-transcript[hidden]`, `.menu-link letter-spacing`).
+- [x] README al día.
+
+Evaluado y descartado (falso positivo) en esta sesión:
+- Tokenizar el spacing (los px reales no caen en rejilla base-4).
+- Token `--breakpoint-tablet` (las custom properties no van en `@media`).
+- "Código muerto" en `hidden.js` (`unhide`/`listHidden`/`clearHidden` → usados en tests).
 
 ## Done (esta sesión, 2026-05-27)
 

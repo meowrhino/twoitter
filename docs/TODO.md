@@ -18,11 +18,12 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ### Lo que queda pendiente (todo menor / opcional)
 
-- [ ] **Cobertura de backend que aún falta** (menor): el endpoint `/transcribe`
-  (caching, sin-audio, fallo de Whisper, 422) y los helpers `getAudioMediaForPost`
-  / `setMediaTranscript`. El resto del backend ya tiene tests (db.test.ts,
-  post-handler.test.ts, routes.test.ts). El de transcribe necesita stubbear
-  `c.env.AI.run` + `c.env.STORAGE.get`.
+- [x] **Cobertura de backend de `/transcribe`** (DONE 2026-06-06):
+  `test/transcribe.test.ts` cubre el endpoint (401/403, 400 id, 404 sin-audio,
+  200 cached sin tocar el modelo, 404 blob ausente, 500 Whisper falla, 422 vacío,
+  200 OK con audio base64 + language + persistencia) y de paso
+  `getAudioMediaForPost`/`setMediaTranscript`. AI y STORAGE stubbeados en el env.
+  10 tests → 218 totales. Ya no queda cobertura de backend pendiente.
 
 ### Útil pero baja urgencia
 

@@ -185,6 +185,9 @@ function closeEditor() {
     ctx.ro?.disconnect();
     window.removeEventListener('resize', reflow);
     ctx.cropbox?.destroy();
+    // ctx.urls va vacío hoy a propósito: el editor de imagen no crea object URLs
+    // propios (pinta sobre un <canvas>). Hook para F6 (vídeo): openVideoEditor
+    // empujará aquí los blob URLs del <video> del stage para revocarlos al cerrar.
     for (const u of ctx.urls || []) URL.revokeObjectURL(u);
   }
   const stage = editorEl.querySelector('.editor-stage');

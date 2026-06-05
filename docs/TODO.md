@@ -6,27 +6,13 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ### Alta prioridad
 
-- [ ] **Rate limiting** en `/api/upload`, `/api/posts` (POST), `/api/posts/:id/transcribe`.
-  Hoy un usuario authed puede saturar la cuota de Workers AI / R2 / D1 sin freno. Como el único usuario authed es el dueño, es defensa contra accidentes (script en bucle) más que ataque.
-  - **Opciones**:
-    - KV namespace con sliding window per-IP y per-action (más simple).
-    - Durable Object con contadores fuertemente consistentes (más correcto si hay múltiples colos involucrados).
-    - Cloudflare WAF rules (zero código, configurar en dashboard).
-  - **Bloqueo**: requiere crear binding nuevo en `wrangler.toml`. Decisión + setup en sesión dedicada.
-
-- [ ] **Tests de backend** (`src/db.ts` y `src/index.ts`).
-  Hoy hay tests para `src/auth.ts` y `src/media.ts` (puros), pero las queries de D1 y los endpoints HTTP están sin cubrir. Setup necesario:
-  - `@cloudflare/vitest-pool-workers` para correr tests dentro de un Worker virtual con bindings mockeados.
-  - Migrations corridas contra una D1 efímera por test.
-  - Casos críticos a cubrir: `listPosts` paginación + filtros, `deletePost` cascada + el nonce de `deleted_at`, `restorePost` no cruza batches, CSRF rechazo, auth flow completo, `/transcribe` con audio vs sin audio.
+- [ ] **Rate limiting en los endpoints AUTHED** (`/api/upload`, `/api/posts` POST, `/api/posts/:id/transcribe`).
+  El de voto (público) ya tiene rate limit (binding `VOTE_LIMITER`). Falta extender el mismo patrón a las escrituras del dueño como defensa contra accidentes (script en bucle que funde la cuota de Workers AI / R2). Reusar `[[unsafe.bindings]]` con otro namespace y límite más holgado.
 
 ### Media prioridad
 
-- [ ] **Frontend tests faltantes** para `composer.js`, `pages.js`, `render.js`, `post-actions.js`.
-  Hoy: `media.js`, `gallery.js`, `hidden.js`, `audio-player.js`, `tap-activate` (parte de `render.js`), `api.js`, `state.js`. Falta cubrir el flujo de publicar un post, cargar timeline, render de un thread completo, bindings de la action bar.
-
-- [ ] **`/api/posts` POST handler** ([src/index.ts:116-167](src/index.ts)) mezcla validación, lógica y persistencia en 78 líneas.
-  Partir en `validatePostBody()` (devuelve errores temprano) + `persistPost()` (db logic). Más legible y testeable individualmente.
+- [ ] **Frontend tests del flujo con red** para `composer.js` (publicar) y `pages.js` (loadTimeline, auto-fetch).
+  `render.js` ya cubierto (reply-context, colapso, contador, encuesta, anti-XSS). Falta el submit de un post y la carga de timeline — necesitan mockear `fetch`/`api()`.
 
 - [ ] **Modularizar `public/style.css`** (~1400 líneas monolíticas, creció con carrete/colapso/responsive).
   División propuesta por dominio: `_colors.css`, `_typography.css`, `_layout.css`, `_post.css`, `_post-actions.css`, `_composer.css`, `_audio-player.css`, `_gallery.css`, `_menu.css`, `_toast.css`, `_login.css`, `_a11y.css`.
@@ -34,14 +20,12 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ### Baja prioridad / quick wins
 
-- [ ] Token `--accent-overlay-light: rgba(232, 176, 74, 0.04)` (hardcoded en hover de body y otros sitios).
 - [ ] **README** con diagrama data flow (client → API → D1/R2/Workers AI), convenciones (snake_case server vs camelCase client, CSRF header `x-twoitter-csrf`, error shape `{ error: string }`), y workflow de migraciones.
 - [ ] **CHANGELOG.md** o tags semver. Hoy no hay versionado de cambios de API shape.
 
 ### Bugs latentes / vulnerabilidades
 
 - [ ] **CSRF dual-token** (defense in depth). Hoy basta el header `x-twoitter-csrf: 1`, que no es estrictamente un token — depende de SameSite=Lax cookie para prevenir cross-origin. Si en algún momento la cookie se sirviera con SameSite=None (subdomain, embed), sería bypasseable.
-- [ ] **innerHTML sin escape** en `public/js/composer-poll.js` (filas de opciones) y otros templates literales. Hoy no aceptan user input, pero es frágil — si alguien interpola texto del usuario en el futuro sin escapar, XSS.
 - [ ] **sessionStorage no se limpia** en `state.js` — `CSRF_HEADERS=1` se guarda siempre. No es una vuln pero queda contaminando.
 
 ## Done (sesión 2026-06-05)
@@ -67,6 +51,18 @@ Reorganización grande de la TL + encuestas + revisión:
 - [x] **Táctil 44px** en `.post-actions button`, login fluido en móvil, tokens de radio.
 - [x] Borradas reglas CSS muertas (`.audio-transcript[hidden]`, `.menu-link letter-spacing`).
 - [x] README al día.
+
+Backlog atacado al final de la sesión:
+- [x] **Tests de backend** (18): adapter D1 sobre better-sqlite3 (no pool-workers,
+  ver commit). Cubre listPosts/cursor/parent_excerpt, getReplies, polls/voto,
+  deletePost cascada + restore. **Encontró y arregló un bug real**: el nonce de
+  `deleted_at` se evaluaba por fila → restore solo revivía el root.
+- [x] **Tests de frontend** (12 render + 4 anti-XSS + 11 del POST handler):
+  reply-context, colapso, contador, encuesta, escapado.
+- [x] **Rate limit del endpoint de voto** (público) vía binding nativo de Workers.
+- [x] **Partido el POST handler** en validatePostBody + persistPost (testeables).
+- [x] Token `--accent-overlay-light`; auditoría de innerHTML (sin agujeros) con
+  tests de regresión.
 
 Evaluado y descartado (falso positivo) en esta sesión:
 - Tokenizar el spacing (los px reales no caen en rejilla base-4).

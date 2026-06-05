@@ -306,7 +306,6 @@ textarea {
   padding: 7px 10px;
   border-radius: 3px;
   cursor: pointer;
-  letter-spacing: 0;
 }
 .menu-link:hover, .menu-link.as-btn:hover {
   background: var(--bg-warm);
@@ -1125,7 +1124,6 @@ body.lightbox-open { overflow: hidden; }
   word-wrap: break-word;
   color: var(--text);
 }
-.audio-transcript[hidden] { display: none; }
 
 /* Thumb para audio: cuadrado con el emoji de micro. Mismo tamaño que las
    otras thumbs (CSS de .thumb ya define el frame); aquí sólo se centra

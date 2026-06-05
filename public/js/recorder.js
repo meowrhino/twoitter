@@ -23,6 +23,13 @@ const PREFERRED_TYPES = [
   'audio/mp4',
 ];
 
+// 24 kbps mono: calidad de voz por encima de WhatsApp (~16 kbps) y ~5× más
+// ligero que el default del navegador (~128 kbps). Un minuto y medio ≈ 270 KB.
+// Distinto del audio de los vídeos (compressor-video PRESET.audioBitrate=128k) y
+// del re-encode al recortar una nota (AUDIO_TRIM_BITRATE=96k): contextos/códecs
+// distintos, NO una constante compartida.
+const VOICE_NOTE_BITRATE = 24000;
+
 function pickMimeType() {
   if (typeof MediaRecorder === 'undefined') return null;
   for (const t of PREFERRED_TYPES) {
@@ -99,9 +106,7 @@ async function startRecording(form, button, preview, pending) {
   }
 
   const mimeType = pickMimeType();
-  // 24 kbps mono: calidad de voz por encima de WhatsApp (~16 kbps) y ~5× más
-  // ligero que el default del navegador (~128 kbps). Un minuto y medio ≈ 270 KB.
-  const opts = { audioBitsPerSecond: 24000 };
+  const opts = { audioBitsPerSecond: VOICE_NOTE_BITRATE };
   if (mimeType) opts.mimeType = mimeType;
   let rec;
   try {

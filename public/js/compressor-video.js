@@ -20,6 +20,11 @@ const PRESET = {
 // libvorbis: libopus crashea ffmpeg.wasm (issue #591). En CLI sí va opus.
 const VIDEO_CODEC = 'libvpx';
 const AUDIO_CODEC = 'libvorbis';
+// Bitrate del re-encode de audio al recortar una nota (fallback cuando el copy
+// sin pérdida no cuadra). La fuente ya viene comprimida → 96k basta sin añadir
+// artefactos. Distinto de PRESET.audioBitrate (128k, audio de vídeos) y de la
+// grabación nueva (recorder.js VOICE_NOTE_BITRATE, 24 kbps Opus).
+const AUDIO_TRIM_BITRATE = '96k';
 
 const CORE_MT_BASE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.9/dist/umd';
 const WORKERFS_THRESHOLD = 200 * 1024 * 1024;
@@ -320,6 +325,6 @@ export async function trimAudio(file, trim, onProgress) {
       console.warn('audio copy-trim falló, re-encode a ogg/vorbis', e);
     }
   }
-  const blob = await run('audio-out.ogg', ['-c:a', 'libvorbis', '-b:a', '96k'], 'audio/ogg');
+  const blob = await run('audio-out.ogg', ['-c:a', 'libvorbis', '-b:a', AUDIO_TRIM_BITRATE], 'audio/ogg');
   return { blob, width: null, height: null };
 }

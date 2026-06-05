@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   --bg: #0d0c0a;
@@ -14,7 +14,6 @@
   --accent-dim: #b58836;
   --danger: #d97a6a;
   --dots: #1a1612;
-  --serif: 'Merriweather', Georgia, serif;
   --mono: 'JetBrains Mono', 'Menlo', monospace;
   /* geometría del rail vertical y la sangría — cualquier cambio aquí
      propaga automáticamente al mini-rail amarillo (que usa calc()). */
@@ -38,6 +37,27 @@
   /* velo del acento sobre fondos (hover de posts y rail). Repetido en 2 sitios. */
   --accent-overlay-light: rgba(232, 176, 74, 0.04);
 }
+
+/* ============================================================
+   ÍNDICE (orden de este archivo)
+     1. reset + :root  — tokens: color, fuentes, geometría del rail
+     2. toast
+     3. buttons         — botones, inputs, textarea
+     4. login
+     5. menu            — hamburguesa + panel
+     6. layout          — grid, sidebar, overrides @media móvil
+     7. composer        — caja de escribir (+ botón grabar)
+     8. EL CARRETE (.post) — todo junto, en orden de aparición:
+          · timeline / skeletons / .post + rail gris
+          · post · pie (#id · fecha · toggle de respuestas)
+          · post · barra de acciones
+          · post · estado activo + rail amarillo
+          · post · composer de respuesta inline
+          · timeline · cargar más
+     9. media           — gallery, lightbox, audio player + transcript
+    10. páginas legales — columna estrecha
+    11. encuestas       — display + bloque del composer
+   ============================================================ */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -384,14 +404,6 @@ body.sidebar-hidden .side-col { display: none; }
   .tag-list li { padding: 0; }
   .menu-btn { top: 12px; right: 12px; }
   .menu-panel { top: 56px; right: 12px; left: 12px; min-width: 0; }
-  /* La barra de acciones tiene hasta 5 botones ("ver twoitt", "responder",
-     "transcribir", "ocultar", "borrar"). En desktop caben en una fila vía
-     flex-end + gap:16. En mobile estrecho, sin flex-wrap, el último botón
-     se recortaba. Permitir wrap a 2 filas cuando no caben. */
-  .post-actions { flex-wrap: wrap; gap: 8px 12px; }
-  .post.thread-has-active > .post-actions {
-    max-height: 100px;  /* sube el cap para acomodar 2 filas */
-  }
 }
 
 /* ---------- composer ---------- */
@@ -536,7 +548,37 @@ body.sidebar-hidden .side-col { display: none; }
   text-overflow: ellipsis;
 }
 
-/* ---------- timeline ---------- */
+/* ---------- composer · botón grabar ---------- */
+
+/* Botón "grabar" en el composer: gemelo visual de .file-btn pero con un
+   estado rojizo cuando está grabando (.is-recording). Se anima el borde
+   para feedback inequívoco mientras MediaRecorder está activo. */
+.rec-btn {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.rec-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rec-btn.is-recording {
+  border-color: var(--danger, #d33);
+  color: var(--danger, #d33);
+  animation: recPulse 1.2s ease-in-out infinite;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0.35); }
+  50%      { box-shadow: 0 0 0 4px rgba(211, 51, 51, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-btn.is-recording { animation: none; }
+}
+
+/* ---------- EL CARRETE (.post): timeline + .post + rail gris ---------- */
 
 .filter-banner {
   border-bottom: 1px solid var(--hairline);
@@ -732,6 +774,251 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-text .hashtag:hover { border-bottom: 1px dotted var(--accent); }
 
+/* ---------- post · pie (#id · fecha · toggle de respuestas) ---------- */
+
+.post-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.post-foot a {
+  color: var(--muted);
+  border-bottom: none;
+}
+.post-foot a:hover { color: var(--accent); }
+.post-foot .post-id {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  letter-spacing: -0.02em;
+}
+.post-foot .permalink:hover .post-id { color: var(--accent-dim); }
+/* .resp-count ("N resp") es un <a> dentro de .post-foot, así que ya hereda
+   color/hover de '.post-foot a'. Regla dedicada (aunque hoy no añade props
+   visuales) para que el contador tenga un punto de anclaje propio y no dependa
+   solo de la herencia si el footer cambia. */
+.post-foot .resp-count { font-variant-numeric: tabular-nums; }
+/* .resp-toggle ("N respuestas ▸/▾"): botón que colapsa/expande el subárbol de
+   replies del BLOQUE (root). Se ve como el resto del footer (mono, muted) pero
+   es tappable: caret a la izquierda que rota según aria-expanded. */
+.post-foot .resp-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: inherit;
+  color: var(--muted);
+  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.post-foot .resp-toggle::before {
+  content: '▸';
+  font-size: 0.85em;
+  transition: transform 0.15s var(--curve-standard);
+}
+.post-foot .resp-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.post-foot .resp-toggle:hover { color: var(--accent); }
+
+/* ---------- post · barra de acciones ---------- */
+
+/* ver twoitt / responder / transcribir / ocultar / borrar — barra de
+   acciones al FINAL del .post (DOM order: body → reply-inline? → replies →
+   actions). Como se monta al final, en threads con hijos la barra queda
+   visualmente al fondo del thread, sin solapar el cuerpo del reply ni el
+   reply-inline composer (que vive justo bajo el body del post activo).
+   Se muestra cuando el .post está .active (click sobre el .post-body lo
+   activa; click fuera o en otro .post lo desactiva — lógica en render.js).
+   En single-view se muestran siempre.
+   max-height: 0 → 60px da una transición suave sin saber la altura exacta;
+   60px sobra para una fila de botones de 0.75rem. */
+.post-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0 var(--post-pad-x);
+  max-height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* max-height y padding cambian INSTANTÁNEAMENTE al activar (sin transición)
+     para que paintActiveRail() mida el bottom final del root en el mismo frame
+     que la activación, sin esperar a que la barra se asiente. El fade ya NO lo
+     hace la barra: cada botón entra individualmente, en cascada de derecha a
+     izquierda y al ritmo del rail (reglas de abajo). overflow:hidden recorta
+     los botones mientras max-height es 0 (cerrado). */
+}
+.post-actions button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  /* Área táctil: el texto es pequeño (0.75rem) pero el padding vertical da un
+     hit-target cómodo en móvil (~44px) sin meter caja visible — el botón sigue
+     leyéndose como texto plano. min-height fija el mínimo aunque el texto sea
+     de una línea corta. box-sizing para que el padding no lo infle de más. */
+  padding: 13px 6px;
+  min-height: 44px;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: inherit;
+  /* Estado cerrado: invisible y desplazado ligeramente a la derecha. Al activar
+     el twoitt cada botón entra con fade + slide hacia la izquierda; el retardo
+     --si (índice desde la derecha, 0 = el más a la derecha) escalona la entrada
+     de derecha a izquierda. Paso 30ms × ≤5 botones + 200ms de transición ≈ los
+     320ms que tarda el rail en crecer, así barra y rail van al mismo ritmo.
+     --si/--sc los setea staggerActionButtons (post-actions.js). */
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 200ms var(--curve-standard),
+    transform 200ms var(--curve-standard);
+}
+.post-actions .vertwoitt-btn:hover,
+.post-actions .reply-btn:hover,
+.post-actions .transcribe-btn:hover { color: var(--accent); }
+.post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
+.post-actions .hide-btn:hover { color: var(--text-dim); }
+.post-actions .delete-btn:hover { color: var(--danger); }
+
+/* ---------- post · estado activo + rail amarillo ---------- */
+
+/* .active: un click sobre el .post-body añade esta clase.
+   El alpha del fondo es el doble que el de hover (0.08 vs 0.04), así
+   si pasas el cursor por encima de un activo se nota el "sumado" sin
+   meter una segunda variable de color.
+   El fondo va al .post-body (no al .post): así un padre activo y un
+   hijo activo enmarcan SU contenido, no el subtree entero. La caja del
+   active es simétrica para root y replies. */
+.post.clickable.active > .post-body {
+  background: rgba(232, 176, 74, 0.08);
+  border-radius: var(--radius-sm);
+}
+/* Rail amarillo del twoitt activo: ::after del root del thread con FILL
+   animation desde arriba. Position absolute dentro del root (que tiene
+   position:relative). Las CSS vars --active-rail-{top,left,height} las
+   setea paintActiveRail() en render.js, midiendo el active relativo al
+   root. La altura depende de si el activo lleva .extends-to-bottom:
+   si sí, va hasta el bottom del root (= bottom de la barra); si no, se
+   queda en el bottom de su propio .post (incluido su subtree).
+   La transition height anima el "encendido" desde 0 hasta target. Al
+   cambiar de un activo a otro, JS resetea height a 0 con transition:
+   none, force-reflow, y luego setea target con transition normal — así
+   el rail SIEMPRE crece desde 0 (sin glitches por height transitioning
+   entre dos valores no nulos cuando top/left saltan a otra posición).
+   Width 2px > 1px del rail gris estructural, para que se vea encima. */
+.post.thread-has-active::after {
+  content: '';
+  position: absolute;
+  top: var(--active-rail-top, 0);
+  left: var(--active-rail-left, var(--rail-x));
+  width: 2px;
+  height: var(--active-rail-height, 0);
+  background: var(--accent);
+  /* Anima top/left además de height: al cambiar de un twoitt activo a otro
+     del mismo hilo el rail se DESLIZA suave a la nueva posición en vez de
+     saltar. paintActiveRail (encender) congela top/left con --active-rail-trans:
+     none en su fase 1, así que ahí no transicionan — sólo crece la height.
+     Animar top y height a la par mantiene bottom = top+height monótono entre
+     dos valores válidos (sin el viejo desborde por abajo); overflow:hidden del
+     root recorta cualquier sobrante. */
+  transition: var(--active-rail-trans,
+    top 320ms var(--curve-standard),
+    left 320ms var(--curve-standard),
+    height 320ms var(--curve-standard));
+  pointer-events: none;
+}
+/* Apagado: mientras el rail se recoge (.thread-closing, lo pone startRailClose
+   en rails.js), los botones salen en cascada INVERSA (izquierda→derecha, vía
+   --sc) a la vez que el rail, en vez de desaparecer de golpe. */
+.post.thread-has-active.thread-closing > .post-actions {
+  pointer-events: none;
+}
+.post.thread-has-active.thread-closing > .post-actions button {
+  opacity: 0;
+  transform: translateX(6px);
+  transition-delay: calc(var(--sc, 0) * 30ms);
+}
+/* Barra de acciones — un único bar por thread, anclado al final del .post
+   root. Se muestra cuando hay un .post.active en cualquier nivel del thread
+   (root o descendiente). La clase .thread-has-active la mantiene JS en el
+   .post root de cada thread (ver syncThreadActiveFlags en render.js):
+   evitamos un selector :has() porque su invalidación dinámica al quitar una
+   clase está bugueada en algunas versiones de Chromium (el computed style
+   se queda "pegado"). */
+.post.thread-has-active > .post-actions {
+  pointer-events: auto;
+  max-height: 60px;
+  /* padding-bottom: 0 → los botones quedan flush contra el bottom de la
+     caja, que coincide con el bottom del .post y con el bottom del rail.
+     Sin esto, el padding-bottom dejaba ~10px de cola amarilla por debajo
+     de los botones (la caja de .post-actions era más alta que el texto). */
+  padding: 10px var(--post-pad-x) 0;
+}
+/* Cada botón entra: fade 0→1 + slide a su sitio, escalonado por --si (desde la
+   derecha) para la cascada derecha→izquierda sincronizada con el rail. */
+.post.thread-has-active > .post-actions button {
+  opacity: 1;
+  transform: none;
+  transition-delay: calc(var(--si, 0) * 30ms);
+}
+/* Móvil (≤720px): la barra tiene hasta 5 botones ("ver twoitt", "responder",
+   "transcribir", "ocultar", "borrar"). En estrecho permitimos 2 filas (wrap) y
+   subimos el cap de altura. Va DESPUÉS del base A PROPÓSITO: mismo selector y
+   especificidad, así que gana por orden. (Antes vivía en la sección `layout`,
+   ANTES del base, y el base lo pisaba → el cap de 2 filas nunca se aplicaba y
+   el botón "borrar" quedaba recortado en móvil.) */
+@media (max-width: 720px) {
+  .post-actions { flex-wrap: wrap; gap: 8px 12px; }
+  .post.thread-has-active > .post-actions { max-height: 100px; }
+}
+/* (padding-bottom: 0 está en la regla base de .post — antes vivía aquí como
+   override condicional para .thread-has-active, pero al hacerlo siempre el
+   thread queda más limpio y desaparece la diferencia visual entre estados.) */
+
+/* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
+   pintaría un outline sobre el .post completo (que incluye el subtree
+   anidado) y volveríamos a tener la asimetría padre/hijo. El indicador
+   visual de foco lo da .active > .post-body. */
+.post:focus-visible { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .post-actions { transition: opacity 80ms linear; }
+}
+
+/* ---------- post · composer de respuesta inline ---------- */
+
+/* inline composer abierto dentro de un post */
+.reply-inline {
+  margin: 8px 0 12px;
+  font-size: 0.95em;
+}
+.reply-inline textarea { min-height: 44px; }
+.reply-inline .composer-foot .grow { flex: 1; }
+.reply-inline .link-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+.reply-inline .link-btn:hover { color: var(--accent); }
+
+/* ---------- timeline · cargar más ---------- */
+
+.load-more {
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
 /* ---------- gallery (stage + thumbs) ----------
    Reemplaza el grid antiguo. Stage muestra siempre media[index] al
    completo; thumbs sólo aparecen si hay más de un item. */
@@ -893,141 +1180,7 @@ body.sidebar-hidden .side-col { display: none; }
 }
 body.lightbox-open { overflow: hidden; }
 
-.post-foot {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-.post-foot a {
-  color: var(--muted);
-  border-bottom: none;
-}
-.post-foot a:hover { color: var(--accent); }
-.post-foot .post-id {
-  font-variant-numeric: tabular-nums;
-  color: var(--faint);
-  letter-spacing: -0.02em;
-}
-.post-foot .permalink:hover .post-id { color: var(--accent-dim); }
-/* .resp-count ("N resp") es un <a> dentro de .post-foot, así que ya hereda
-   color/hover de '.post-foot a'. Regla dedicada (aunque hoy no añade props
-   visuales) para que el contador tenga un punto de anclaje propio y no dependa
-   solo de la herencia si el footer cambia. */
-.post-foot .resp-count { font-variant-numeric: tabular-nums; }
-/* .resp-toggle ("N respuestas ▸/▾"): botón que colapsa/expande el subárbol de
-   replies del BLOQUE (root). Se ve como el resto del footer (mono, muted) pero
-   es tappable: caret a la izquierda que rota según aria-expanded. */
-.post-foot .resp-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: inherit;
-  color: var(--muted);
-  padding: 6px 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.post-foot .resp-toggle::before {
-  content: '▸';
-  font-size: 0.85em;
-  transition: transform 0.15s var(--curve-standard);
-}
-.post-foot .resp-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
-.post-foot .resp-toggle:hover { color: var(--accent); }
-
-/* ver twoitt / responder / transcribir / ocultar / borrar — barra de
-   acciones al FINAL del .post (DOM order: body → reply-inline? → replies →
-   actions). Como se monta al final, en threads con hijos la barra queda
-   visualmente al fondo del thread, sin solapar el cuerpo del reply ni el
-   reply-inline composer (que vive justo bajo el body del post activo).
-   Se muestra cuando el .post está .active (click sobre el .post-body lo
-   activa; click fuera o en otro .post lo desactiva — lógica en render.js).
-   En single-view se muestran siempre.
-   max-height: 0 → 60px da una transición suave sin saber la altura exacta;
-   60px sobra para una fila de botones de 0.75rem. */
-.post-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 16px;
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 0 var(--post-pad-x);
-  max-height: 0;
-  overflow: hidden;
-  pointer-events: none;
-  /* max-height y padding cambian INSTANTÁNEAMENTE al activar (sin transición)
-     para que paintActiveRail() mida el bottom final del root en el mismo frame
-     que la activación, sin esperar a que la barra se asiente. El fade ya NO lo
-     hace la barra: cada botón entra individualmente, en cascada de derecha a
-     izquierda y al ritmo del rail (reglas de abajo). overflow:hidden recorta
-     los botones mientras max-height es 0 (cerrado). */
-}
-.post-actions button {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  /* Área táctil: el texto es pequeño (0.75rem) pero el padding vertical da un
-     hit-target cómodo en móvil (~44px) sin meter caja visible — el botón sigue
-     leyéndose como texto plano. min-height fija el mínimo aunque el texto sea
-     de una línea corta. box-sizing para que el padding no lo infle de más. */
-  padding: 13px 6px;
-  min-height: 44px;
-  box-sizing: border-box;
-  font-family: inherit;
-  font-size: inherit;
-  /* Estado cerrado: invisible y desplazado ligeramente a la derecha. Al activar
-     el twoitt cada botón entra con fade + slide hacia la izquierda; el retardo
-     --si (índice desde la derecha, 0 = el más a la derecha) escalona la entrada
-     de derecha a izquierda. Paso 30ms × ≤5 botones + 200ms de transición ≈ los
-     320ms que tarda el rail en crecer, así barra y rail van al mismo ritmo.
-     --si/--sc los setea staggerActionButtons (post-actions.js). */
-  opacity: 0;
-  transform: translateX(6px);
-  transition:
-    opacity 200ms var(--curve-standard),
-    transform 200ms var(--curve-standard);
-}
-.post-actions .vertwoitt-btn:hover,
-.post-actions .reply-btn:hover,
-.post-actions .transcribe-btn:hover { color: var(--accent); }
-.post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
-.post-actions .hide-btn:hover { color: var(--text-dim); }
-.post-actions .delete-btn:hover { color: var(--danger); }
-
-/* Botón "grabar" en el composer: gemelo visual de .file-btn pero con un
-   estado rojizo cuando está grabando (.is-recording). Se anima el borde
-   para feedback inequívoco mientras MediaRecorder está activo. */
-.rec-btn {
-  display: inline-block;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: none;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--text-dim);
-}
-.rec-btn:hover { border-color: var(--accent); color: var(--accent); }
-.rec-btn.is-recording {
-  border-color: var(--danger, #d33);
-  color: var(--danger, #d33);
-  animation: recPulse 1.2s ease-in-out infinite;
-}
-@keyframes recPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0.35); }
-  50%      { box-shadow: 0 0 0 4px rgba(211, 51, 51, 0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rec-btn.is-recording { animation: none; }
-}
+/* ---------- media · audio player + transcripción ---------- */
 
 /* Preview de audio en el composer: usa el mismo audio-player que el feed
    para que el usuario pueda escuchar la nota antes de publicar. El item
@@ -1040,6 +1193,11 @@ body.lightbox-open { overflow: hidden; }
   border: none;
   border-radius: 0;
   overflow: visible;
+  /* Columna: player arriba, estado (barra de subida + "X MB · formato") DEBAJO
+     en flujo — no como overlay. El overlay absolute con gradiente que usan las
+     thumbs cuadradas tapaba la barra de progreso y los tiempos del player. */
+  display: flex;
+  flex-direction: column;
 }
 .media-preview .item-audio .audio-player {
   /* Padding-right deja espacio al botón × que va absolutamente posicionado
@@ -1056,6 +1214,16 @@ body.lightbox-open { overflow: hidden; }
      z-index implícito del player. */
   z-index: 1;
 }
+/* Estado del item-audio: en flujo bajo el player, compacto y SIN el gradiente
+   negro (que oscurecía la barra de audio y el tiempo). Solo ocupa sitio cuando
+   hay algo que mostrar (.visible), para no dejar un hueco vacío bajo el player. */
+.media-preview .item-audio .status {
+  position: static;
+  background: none;
+  padding: 4px 0 0;
+}
+.media-preview .item-audio .status:not(.visible) { display: none; }
+.media-preview .item-audio .status-label { color: var(--text-dim); }
 
 /* Audio en la galería del post — player custom (markup en gallery.js,
    lógica en audio-player.js). El stage por defecto es flex-row para
@@ -1162,123 +1330,6 @@ body.lightbox-open { overflow: hidden; }
 .gallery .thumb.thumb-audio .audio-glyph {
   font-size: 1.4rem;
   opacity: 0.85;
-}
-
-/* .active: un click sobre el .post-body añade esta clase.
-   El alpha del fondo es el doble que el de hover (0.08 vs 0.04), así
-   si pasas el cursor por encima de un activo se nota el "sumado" sin
-   meter una segunda variable de color.
-   El fondo va al .post-body (no al .post): así un padre activo y un
-   hijo activo enmarcan SU contenido, no el subtree entero. La caja del
-   active es simétrica para root y replies. */
-.post.clickable.active > .post-body {
-  background: rgba(232, 176, 74, 0.08);
-  border-radius: var(--radius-sm);
-}
-/* Rail amarillo del twoitt activo: ::after del root del thread con FILL
-   animation desde arriba. Position absolute dentro del root (que tiene
-   position:relative). Las CSS vars --active-rail-{top,left,height} las
-   setea paintActiveRail() en render.js, midiendo el active relativo al
-   root. La altura depende de si el activo lleva .extends-to-bottom:
-   si sí, va hasta el bottom del root (= bottom de la barra); si no, se
-   queda en el bottom de su propio .post (incluido su subtree).
-   La transition height anima el "encendido" desde 0 hasta target. Al
-   cambiar de un activo a otro, JS resetea height a 0 con transition:
-   none, force-reflow, y luego setea target con transition normal — así
-   el rail SIEMPRE crece desde 0 (sin glitches por height transitioning
-   entre dos valores no nulos cuando top/left saltan a otra posición).
-   Width 2px > 1px del rail gris estructural, para que se vea encima. */
-.post.thread-has-active::after {
-  content: '';
-  position: absolute;
-  top: var(--active-rail-top, 0);
-  left: var(--active-rail-left, var(--rail-x));
-  width: 2px;
-  height: var(--active-rail-height, 0);
-  background: var(--accent);
-  /* Anima top/left además de height: al cambiar de un twoitt activo a otro
-     del mismo hilo el rail se DESLIZA suave a la nueva posición en vez de
-     saltar. paintActiveRail (encender) congela top/left con --active-rail-trans:
-     none en su fase 1, así que ahí no transicionan — sólo crece la height.
-     Animar top y height a la par mantiene bottom = top+height monótono entre
-     dos valores válidos (sin el viejo desborde por abajo); overflow:hidden del
-     root recorta cualquier sobrante. */
-  transition: var(--active-rail-trans,
-    top 320ms var(--curve-standard),
-    left 320ms var(--curve-standard),
-    height 320ms var(--curve-standard));
-  pointer-events: none;
-}
-/* Apagado: mientras el rail se recoge (.thread-closing, lo pone startRailClose
-   en rails.js), los botones salen en cascada INVERSA (izquierda→derecha, vía
-   --sc) a la vez que el rail, en vez de desaparecer de golpe. */
-.post.thread-has-active.thread-closing > .post-actions {
-  pointer-events: none;
-}
-.post.thread-has-active.thread-closing > .post-actions button {
-  opacity: 0;
-  transform: translateX(6px);
-  transition-delay: calc(var(--sc, 0) * 30ms);
-}
-/* Barra de acciones — un único bar por thread, anclado al final del .post
-   root. Se muestra cuando hay un .post.active en cualquier nivel del thread
-   (root o descendiente). La clase .thread-has-active la mantiene JS en el
-   .post root de cada thread (ver syncThreadActiveFlags en render.js):
-   evitamos un selector :has() porque su invalidación dinámica al quitar una
-   clase está bugueada en algunas versiones de Chromium (el computed style
-   se queda "pegado"). */
-.post.thread-has-active > .post-actions {
-  pointer-events: auto;
-  max-height: 60px;
-  /* padding-bottom: 0 → los botones quedan flush contra el bottom de la
-     caja, que coincide con el bottom del .post y con el bottom del rail.
-     Sin esto, el padding-bottom dejaba ~10px de cola amarilla por debajo
-     de los botones (la caja de .post-actions era más alta que el texto). */
-  padding: 10px var(--post-pad-x) 0;
-}
-/* Cada botón entra: fade 0→1 + slide a su sitio, escalonado por --si (desde la
-   derecha) para la cascada derecha→izquierda sincronizada con el rail. */
-.post.thread-has-active > .post-actions button {
-  opacity: 1;
-  transform: none;
-  transition-delay: calc(var(--si, 0) * 30ms);
-}
-/* (padding-bottom: 0 está en la regla base de .post — antes vivía aquí como
-   override condicional para .thread-has-active, pero al hacerlo siempre el
-   thread queda más limpio y desaparece la diferencia visual entre estados.) */
-
-/* .post tiene tabindex=0 para a11y; sin esto, el :focus-visible global
-   pintaría un outline sobre el .post completo (que incluye el subtree
-   anidado) y volveríamos a tener la asimetría padre/hijo. El indicador
-   visual de foco lo da .active > .post-body. */
-.post:focus-visible { outline: none; }
-
-@media (prefers-reduced-motion: reduce) {
-  .post-actions { transition: opacity 80ms linear; }
-}
-
-/* inline composer abierto dentro de un post */
-.reply-inline {
-  margin: 8px 0 12px;
-  font-size: 0.95em;
-}
-.reply-inline textarea { min-height: 44px; }
-.reply-inline .composer-foot .grow { flex: 1; }
-.reply-inline .link-btn {
-  background: none;
-  border: none;
-  color: var(--muted);
-  padding: 4px 8px;
-  font-size: 0.78rem;
-}
-.reply-inline .link-btn:hover { color: var(--accent); }
-
-.load-more {
-  width: 100%;
-  margin-top: 16px;
-  padding: 10px;
-  font-family: var(--mono);
-  color: var(--text-dim);
 }
 
 /* ---------- columna estrecha centrada (páginas legales) ---------- */

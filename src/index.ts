@@ -153,105 +153,132 @@ const POLL_MAX_OPTIONS = 10;
 const POLL_MIN_OPTIONS = 2;
 const POLL_OPTION_MAX_LEN = 80;
 
+type PostBody = {
+  text?: string | null;
+  parent_id?: number | null;
+  media?: Array<{
+    kind: "image" | "video" | "audio";
+    r2_key: string;
+    thumb_key?: string | null;
+    width?: number | null;
+    height?: number | null;
+  }>;
+  poll?: { options?: unknown } | null;
+};
+
+type MediaInput = {
+  kind: "image" | "video" | "audio";
+  r2_key: string;
+  thumb_key: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+type PostValidation =
+  | { ok: false; error: string; status: 400 | 404 }
+  | {
+      ok: true;
+      text: string | null;
+      media: MediaInput[];
+      pollOptions: string[] | null;
+      parentId: number | null;
+    };
+
+// Valida y sanea el body de un post nuevo. Devuelve los valores listos para
+// persistir, o el primer error con su status. Async porque comprueba en BD que
+// el parent exista. Exportada para testear la validación aislada del HTTP.
+export async function validatePostBody(
+  db: D1Database,
+  body: PostBody,
+): Promise<PostValidation> {
+  const text = (body.text ?? "").trim() || null;
+  const rawMedia = body.media ?? [];
+
+  // Encuesta (si viene). Se permite encuesta sin texto: la decisión de diseño
+  // fue "texto del post = pregunta", pero una pregunta solo-media (p. ej. dos
+  // imágenes "¿cuál?") es válida, así que no forzamos texto aquí.
+  let pollOptions: string[] | null = null;
+  if (body.poll && Array.isArray(body.poll.options)) {
+    const opts = body.poll.options
+      .map((o) => (typeof o === "string" ? o.trim() : ""))
+      .filter((o) => o.length > 0);
+    if (opts.length < POLL_MIN_OPTIONS)
+      return { ok: false, error: "la encuesta necesita al menos 2 opciones", status: 400 };
+    if (opts.length > POLL_MAX_OPTIONS)
+      return { ok: false, error: `máximo ${POLL_MAX_OPTIONS} opciones`, status: 400 };
+    if (opts.some((o) => o.length > POLL_OPTION_MAX_LEN))
+      return { ok: false, error: `opciones de máx ${POLL_OPTION_MAX_LEN} caracteres`, status: 400 };
+    pollOptions = opts;
+  }
+
+  if (!text && rawMedia.length === 0 && !pollOptions)
+    return { ok: false, error: "post vacio", status: 400 };
+  if (text && text.length > 4000)
+    return { ok: false, error: "texto demasiado largo", status: 400 };
+  // Cap de media: sin tope, un body manipulado podría spamear la tabla media.
+  if (rawMedia.length > 12)
+    return { ok: false, error: "demasiados adjuntos", status: 400 };
+  // Validación runtime de cada media: los tipos TS no aplican en runtime y el
+  // schema no tiene CHECK, así que un body manipulado podría meter basura.
+  for (const m of rawMedia) {
+    if (m.kind !== "image" && m.kind !== "video" && m.kind !== "audio")
+      return { ok: false, error: "kind de media invalido", status: 400 };
+    if (typeof m.r2_key !== "string" || !m.r2_key)
+      return { ok: false, error: "media sin r2_key", status: 400 };
+  }
+
+  if (body.parent_id != null) {
+    const parent = await db
+      .prepare("SELECT id FROM posts WHERE id = ?")
+      .bind(body.parent_id)
+      .first<{ id: number }>();
+    if (!parent) return { ok: false, error: "parent no existe", status: 404 };
+  }
+
+  const media: MediaInput[] = rawMedia.map((m) => ({
+    kind: m.kind,
+    r2_key: m.r2_key,
+    thumb_key: m.thumb_key ?? null,
+    width: m.width ?? null,
+    height: m.height ?? null,
+  }));
+  return { ok: true, text, media, pollOptions, parentId: body.parent_id ?? null };
+}
+
+// Persiste un post ya validado (fila + media + hashtags + encuesta).
+// Devuelve el id del post creado. Exportada para testear la persistencia.
+export async function persistPost(
+  db: D1Database,
+  v: {
+    text: string | null;
+    media: MediaInput[];
+    pollOptions: string[] | null;
+    parentId: number | null;
+  },
+): Promise<number> {
+  const post = await createPost(db, v.text, v.parentId);
+  await attachMedia(db, post.id, v.media);
+  await syncHashtags(db, post.id, v.text);
+  if (v.pollOptions) await createPoll(db, post.id, v.pollOptions);
+  return post.id;
+}
+
 app.post("/api/posts", requireAuth(), requireCsrf(), async (c) => {
-  let body: {
-    text?: string | null;
-    parent_id?: number | null;
-    media?: Array<{
-      kind: "image" | "video" | "audio";
-      r2_key: string;
-      thumb_key?: string | null;
-      width?: number | null;
-      height?: number | null;
-    }>;
-    poll?: { options?: unknown } | null;
-  };
+  let body: PostBody;
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "json invalido" }, 400);
   }
 
-  const text = (body.text ?? "").trim() || null;
-  const media = body.media ?? [];
+  const v = await validatePostBody(c.env.DB, body);
+  if (!v.ok) return c.json({ error: v.error }, v.status);
+  const postId = await persistPost(c.env.DB, v);
 
-  // Validar payload de encuesta (si viene). Una encuesta sola, sin texto
-  // y sin media, no tiene mucho sentido (no hay pregunta), pero la
-  // dejamos pasar: la decisión de diseño fue "texto del post = pregunta",
-  // y obligar texto aquí complica el caso (raro pero válido) de una
-  // encuesta cuya pregunta es solo media (p. ej. "¿cuál te gusta más?"
-  // con dos imágenes).
-  let pollOptions: string[] | null = null;
-  if (body.poll && Array.isArray(body.poll.options)) {
-    const opts = body.poll.options
-      .map((o) => (typeof o === "string" ? o.trim() : ""))
-      .filter((o) => o.length > 0);
-    if (opts.length < POLL_MIN_OPTIONS) {
-      return c.json({ error: "la encuesta necesita al menos 2 opciones" }, 400);
-    }
-    if (opts.length > POLL_MAX_OPTIONS) {
-      return c.json({ error: `máximo ${POLL_MAX_OPTIONS} opciones` }, 400);
-    }
-    if (opts.some((o) => o.length > POLL_OPTION_MAX_LEN)) {
-      return c.json({ error: `opciones de máx ${POLL_OPTION_MAX_LEN} caracteres` }, 400);
-    }
-    pollOptions = opts;
-  }
-
-  if (!text && media.length === 0 && !pollOptions) {
-    return c.json({ error: "post vacio" }, 400);
-  }
-  if (text && text.length > 4000) {
-    return c.json({ error: "texto demasiado largo" }, 400);
-  }
-  // Cap de media: la UI permite pocos adjuntos por post; sin tope, un cliente
-  // malicioso podría mandar miles de entradas y spamear la tabla media.
-  if (media.length > 12) {
-    return c.json({ error: "demasiados adjuntos" }, 400);
-  }
-  // Validación runtime de cada media: los tipos TS no se aplican en runtime y
-  // el schema no tiene CHECK, así que un body manipulado podría meter un kind
-  // inválido o un r2_key vacío. attachMedia confía en estos campos.
-  for (const m of media) {
-    if (m.kind !== "image" && m.kind !== "video" && m.kind !== "audio") {
-      return c.json({ error: "kind de media invalido" }, 400);
-    }
-    if (typeof m.r2_key !== "string" || !m.r2_key) {
-      return c.json({ error: "media sin r2_key" }, 400);
-    }
-  }
-
-  if (body.parent_id != null) {
-    const parent = await c.env.DB
-      .prepare("SELECT id FROM posts WHERE id = ?")
-      .bind(body.parent_id)
-      .first<{ id: number }>();
-    if (!parent) return c.json({ error: "parent no existe" }, 404);
-  }
-
-  const post = await createPost(c.env.DB, text, body.parent_id ?? null);
-  await attachMedia(
-    c.env.DB,
-    post.id,
-    media.map((m) => ({
-      kind: m.kind,
-      r2_key: m.r2_key,
-      thumb_key: m.thumb_key ?? null,
-      width: m.width ?? null,
-      height: m.height ?? null,
-    })),
-  );
-  await syncHashtags(c.env.DB, post.id, text);
-  if (pollOptions) {
-    await createPoll(c.env.DB, post.id, pollOptions);
-  }
-
-  // El autor (logueado) tiene su propio voterId si ya votó alguna vez,
-  // pero lo más probable es que aún no haya cookie. Si no la tiene,
-  // pasamos null y my_vote_id queda en null — sin emitir cookies en
-  // este endpoint para no mezclar auth con identidad de voto.
+  // No emitimos cookie tv_id en este endpoint (no mezclar auth con identidad de
+  // voto); si el autor ya tenía una, la respetamos para calcular my_vote_id.
   const voterId = await readVoterId(c);
-  const full = await getPost(c.env.DB, post.id, voterId);
+  const full = await getPost(c.env.DB, postId, voterId);
   return c.json(full, 201);
 });
 

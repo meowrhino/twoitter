@@ -1,6 +1,6 @@
 // ----- carga de timeline + setup de composers persistentes -----
 
-import { $, toast } from './utils.js';
+import { $, toast, nextFrame } from './utils.js';
 import { api } from './api.js';
 import { renderThread, focusPostFromHash } from './render.js';
 import { wireComposer } from './composer.js';
@@ -183,10 +183,10 @@ async function loadUntilHashPost(preferred = 'smooth') {
   }
   if (loadedPages > 0) {
     // Cargamos páginas: el render por chunks puede no haber asentado el layout
-    // en este tick. Doble rAF para medir con el layout ya flusheado.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => focusPostFromHash('instant')),
-    );
+    // en este tick. Doble frame para medir con el layout ya flusheado.
+    await nextFrame();
+    await nextFrame();
+    focusPostFromHash('instant');
   } else {
     // Caso común (hashchange in-app: el post ya está en el DOM): centramos YA,
     // sin rAF — directo y fiable (no dependemos del loop de pintado).

@@ -3,7 +3,7 @@
 import { composerState, POLL_LIMITS } from './state.js';
 import { api } from './api.js';
 import { isAuthed } from './auth.js';
-import { toast } from './utils.js';
+import { mediaKindOf, toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { renderThread } from './render.js';
 import { notifyThreadChanged, getThreadRoot, refreshActiveRail } from './rails.js';
@@ -260,8 +260,7 @@ export function setupGlobalPasteHandler() {
       if (item.kind !== 'file') continue;
       const file = item.getAsFile();
       if (!file) continue;
-      const t = file.type;
-      if (!t.startsWith('image/') && !t.startsWith('video/') && !t.startsWith('audio/')) continue;
+      if (!mediaKindOf(file)) continue;
       e.preventDefault();
       await attachFile(file, state.preview, state.pending);
       any = true;

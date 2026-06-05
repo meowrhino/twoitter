@@ -12,7 +12,7 @@
 // Todo el wiring vive en setupGallery() y usa delegación global desde
 // document → sobrevive a re-renders del feed sin tener que rebindear.
 
-import { escapeHtml } from './utils.js';
+import { escapeHtml, nextFrame, wait } from './utils.js';
 import { audioPlayerMarkup } from './audio-player.js';
 
 // Duración de cada fase (fade-out y fade-in/altura). Debe coincidir con
@@ -153,16 +153,7 @@ function preloadImage(url) {
   });
 }
 
-function nextFrame() {
-  return new Promise((res) => {
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => res());
-    else setTimeout(res, 16);
-  });
-}
-
-function wait(ms) {
-  return new Promise((res) => setTimeout(res, ms));
-}
+// nextFrame() y wait() se movieron a utils.js (compartidos con pages.js).
 
 // Mide la altura natural del contenido del stage SIN su transición visible
 // (la opacity ya está a 0 durante el swap). Quita el lock de altura, fuerza

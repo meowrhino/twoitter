@@ -66,3 +66,30 @@ export function toast(msg, type = 'info') {
     setTimeout(() => el.remove(), 300);
   }, 3200);
 }
+
+// ----- clasificación de media + helpers de frame/tiempo -----
+
+// Tipo de media de un File según su MIME ('image' | 'video' | 'audio' | null).
+// Único punto de verdad para "¿qué clase de media es este archivo?", compartido
+// por attachFile (media.js) y el paste handler (composer.js).
+export function mediaKindOf(file) {
+  const t = file?.type || '';
+  return t.startsWith('image/') ? 'image'
+    : t.startsWith('video/') ? 'video'
+    : t.startsWith('audio/') ? 'audio'
+    : null;
+}
+
+// Espera a un frame de pintado (rAF), con fallback a setTimeout donde no hay
+// requestAnimationFrame (tests headless). Para medir/animar tras un reflow.
+export function nextFrame() {
+  return new Promise((res) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => res());
+    else setTimeout(res, 16);
+  });
+}
+
+// Espera `ms` milisegundos.
+export function wait(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}

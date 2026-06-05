@@ -10,7 +10,7 @@
 // el tiempo que el usuario tarda escribiendo el post.
 
 import { CSRF_HEADERS, MEDIA_LIMITS } from './state.js';
-import { uuid } from './utils.js';
+import { mediaKindOf, uuid } from './utils.js';
 import {
   compressVideo,
   compressImage,
@@ -228,13 +228,7 @@ export function setItemStatus(itemEl, kind, extra = {}) {
 // La promise de compresión se guarda en `compressionPromise` para que submit
 // la pueda esperar si todavía está en marcha.
 export async function attachFile(file, previewRoot, pending) {
-  const kind = file.type.startsWith('image/')
-    ? 'image'
-    : file.type.startsWith('video/')
-      ? 'video'
-      : file.type.startsWith('audio/')
-        ? 'audio'
-        : null;
+  const kind = mediaKindOf(file);
   if (!kind) return;
 
   const localId = uuid();

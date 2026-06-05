@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { createPreviewItem, setItemStatus } from '../public/js/media.js';
+import { createPreviewItem, setItemStatus } from '../public/js/preview-item.js';
 
 function makeItem(kind: 'image' | 'video' | 'audio' = 'image') {
   return createPreviewItem({ localId: '1', previewUrl: 'blob:x', kind });

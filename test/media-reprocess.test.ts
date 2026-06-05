@@ -30,7 +30,8 @@ vi.mock('../public/js/compressor.js', () => ({
   detectCapabilities: vi.fn(() => ({ ok: true })),
 }));
 
-import { createPreviewItem, reprocessItem } from '../public/js/media.js';
+import { reprocessItem } from '../public/js/media.js';
+import { createPreviewItem } from '../public/js/preview-item.js';
 
 beforeAll(() => {
   // happy-dom puede no traer createObjectURL; stub mínimo determinista.

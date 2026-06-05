@@ -21,6 +21,7 @@ stack: cloudflare workers + hono + d1 + r2 + workers ai (whisper).
 - **transcripción** de notas de voz vía Workers AI Whisper (botón "transcribir" en las acciones del post; cachea en BD, no llama dos veces)
 - multi-media por post, hilos (replies), hashtags `#tag` con sidebar
 - thumbnail de vídeo generado en cliente
+- **editor de medios**: botón "recortar" en cada media del composer → un modal con caja de recorte libre (8 tiradores) para recortar imágenes antes de publicar; re-comprime desde el original (no destructivo, re-editable). Recorte de vídeo (temporal + espacial) y trim de audio en camino.
 - player de audio custom (monoespaciado, accent, sin chrome nativo feo)
 - permalinks por post (`/#id`) para citar — posición en el carrete (la vieja
   ruta `/post/:id` redirige 301 a `/#id`)
@@ -113,13 +114,21 @@ public/
     pages.js          loadTimeline (pagina + auto-fetch al scroll) + deep-link
                       por hash (loadUntilHashPost) + setupTimelineComposer
     render.js         render de posts/hilos + activación (.active) + colapso
-    rails.js          rail vertical: estructura, geometría y bookkeeping del thread
+    render-poll.js    markup + voto de las encuestas (extraído de render.js)
+    post-actions.js   barra de acciones del post (responder/ocultar/borrar/transcribir)
+    rails.js          rail vertical: geometría + animateHeight() + acordeón de replies
     composer.js       composer principal + reply-inline + paste global
     composer-poll.js  UI de creación de encuestas en el composer
-    composer-anim.js  animación de apertura/cierre del reply-inline (lockstep rail)
-    media.js          compresión + subida (XHR con progreso) + preview
-    compressor.js     barril → compressor-video.js (ffmpeg.wasm) / compressor-image.js (canvas)
-    gallery.js, audio-player.js, recorder.js   UI de media
+    composer-anim.js  animación abrir/cerrar del reply-inline (usa rails.animateHeight)
+    media.js          orquesta compresión + subida (XHR con progreso) + submit
+    preview-item.js   DOM del item de preview del composer (miniatura + overlay de estado)
+    compressor.js     barril → compressor-video.js (ffmpeg.wasm) / compressor-image.js (canvas/webp)
+    editor.js         modal del editor de medios (recorte de imagen; vídeo/audio en camino)
+    editor-geom.js    math pura del editor (crop/trim, sin DOM; testeada con vitest)
+    editor-cropbox.js primitiva UI de la caja de recorte (8 tiradores + cuerpo)
+    modal.js          scaffold de modal (role=dialog + aria-modal) + focus-trap, compartido
+    gallery.js        galería: stage + thumbs + lightbox (crossfade compartido)
+    audio-player.js, recorder.js               player de audio custom + grabación de notas
     menu.js, hashtags.js, hidden.js, auth.js, api.js, utils.js, state.js
   style.css       estilos (un solo archivo)
 ```

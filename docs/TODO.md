@@ -53,6 +53,48 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 - [ ] **sessionStorage**: `state.js` guarda `CSRF_HEADERS` siempre. Cosmético,
   no es vuln. Trivial si molesta.
 
+## Done (sesión 2026-06-06)
+
+Revisión escéptica de 15 hallazgos: verificados de forma adversaria (citando
+código), plan por fases, ejecución completa. **12 commits en `main`**, desplegado.
+Suite 138→**208 tests** verdes; `tsc --noEmit` y un bundle esbuild de `app.js`
+(valida el grafo de módulos del frontend, que ningún test cargaba) en verde.
+
+- [x] **Baseline de tests verde**: faltaba `better-sqlite3` en node_modules
+  (`npm install`) y happy-dom v20 no expone `localStorage` → stub `MemStorage`
+  compartido (`test/helpers/mem-storage.ts`) en render/xss/pages. Antes: 6 suites rojas.
+- [x] **#1 bug (deep-link)**: `focusPostFromHash` no refrescaba el botón
+  ocultar/desocultar como la ruta de click → un post alcanzado por `/#id` mostraba
+  "ocultar" estando ya oculto. Fix + test de regresión (probado no-vacuo). El
+  "stagger roto" del hallazgo era falso (`syncThreadActiveFlags` ya lo aplica).
+- [x] **#14 docs**: bitrate de audio stale ("~16 KB/s") → 24 kbps mono en README + `src/media.ts`.
+- [x] **#7 `render-poll.js`**: markup + voto de encuestas fuera de render.js.
+- [x] **#5 `crossfadeSwap()`**: núcleo común de swapStage + lightbox (gallery.js).
+- [x] **#12 `db.ts`**: `attachMediaAndTags` partido en `assemblePollsByPost` + `resolveParentExcerpts`.
+- [x] **#15 dedups → utils.js**: `mediaKindOf`, `nextFrame`/`wait`.
+- [x] **#6 `modal.js`**: scaffold de modal + focus-trap compartido por lightbox y
+  editor (F6 construirá sobre él, no clona).
+- [x] **#2 `preview-item.js`**: DOM del item de preview fuera de media.js.
+- [x] **#13 `prefersReducedMotion()` → utils.js** (3 copias unificadas).
+- [x] **#11 bitrates nombrados**: `VOICE_NOTE_BITRATE` (24k) / `AUDIO_TRIM_BITRATE`
+  (96k); NO compartidos con `PRESET.audioBitrate` (128k) — códecs/contextos distintos.
+- [x] **#4 `animateHeight()`**: patrón WAAPI duplicado (acordeón + composer)
+  unificado; vive EN rails.js para evitar import circular (composer-anim lo importa).
+- [x] **#10**: comentado el hook muerto `ctx.urls` (lo cableará F6).
+- [x] **README al día**: editor de medios en features + estructura con los módulos nuevos.
+
+Evaluado y NO hecho (a propósito):
+- **#3 partir rails.js**: el split 2-way fuerza un import circular (acordeón↔rail);
+  el 3-way limpio es grande/arriesgado sobre código de animación sin arreglar bug.
+  #4 ya extrajo la duplicación real → se deja rails.js como está.
+- **#8** (even-rounding en compressor-image): falso positivo — el clamp impide OOB y
+  WebP no exige dims pares. **#9** (ramas vídeo/trim de `applyEdit`): andamiaje
+  intencional de F6, ya comentado; se valida al cablear `openVideoEditor`.
+
+⚠️ Pendiente de ojo humano: las **animaciones** (rail/acordeón/crossfade/modales)
+son behavior-preserving por construcción pero no unit-testeables (happy-dom sin
+`Element.animate`; preview headless) → ojearlas en Brave real.
+
 ## Done (sesión 2026-06-05)
 
 Reorganización grande de la TL + encuestas + revisión:

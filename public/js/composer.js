@@ -1,6 +1,6 @@
 // ----- composer principal + reply-inline + paste global -----
 
-import { composerState } from './state.js';
+import { composerState, POLL_LIMITS } from './state.js';
 import { api } from './api.js';
 import { isAuthed } from './auth.js';
 import { toast } from './utils.js';
@@ -9,7 +9,7 @@ import { renderThread } from './render.js';
 import { notifyThreadChanged, getThreadRoot, refreshActiveRail } from './rails.js';
 import { wireRecorderButton, canRecord } from './recorder.js';
 import { animateComposerOpen, animateComposerClose } from './composer-anim.js';
-import { wirePollBlock, collectPollOptions, resetPollBlock, POLL_MIN_OPTIONS } from './composer-poll.js';
+import { wirePollBlock, collectPollOptions, resetPollBlock } from './composer-poll.js';
 
 // ----- estado interno -----
 
@@ -65,8 +65,8 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
 
     // Validación cliente: si el bloque encuesta está abierto exige >=2
     // opciones rellenas, antes de gastar uploads y red.
-    if (hasPoll && pollOpts.length < POLL_MIN_OPTIONS) {
-      toast(`la encuesta necesita al menos ${POLL_MIN_OPTIONS} opciones`, 'error');
+    if (hasPoll && pollOpts.length < POLL_LIMITS.min) {
+      toast(`la encuesta necesita al menos ${POLL_LIMITS.min} opciones`, 'error');
       return;
     }
     if (!t && !hasFiles && !hasPoll) return;

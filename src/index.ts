@@ -87,7 +87,17 @@ app.post("/logout", (c) => {
 });
 
 app.get("/api/me", async (c) => {
-  return c.json({ authed: await isAuthed(c) });
+  // Devolvemos también los límites de encuesta para que el cliente NO tenga
+  // que mantener su propia copia (el server es la fuente de verdad). El front
+  // ya hace este fetch al arrancar (checkAuth), así que va sin coste extra.
+  return c.json({
+    authed: await isAuthed(c),
+    poll: {
+      min: POLL_MIN_OPTIONS,
+      max: POLL_MAX_OPTIONS,
+      optLen: POLL_OPTION_MAX_LEN,
+    },
+  });
 });
 
 // ---------- API: reads (public) ----------

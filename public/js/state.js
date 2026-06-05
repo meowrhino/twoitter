@@ -12,6 +12,12 @@
 export const SIDEBAR_KEY = 'twoitter_sidebar_hidden';
 export const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
 
+// Límites de encuesta. Defaults sensatos; checkAuth() los sobreescribe con los
+// del server (/api/me) → UNA sola fuente de verdad (src/index.ts). Es un objeto
+// mutable (no se reasigna el binding), así que los módulos que lo importan ven
+// los valores ya actualizados después de checkAuth.
+export const POLL_LIMITS = { min: 2, max: 10, optLen: 80 };
+
 // Estado por composer (no contamina el nodo DOM con props ad-hoc).
 // WeakMap permite GC automático cuando el <form> sale del DOM y ya nadie
 // más lo referencia. shape: { pending: Map<localId, mediaState>, preview }

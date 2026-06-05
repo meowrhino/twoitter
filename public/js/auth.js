@@ -1,7 +1,7 @@
 // ----- auth check + visibilidad anon/authed -----
 
 import { $, $$ } from './utils.js';
-import { SIDEBAR_KEY } from './state.js';
+import { SIDEBAR_KEY, POLL_LIMITS } from './state.js';
 import { api } from './api.js';
 
 // Estado interno mutable: solo lo modifica este módulo. Los demás
@@ -13,6 +13,8 @@ export const isAuthed = () => IS_AUTHED;
 export async function checkAuth() {
   const { ok, data } = await api('/api/me');
   IS_AUTHED = ok && !!data?.authed;
+  // Sincroniza los límites de encuesta con los del server (fuente de verdad).
+  if (data?.poll) Object.assign(POLL_LIMITS, data.poll);
   applyAuthVisibility();
 }
 

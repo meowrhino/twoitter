@@ -4,13 +4,12 @@
 // botón "encuesta", las filas de opciones (añadir/quitar) y la recogida de
 // valores para el submit. Los reply-inline NO llevan encuesta (decisión de
 // diseño: una encuesta nace como post root, no como respuesta).
+//
+// Los topes (min/max opciones, longitud) salen de POLL_LIMITS, que checkAuth
+// rellena desde /api/me — el server es la única fuente de verdad. Por eso
+// leemos POLL_LIMITS.* en uso (runtime), no en import (que sería el default).
 
-// Topes de encuesta. Espejo de POLL_MAX_OPTIONS / POLL_OPTION_MAX_LEN en
-// src/index.ts. Si se suben allí, conviene subirlos también aquí (o
-// exponerlos vía /api/config en el futuro).
-export const POLL_MIN_OPTIONS = 2;
-export const POLL_MAX_OPTIONS = 10;
-export const POLL_OPTION_MAX_LEN = 80;
+import { POLL_LIMITS } from './state.js';
 
 // Devuelve null si el bloque no existe o está cerrado. Si está abierto,
 // devuelve el array de opciones no vacías. Lo usa el submit handler:
@@ -33,7 +32,7 @@ function makePollRow() {
   const row = document.createElement('div');
   row.className = 'composer-poll-row';
   row.innerHTML = `
-    <input type="text" maxlength="${POLL_OPTION_MAX_LEN}" placeholder="opción" />
+    <input type="text" maxlength="${POLL_LIMITS.optLen}" placeholder="opción" />
     <button type="button" class="poll-remove" aria-label="quitar opción" hidden>×</button>
   `;
   return row;
@@ -42,13 +41,13 @@ function makePollRow() {
 // Reajusta los × y el botón "+ añadir" tras cada add/remove.
 function refreshPollBlock(pollEl) {
   const rows = pollEl.querySelectorAll('.composer-poll-row');
-  const removableFrom = POLL_MIN_OPTIONS; // a partir de la 3ª fila se puede quitar
+  const removableFrom = POLL_LIMITS.min; // a partir de la 3ª fila se puede quitar
   rows.forEach((r, i) => {
     const x = r.querySelector('.poll-remove');
     if (x) x.hidden = i < removableFrom;
   });
   const add = pollEl.querySelector('.composer-poll-add');
-  if (add) add.hidden = rows.length >= POLL_MAX_OPTIONS;
+  if (add) add.hidden = rows.length >= POLL_LIMITS.max;
 }
 
 // Cierra y resetea el bloque (lo vuelve al estado inicial de 2 inputs
@@ -69,7 +68,7 @@ export function wirePollBlock(pollEl, pollBtn) {
   const closeBtn = pollEl.querySelector('.poll-close');
 
   function ensureMinRows() {
-    while (rowsWrap.children.length < POLL_MIN_OPTIONS) {
+    while (rowsWrap.children.length < POLL_LIMITS.min) {
       rowsWrap.appendChild(makePollRow());
     }
     refreshPollBlock(pollEl);
@@ -81,13 +80,13 @@ export function wirePollBlock(pollEl, pollBtn) {
     if (!rm) return;
     const row = rm.closest('.composer-poll-row');
     if (!row) return;
-    if (rowsWrap.children.length <= POLL_MIN_OPTIONS) return;
+    if (rowsWrap.children.length <= POLL_LIMITS.min) return;
     row.remove();
     refreshPollBlock(pollEl);
   });
 
   addBtn.addEventListener('click', () => {
-    if (rowsWrap.children.length >= POLL_MAX_OPTIONS) return;
+    if (rowsWrap.children.length >= POLL_LIMITS.max) return;
     const row = makePollRow();
     rowsWrap.appendChild(row);
     refreshPollBlock(pollEl);

@@ -22,6 +22,7 @@ import {
   observeActiveRoot,
   scheduleRailClose,
   cancelRailClose,
+  refreshActiveRail,
 } from './rails.js';
 import {
   renderThreadActionsHtml,
@@ -30,16 +31,26 @@ import {
   staggerActionButtons,
 } from './post-actions.js';
 
-function renderPostFoot(p) {
+function renderPostFoot(p, { collapsible = false } = {}) {
   // Permalink ahora es un hash a la posición del post en la TL (no /post/:id,
   // que ya no existe). Server redirige 301 los enlaces antiguos.
-  const respLink = p.reply_count
-    ? `<a class="resp-count" href="#${p.id}">${fmt(p.reply_count)} resp</a>`
-    : '';
+  //
+  // El contador de respuestas tiene dos formas según el contexto:
+  //   - root del BLOQUE (collapsible) → BOTÓN que colapsa/expande el subárbol
+  //     de replies anidadas (colapsado por defecto). El subárbol está oculto y
+  //     este toggle lo revela in-situ.
+  //   - reply anidada → enlace hash a su propia posición en el carrete.
+  let respEl = '';
+  if (p.reply_count) {
+    const label = `${fmt(p.reply_count)} ${p.reply_count === 1 ? 'respuesta' : 'respuestas'}`;
+    respEl = collapsible
+      ? `<button type="button" class="resp-toggle" aria-expanded="false">${label}</button>`
+      : `<a class="resp-count" href="#${p.id}">${fmt(p.reply_count)} resp</a>`;
+  }
   return `
     <div class="post-foot">
       <a href="#${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
-      ${respLink}
+      ${respEl}
     </div>
   `;
 }
@@ -299,7 +310,7 @@ export function renderPost(p, { topLevel = true } = {}) {
       <div class="post-text">${linkify(p.text || '')}</div>
       ${renderPoll(p.poll)}
       ${renderPostGallery(p.media)}
-      ${renderPostFoot(p)}
+      ${renderPostFoot(p, { collapsible: topLevel })}
     </div>
   `;
 
@@ -318,6 +329,25 @@ function renderReplyContext(excerpt) {
   }
   const snippet = escapeHtml(excerpt.text_snippet || '').trim() || `#${excerpt.id}`;
   return `<a class="reply-context" href="#${excerpt.id}">↓ en respuesta a: <span class="parent-snippet">${snippet}</span></a>`;
+}
+
+// Toggle de colapso del subárbol de replies de un BLOQUE. Colapsado por
+// defecto (.replies-collapsed → display:none en CSS). Al expandir, el
+// ResizeObserver del rail (observeActiveRoot en rails.js) detecta el cambio
+// de altura del root y repinta el riel amarillo si el post está activo.
+function bindRepliesToggle(toggle, nested) {
+  toggle.addEventListener('click', (e) => {
+    // Frenamos la propagación: expandir el hilo no debe disparar navegación
+    // por hash ni nada más; solo alterna la visibilidad del subárbol.
+    e.stopPropagation();
+    const collapsed = nested.classList.toggle('replies-collapsed');
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    // El subárbol cambió de altura (display none↔block). Si este thread es el
+    // activo, reajustamos el rail amarillo en el mismo gesto — igual que el
+    // reply-inline al abrir/cerrar. El ResizeObserver async no es fiable aquí
+    // (el cambio de display puede no disparar un resize observable a tiempo).
+    refreshActiveRail();
+  });
 }
 
 // Recursivo: renderiza un post + sus replies anidados.
@@ -342,7 +372,18 @@ export function renderThread(p, { asRoot = true } = {}) {
       const childEl = renderThread(child, { asRoot: false });
       if (childEl) { nested.appendChild(childEl); appended++; }
     }
-    if (appended > 0) el.appendChild(nested);
+    if (appended > 0) {
+      el.appendChild(nested);
+      // En el root del BLOQUE, el subárbol entero arranca COLAPSADO: el feed
+      // por defecto es una lista compacta de twoitts y el hilo se revela a
+      // demanda con el toggle "N respuestas" del foot. Solo el root colapsa
+      // (los niveles internos se muestran enteros al expandir).
+      if (asRoot) {
+        nested.classList.add('replies-collapsed');
+        const toggle = el.querySelector(':scope > .post-body > .post-foot > .resp-toggle');
+        if (toggle) bindRepliesToggle(toggle, nested);
+      }
+    }
   }
   if (asRoot) {
     // Una sola barra por thread, al final del root (tras los hijos).

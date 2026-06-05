@@ -675,6 +675,10 @@ body.sidebar-hidden .side-col { display: none; }
   padding-left: var(--indent-x);
   font-size: 0.96em;
 }
+/* Subárbol colapsado: oculto del todo. El root arranca así por defecto; el
+   toggle "N respuestas" del foot lo revela. display:none (no max-height) para
+   que no participe en la medición del rail mientras está oculto. */
+.thread-replies.replies-collapsed { display: none; }
 /* padding-right: 0 hace que el footer de cada nivel quede alineado en la
    misma columna X derecha que el root, en vez de irse 4px hacia dentro
    por cada nivel de anidamiento.
@@ -876,6 +880,28 @@ body.lightbox-open { overflow: hidden; }
    visuales) para que el contador tenga un punto de anclaje propio y no dependa
    solo de la herencia si el footer cambia. */
 .post-foot .resp-count { font-variant-numeric: tabular-nums; }
+/* .resp-toggle ("N respuestas ▸/▾"): botón que colapsa/expande el subárbol de
+   replies del BLOQUE (root). Se ve como el resto del footer (mono, muted) pero
+   es tappable: caret a la izquierda que rota según aria-expanded. */
+.post-foot .resp-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: inherit;
+  color: var(--muted);
+  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.post-foot .resp-toggle::before {
+  content: '▸';
+  font-size: 0.85em;
+  transition: transform 0.15s var(--curve-standard);
+}
+.post-foot .resp-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.post-foot .resp-toggle:hover { color: var(--accent); }
 
 /* ver twoitt / responder / transcribir / ocultar / borrar — barra de
    acciones al FINAL del .post (DOM order: body → reply-inline? → replies →

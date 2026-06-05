@@ -88,6 +88,96 @@ async function selectByIds<T>(
   return res.flatMap((r) => r.results);
 }
 
+// Ensambla el bloque `poll` de cada post con encuesta a partir de sus filas de
+// polls/opciones/conteos y el voto del visitante. Devuelve un Map postId →
+// PollPublic SOLO para los posts que tienen encuesta; el caller pone poll:null
+// para el resto.
+function assemblePollsByPost(
+  pollRows: Array<{ post_id: number }>,
+  optionRows: Array<{ id: number; post_id: number; position: number; label: string }>,
+  voteCountRows: Array<{ post_id: number; option_id: number; c: number }>,
+  myVoteRows: Array<{ post_id: number; option_id: number }>,
+): Map<number, PollPublic> {
+  const optionsByPost = new Map<number, PollOptionPublic[]>();
+  for (const o of optionRows) {
+    const arr = optionsByPost.get(o.post_id) || [];
+    arr.push({ id: o.id, position: o.position, label: o.label, votes: 0 });
+    optionsByPost.set(o.post_id, arr);
+  }
+  // Volcar conteos sobre las opciones ya posicionadas.
+  for (const v of voteCountRows) {
+    const arr = optionsByPost.get(v.post_id);
+    if (!arr) continue;
+    const opt = arr.find((o) => o.id === v.option_id);
+    if (opt) opt.votes = v.c;
+  }
+  const myVoteByPost = new Map<number, number>();
+  for (const mv of myVoteRows) {
+    myVoteByPost.set(mv.post_id, mv.option_id);
+  }
+  const pollsByPost = new Map<number, PollPublic>();
+  for (const { post_id } of pollRows) {
+    const options = optionsByPost.get(post_id) || [];
+    const total_votes = options.reduce((acc, o) => acc + o.votes, 0);
+    pollsByPost.set(post_id, {
+      options,
+      total_votes,
+      my_vote_id: myVoteByPost.get(post_id) ?? null,
+    });
+  }
+  return pollsByPost;
+}
+
+// Resuelve el parent_excerpt (snippet del padre) de cada post que sea reply.
+// Muchos padres ya vienen en `posts` (la TL carga el árbol del BLOQUE) → sacamos
+// su snippet de memoria y solo consultamos a la BD los ausentes. NO filtramos
+// deleted_at: queremos saber si el padre está borrado para pintar "en respuesta
+// a un twoitt borrado". (Los presentes en `posts` están vivos por construcción:
+// listPosts y getReplies filtran deleted_at IS NULL.)
+async function resolveParentExcerpts(
+  db: D1Database,
+  posts: PostRow[],
+): Promise<Map<number, ParentExcerpt>> {
+  const parentExcerptByPost = new Map<number, ParentExcerpt>();
+  const postsById = new Map(posts.map((p) => [p.id, p]));
+  const parentIds = [
+    ...new Set(
+      posts
+        .map((p) => p.parent_id)
+        .filter((pid): pid is number => pid != null),
+    ),
+  ];
+  const missingParentIds = parentIds.filter((pid) => !postsById.has(pid));
+  const fetchedParents = missingParentIds.length
+    ? await selectByIds<{ id: number; snippet: string; deleted_at: string | null }>(
+        db,
+        missingParentIds,
+        (ph) => `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
+             FROM posts WHERE id IN (${ph})`,
+      )
+    : [];
+  const fetchedById = new Map(fetchedParents.map((r) => [r.id, r]));
+  for (const p of posts) {
+    if (p.parent_id == null) continue;
+    const inMem = postsById.get(p.parent_id);
+    if (inMem) {
+      parentExcerptByPost.set(p.id, {
+        id: p.parent_id,
+        text_snippet: (inMem.text ?? "").slice(0, 120),
+        deleted: false,
+      });
+    } else {
+      const row = fetchedById.get(p.parent_id);
+      parentExcerptByPost.set(p.id, {
+        id: p.parent_id,
+        text_snippet: row?.snippet ?? "",
+        deleted: row ? row.deleted_at != null : true,
+      });
+    }
+  }
+  return parentExcerptByPost;
+}
+
 // Carga en bloque (1 query por relación, troceada por lotes) los extras de
 // cada post: media, hashtags, reply_count y poll. voterId opcional → si viene,
 // cada PollPublic resultante incluye `my_vote_id` para que el frontend pinte
@@ -164,94 +254,17 @@ async function attachMediaAndTags(
   for (const r of replyRows) {
     repliesByPost.set(r.parent_id, r.c);
   }
-  const pollPostIds = new Set<number>(pollRows.map((p) => p.post_id));
-  const optionsByPost = new Map<number, PollOptionPublic[]>();
-  for (const o of optionRows) {
-    const arr = optionsByPost.get(o.post_id) || [];
-    arr.push({ id: o.id, position: o.position, label: o.label, votes: 0 });
-    optionsByPost.set(o.post_id, arr);
-  }
-  // Volcar conteos sobre las opciones ya posicionadas.
-  for (const v of voteCountRows) {
-    const arr = optionsByPost.get(v.post_id);
-    if (!arr) continue;
-    const opt = arr.find((o) => o.id === v.option_id);
-    if (opt) opt.votes = v.c;
-  }
-  const myVoteByPost = new Map<number, number>();
-  for (const mv of myVoteRows) {
-    myVoteByPost.set(mv.post_id, mv.option_id);
-  }
+  const pollsByPost = assemblePollsByPost(pollRows, optionRows, voteCountRows, myVoteRows);
+  const parentExcerptByPost = await resolveParentExcerpts(db, posts);
 
-  // parent_excerpt: snippet de cada padre para los posts que sean reply.
-  // En bloque: una query con los parent_ids únicos. NO filtramos deleted_at
-  // — queremos saber si el padre está borrado para pintar "en respuesta a un
-  // twoitt borrado" en el frontend.
-  const parentExcerptByPost = new Map<number, ParentExcerpt>();
-  // Muchos padres ya vienen en `posts` (la TL carga el árbol del BLOQUE), así
-  // que sacamos su snippet de memoria y solo consultamos a la BD los padres
-  // ausentes — ahorra una query entera cuando el padre está co-cargado.
-  const postsById = new Map(posts.map((p) => [p.id, p]));
-  const parentIds = [
-    ...new Set(
-      posts
-        .map((p) => p.parent_id)
-        .filter((pid): pid is number => pid != null),
-    ),
-  ];
-  const missingParentIds = parentIds.filter((pid) => !postsById.has(pid));
-  // Padres ausentes: query troceada. NO filtramos deleted_at — queremos saber
-  // si el padre está borrado para pintar "en respuesta a un twoitt borrado".
-  // (Los presentes en `posts` ya están vivos por construcción: listPosts y
-  // getReplies filtran deleted_at IS NULL.)
-  const fetchedParents = missingParentIds.length
-    ? await selectByIds<{ id: number; snippet: string; deleted_at: string | null }>(
-        db,
-        missingParentIds,
-        (ph) => `SELECT id, substr(COALESCE(text, ''), 1, 120) AS snippet, deleted_at
-             FROM posts WHERE id IN (${ph})`,
-      )
-    : [];
-  const fetchedById = new Map(fetchedParents.map((r) => [r.id, r]));
-  for (const p of posts) {
-    if (p.parent_id == null) continue;
-    const inMem = postsById.get(p.parent_id);
-    if (inMem) {
-      parentExcerptByPost.set(p.id, {
-        id: p.parent_id,
-        text_snippet: (inMem.text ?? "").slice(0, 120),
-        deleted: false,
-      });
-    } else {
-      const row = fetchedById.get(p.parent_id);
-      parentExcerptByPost.set(p.id, {
-        id: p.parent_id,
-        text_snippet: row?.snippet ?? "",
-        deleted: row ? row.deleted_at != null : true,
-      });
-    }
-  }
-
-  return posts.map((p) => {
-    let poll: PollPublic | null = null;
-    if (pollPostIds.has(p.id)) {
-      const options = optionsByPost.get(p.id) || [];
-      const total_votes = options.reduce((acc, o) => acc + o.votes, 0);
-      poll = {
-        options,
-        total_votes,
-        my_vote_id: myVoteByPost.get(p.id) ?? null,
-      };
-    }
-    return {
-      ...p,
-      media: mediaByPost.get(p.id) || [],
-      hashtags: tagsByPost.get(p.id) || [],
-      reply_count: repliesByPost.get(p.id) || 0,
-      poll,
-      parent_excerpt: parentExcerptByPost.get(p.id) ?? null,
-    };
-  });
+  return posts.map((p) => ({
+    ...p,
+    media: mediaByPost.get(p.id) || [],
+    hashtags: tagsByPost.get(p.id) || [],
+    reply_count: repliesByPost.get(p.id) || 0,
+    poll: pollsByPost.get(p.id) ?? null,
+    parent_excerpt: parentExcerptByPost.get(p.id) ?? null,
+  }));
 }
 
 function buildReplyTree(all: Post[]): void {

@@ -25,6 +25,16 @@
      propagan a todas las transitions/animations sin tener que hacer
      find&replace en cubic-bezier strings. */
   --curve-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* escala de radios — los valores dominantes del proyecto. (El 3px puntual
+     de algún thumb se deja literal: no encaja en la escala y cambiarlo
+     alteraría el redondeo.) Nota: NO hay escala de spacing tokenizada a
+     propósito — los paddings/gaps reales (1/6/10/32px además de 4/8/12/16)
+     no caen en una rejilla base-4, así que tokenizarlos sería una escala
+     falsa sin la ganancia de consistencia. Se dejan como literales. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -61,7 +71,7 @@ a:hover { border-bottom-color: var(--accent-dim); }
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
 /* respeta prefers-reduced-motion: usuarios con sensibilidad al movimiento
@@ -92,7 +102,7 @@ a:hover { border-bottom-color: var(--accent-dim); }
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   font-family: var(--mono);
   font-size: 0.85rem;
@@ -115,7 +125,7 @@ button, .btn-primary, .btn-secondary, .link-btn {
   color: var(--text);
   border: 1px solid var(--border);
   padding: 7px 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
@@ -153,7 +163,7 @@ input, textarea {
   background: var(--bg-warm);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 0.9rem;
   width: 100%;
@@ -178,7 +188,9 @@ textarea {
   justify-content: center;
 }
 .login-card {
-  width: 340px;
+  /* Fluido en móviles estrechos: 340px de tope pero nunca más ancho que el
+     viewport menos un margen (antes width:340px fijo se salía en ≤340px). */
+  width: min(340px, calc(100vw - 24px));
   padding: 36px 32px 28px;
   text-align: center;
 }
@@ -264,7 +276,7 @@ textarea {
   min-width: 220px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -385,7 +397,7 @@ body.sidebar-hidden .side-col { display: none; }
 
 .composer {
   border: 1px solid var(--hairline);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 14px;
   margin-bottom: 28px;
   display: flex;
@@ -419,7 +431,7 @@ body.sidebar-hidden .side-col { display: none; }
   display: inline-block;
   padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: var(--mono);
   font-size: 0.78rem;
@@ -437,7 +449,7 @@ body.sidebar-hidden .side-col { display: none; }
   position: relative;
   aspect-ratio: 1;
   background: var(--bg);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--hairline);
 }
@@ -486,7 +498,7 @@ body.sidebar-hidden .side-col { display: none; }
 .media-preview .item .status-bar {
   height: 3px;
   background: rgba(255,255,255,0.18);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 .media-preview .item .status-bar-fill {
@@ -546,7 +558,7 @@ body.sidebar-hidden .side-col { display: none; }
 .skeleton + .skeleton { margin-top: 18px; }
 .sk-line {
   height: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   margin-bottom: 10px;
   background: linear-gradient(
     90deg,
@@ -709,7 +721,7 @@ body.sidebar-hidden .side-col { display: none; }
   align-items: center;
   justify-content: center;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   /* sin max-height: las verticales toman su altura natural en lugar de
      achicarse y dejar bandas a los lados. Si la imagen es muy larga,
@@ -758,7 +770,7 @@ body.sidebar-hidden .side-col { display: none; }
   height: 64px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   cursor: pointer;
   overflow: hidden;
@@ -852,7 +864,7 @@ body.sidebar-hidden .side-col { display: none; }
   font-size: 0.85rem;
   background: rgba(0, 0, 0, 0.5);
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 body.lightbox-open { overflow: hidden; }
 
@@ -936,7 +948,13 @@ body.lightbox-open { overflow: hidden; }
   border: none;
   color: var(--muted);
   cursor: pointer;
-  padding: 0;
+  /* Área táctil: el texto es pequeño (0.75rem) pero el padding vertical da un
+     hit-target cómodo en móvil (~44px) sin meter caja visible — el botón sigue
+     leyéndose como texto plano. min-height fija el mínimo aunque el texto sea
+     de una línea corta. box-sizing para que el padding no lo infle de más. */
+  padding: 13px 6px;
+  min-height: 44px;
+  box-sizing: border-box;
   font-family: inherit;
   font-size: inherit;
   /* Estado cerrado: invisible y desplazado ligeramente a la derecha. Al activar
@@ -965,7 +983,7 @@ body.lightbox-open { overflow: hidden; }
   display: inline-block;
   padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: none;
   cursor: pointer;
   font-family: var(--mono);
@@ -1029,7 +1047,7 @@ body.lightbox-open { overflow: hidden; }
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--hairline);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   font-family: var(--mono);
   font-size: 0.78rem;
@@ -1046,7 +1064,7 @@ body.lightbox-open { overflow: hidden; }
   display: grid;
   place-items: center;
   border: 1px solid var(--accent-dim);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--bg);
   cursor: pointer;
@@ -1131,7 +1149,7 @@ body.lightbox-open { overflow: hidden; }
    active es simétrica para root y replies. */
 .post.clickable.active > .post-body {
   background: rgba(232, 176, 74, 0.08);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 /* Rail amarillo del twoitt activo: ::after del root del thread con FILL
    animation desde arriba. Position absolute dentro del root (que tiene
@@ -1356,7 +1374,7 @@ button.poll-option:focus-visible {
   padding: 10px 12px;
   background: var(--bg-warm);
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .composer-poll[hidden] { display: none; }
 .composer-poll-head {
@@ -1382,7 +1400,7 @@ button.poll-option:focus-visible {
   font-family: var(--mono);
   font-size: 0.86rem;
   padding: 6px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .composer-poll-row input:focus {
   outline: none;
@@ -1397,7 +1415,7 @@ button.poll-option:focus-visible {
   width: 28px;
   height: 28px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .composer-poll-row .poll-remove:hover {
   color: var(--danger);
@@ -1414,7 +1432,7 @@ button.poll-option:focus-visible {
   font-size: 0.78rem;
   padding: 4px 10px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .composer-poll-add:hover {
   color: var(--accent);

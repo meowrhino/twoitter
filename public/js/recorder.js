@@ -6,7 +6,8 @@
 //              (audio/webm normalmente) listo para pasar a attachFile().
 //
 // Una sola sesión activa por composer (gestionado por el caller). No
-// re-comprimimos: opus de MediaRecorder ya pesa ~16 KB/s.
+// re-comprimimos: grabamos Opus directo a 24 kbps mono (ver opts abajo), que
+// ya es tamaño de nota de voz. El default del navegador serían ~128 kbps.
 
 import { uuid } from './utils.js';
 import { attachFile } from './media.js';
@@ -81,7 +82,16 @@ async function startRecording(form, button, preview, pending) {
 
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Mono + DSP de voz. channelCount:1 deja que Opus gaste todos los bits en
+    // un canal (mejor calidad por bit); echo/noise/gain limpian la captura.
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
   } catch (err) {
     console.error('mic permission denied', err);
     toast('no se pudo abrir el micro', 'error');
@@ -89,9 +99,13 @@ async function startRecording(form, button, preview, pending) {
   }
 
   const mimeType = pickMimeType();
+  // 24 kbps mono: calidad de voz por encima de WhatsApp (~16 kbps) y ~5× más
+  // ligero que el default del navegador (~128 kbps). Un minuto y medio ≈ 270 KB.
+  const opts = { audioBitsPerSecond: 24000 };
+  if (mimeType) opts.mimeType = mimeType;
   let rec;
   try {
-    rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    rec = new MediaRecorder(stream, opts);
   } catch (err) {
     console.error('MediaRecorder init failed', err);
     stream.getTracks().forEach((t) => t.stop());

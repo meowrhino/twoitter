@@ -73,8 +73,9 @@ async function uploadCompressed(compressed, kind, onProgress) {
 
 // Orquesta compresión + thumb. Para vídeo, el thumb se genera del File
 // original (canvas decoder fiable) en paralelo al output ffmpeg. El audio
-// no se re-comprime: opus ya viene óptimo de MediaRecorder, y los formatos
-// subidos manualmente (mp3/m4a/ogg) ya están comprimidos lo bastante.
+// no se re-comprime: el recorder ya graba Opus a 24 kbps mono (ver
+// recorder.js), y los formatos subidos manualmente (mp3/m4a/ogg) ya están
+// comprimidos lo bastante.
 async function compressItem(file, kind, onProgress) {
   if (kind === 'video') {
     const result = await compressVideo(file, onProgress);

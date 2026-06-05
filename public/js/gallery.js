@@ -185,6 +185,39 @@ function measureNaturalHeight(stage) {
 // rápidos sólo muestran el último frame, sin parpadeos intermedios.
 const galleryNav = new WeakMap();
 
+// Núcleo del crossfade con FLIP de altura, compartido por el carrete (swapStage)
+// y el lightbox (renderLightbox). Protocolo:
+//   1. snapshot de la altura actual + lock + .is-fading (fade-out por CSS)
+//   2. espera EN PARALELO al fade-out y al preload (gana el más lento)
+//   3. race-guard: si otra navegación nos superó (isCurrent() falso), abortar
+//      SIN tocar el height — lo limpiará el ganador (que siempre llega al
+//      setTimeout final), así nunca queda la altura bloqueada permanentemente
+//   4. pausa vídeos (audio fantasma) y pinta el contenido nuevo (paint())
+//   5. mide la altura natural, re-ancla a fromH, fuerza un frame, anima a toH +
+//      quita .is-fading, y limpia el lock tras la transición
+// `preload` es una promesa o null; `paint()` mete el contenido en el stage;
+// `isCurrent()` es el race-guard (true si esta llamada sigue siendo la última).
+async function crossfadeSwap(stage, { preload, paint, isCurrent }) {
+  const fromH = stage.getBoundingClientRect().height;
+  stage.style.height = `${fromH}px`;
+  stage.classList.add('is-fading');
+  await Promise.all([preload || Promise.resolve(), wait(FADE_MS)]);
+  if (!isCurrent()) return; // nos superaron; el ganador limpia el height
+
+  stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
+  paint();
+
+  const toH = measureNaturalHeight(stage);
+  stage.style.height = `${fromH}px`;
+  await nextFrame();
+  if (!isCurrent()) return;
+
+  // Disparar a la vez: height fromH → toH y opacity 0 → 1.
+  stage.style.height = `${toH}px`;
+  stage.classList.remove('is-fading');
+  setTimeout(() => { if (isCurrent()) stage.style.height = ''; }, FADE_MS + 80);
+}
+
 export async function swapStage(galleryEl, index) {
   const media = readMedia(galleryEl);
   if (index < 0 || index >= media.length) return;
@@ -202,59 +235,14 @@ export async function swapStage(galleryEl, index) {
   });
 
   const m = media[index];
-
-  // Snapshot de altura ACTUAL para anclar el FLIP de height: from → to.
-  // getBoundingClientRect funciona en feed (offsetHeight serviría también
-  // pero queremos el rect real con sub-pixel).
-  const fromH = stage.getBoundingClientRect().height;
-
-  // Fade-out + preload en paralelo. Si el preload va más rápido que el fade,
-  // esperamos al fade; si va más lento, esperamos al preload.
-  // Lockeamos la altura a fromH durante la fase de fade-out: así, aunque
-  // el contenido nuevo entre en el DOM con otra altura, no hay saltos.
-  stage.style.height = `${fromH}px`;
-  stage.classList.add('is-fading');
-  const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
-  await Promise.all([preloadP, wait(FADE_MS)]);
-
-  // Si llegó otro swap mientras estábamos esperando, dejar que ese pinte.
-  if (galleryNav.get(galleryEl) !== myNav) {
-    // Importante: no limpiamos el height aquí — el swap que nos superó
-    // lo gestionará. Si por algún motivo no lo hace, el setTimeout final
-    // de aquel se encargará.
-    return;
-  }
-
-  // Pausar vídeo previo antes de reemplazar (audio fantasma).
-  stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
-
-  stage.dataset.index = String(index);
-  stage.innerHTML = mediaItemHtml(m);
-
-  // Medir altura natural del nuevo contenido, restaurar el lock a fromH
-  // (para que la transición arranque de fromH y no salte) y forzar reflow.
-  const toH = measureNaturalHeight(stage);
-  stage.style.height = `${fromH}px`;
-  await nextFrame();
-
-  if (galleryNav.get(galleryEl) !== myNav) return;
-
-  // Disparar a la vez: height fromH → toH y opacity 0 → 1.
-  stage.style.height = `${toH}px`;
-  stage.classList.remove('is-fading');
-
-  // Limpiar el lock de altura tras la transición para que la galería siga
-  // siendo responsive (resize del viewport, video que mueve sus dims, etc).
-  // El guard `=== myNav` evita que un cleanup tardío pise un swap posterior.
-  // Importante: este cleanup SÓLO se agenda en el swap "ganador" (el que llega
-  // aquí). Si un swap fue superado antes (returns de arriba), el lock de altura
-  // que dejó lo hereda el swap ganador, que SIEMPRE pasa por este setTimeout y
-  // por tanto lo limpia. Así nunca queda la altura bloqueada permanentemente.
-  setTimeout(() => {
-    if (galleryNav.get(galleryEl) === myNav) {
-      stage.style.height = '';
-    }
-  }, FADE_MS + 80);
+  await crossfadeSwap(stage, {
+    preload: m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : null,
+    isCurrent: () => galleryNav.get(galleryEl) === myNav,
+    paint: () => {
+      stage.dataset.index = String(index);
+      stage.innerHTML = mediaItemHtml(m);
+    },
+  });
 }
 
 // ----- lightbox (singleton, lazy) -----
@@ -309,33 +297,20 @@ async function renderLightbox({ animate = true } = {}) {
 
   syncLightboxChrome(lb);
 
-  // Snapshot de altura (sólo si vamos a animar; en el primer open no hay
-  // nada que medir todavía y la altura natural será la final).
-  const fromH = animate ? stage.getBoundingClientRect().height : 0;
+  const preload = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : null;
+  const isCurrent = () => myNav === lbNav;
+  const paint = () => { stage.innerHTML = mediaItemHtml(m); };
 
-  if (animate) {
-    stage.style.height = `${fromH}px`;
-    stage.classList.add('is-fading');
+  // Primer open (animate:false): no hay nada que ocultar → sin fade-out ni FLIP,
+  // solo preload + pintar. El resto de navegaciones van por el crossfade.
+  if (!animate) {
+    await (preload || Promise.resolve());
+    if (!isCurrent()) return; // superado por una navegación/cierre posterior
+    stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
+    paint();
+    return;
   }
-  const preloadP = m.kind === 'image' ? preloadImage(`/r2/${m.r2_key}`) : Promise.resolve();
-  await Promise.all([preloadP, animate ? wait(FADE_MS) : Promise.resolve()]);
-
-  if (myNav !== lbNav) return; // superado por una navegación posterior
-
-  stage.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
-  stage.innerHTML = mediaItemHtml(m);
-
-  if (animate) {
-    const toH = measureNaturalHeight(stage);
-    stage.style.height = `${fromH}px`;
-    await nextFrame();
-    if (myNav !== lbNav) return;
-    stage.style.height = `${toH}px`;
-    stage.classList.remove('is-fading');
-    setTimeout(() => {
-      if (myNav === lbNav) stage.style.height = '';
-    }, FADE_MS + 80);
-  }
+  await crossfadeSwap(stage, { preload, paint, isCurrent });
 }
 
 export async function openLightbox(media, index = 0) {

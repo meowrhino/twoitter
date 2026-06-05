@@ -40,9 +40,20 @@ export function updateReplyCount(postEl, delta) {
 
   const foot = postEl.querySelector(':scope > .post-body > .post-foot');
   if (!foot) return;
+
+  // Dos affordances de contador según el tipo de post:
+  //   - root del BLOQUE → botón .resp-toggle (colapsa/expande el subárbol)
+  //   - reply anidada    → enlace .resp-count (salta a su posición)
+  // Actualizamos el que exista. Si es el toggle, mantenemos el plural correcto
+  // (el caret ▸/▾ es un ::before de CSS, así que textContent no lo pisa).
+  const toggle = foot.querySelector('.resp-toggle');
+  if (toggle) {
+    if (next === 0) { toggle.remove(); return; }
+    toggle.textContent = `${fmt(next)} ${next === 1 ? 'respuesta' : 'respuestas'}`;
+    return;
+  }
   const permalink = foot.querySelector('.permalink');
   let countLink = foot.querySelector('a.resp-count');
-
   if (next === 0) { countLink?.remove(); return; }
   if (countLink) {
     countLink.textContent = `${fmt(next)} resp`;

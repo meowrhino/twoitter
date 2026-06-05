@@ -267,6 +267,31 @@ function buildReplyTree(all: Post[]): void {
   }
 }
 
+// Trae TODOS los descendientes (cualquier profundidad) de los parentIds dados
+// con una CTE recursiva, troceada por el límite de parámetros de D1 (vía
+// selectByIds). El level cap (256) defiende de ciclos accidentales en
+// parent_id o threads patológicamente profundos. Sólo posts vivos.
+// Lo comparten listPosts (subárbol de cada root de la página) y getReplies
+// (subárbol de un único post).
+async function getDescendants(
+  db: D1Database,
+  parentIds: number[],
+): Promise<PostRow[]> {
+  return selectByIds<PostRow>(
+    db,
+    parentIds,
+    (ph) => `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
+         SELECT p.id, p.text, p.parent_id, p.created_at, 1
+           FROM posts p WHERE p.parent_id IN (${ph}) AND p.deleted_at IS NULL
+         UNION ALL
+         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
+           FROM posts c JOIN descendants d ON c.parent_id = d.id
+           WHERE d.level < 256 AND c.deleted_at IS NULL
+       )
+       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
+  );
+}
+
 export async function listPosts(
   db: D1Database,
   opts: { cursor?: string; tag?: string; q?: string; limit: number; voterId?: string | null },
@@ -327,24 +352,10 @@ export async function listPosts(
   // la página (caso raro: una reply muy nueva cuyo padre es muy antiguo).
   // Dedup por id porque un descendiente puede estar también en la página.
   // El level cap (256) es defensa contra ciclos accidentales en parent_id o
-  // threads patológicamente profundos.
-  // CTE recursiva troceada igual que el resto (≤ D1_MAX_BIND seeds por lote).
-  // Cada lote recurre desde su subconjunto de raíces; el dedup posterior
-  // absorbe los solapes entre lotes y con la propia página.
+  // threads patológicamente profundos. El dedup posterior absorbe los solapes
+  // entre lotes y con la propia página.
   const pageIds = page.map((p) => p.id);
-  const descRows = await selectByIds<PostRow>(
-    db,
-    pageIds,
-    (ph) => `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
-         SELECT p.id, p.text, p.parent_id, p.created_at, 1
-           FROM posts p WHERE p.parent_id IN (${ph}) AND p.deleted_at IS NULL
-         UNION ALL
-         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
-           FROM posts c JOIN descendants d ON c.parent_id = d.id
-           WHERE d.level < 256 AND c.deleted_at IS NULL
-       )
-       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
-  );
+  const descRows = await getDescendants(db, pageIds);
 
   const seenIds = new Set<number>();
   const combined: PostRow[] = [];
@@ -392,21 +403,8 @@ export async function getReplies(
   parentId: number,
   voterId: string | null = null,
 ): Promise<Post[]> {
-  const res = await db
-    .prepare(
-      `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
-         SELECT p.id, p.text, p.parent_id, p.created_at, 1
-           FROM posts p WHERE p.parent_id = ? AND p.deleted_at IS NULL
-         UNION ALL
-         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
-           FROM posts c JOIN descendants d ON c.parent_id = d.id
-           WHERE d.level < 256 AND c.deleted_at IS NULL
-       )
-       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
-    )
-    .bind(parentId)
-    .all<PostRow>();
-  const all = await attachMediaAndTags(db, res.results, voterId);
+  const descRows = await getDescendants(db, [parentId]);
+  const all = await attachMediaAndTags(db, descRows, voterId);
   buildReplyTree(all);
   return all.filter((p) => p.parent_id === parentId);
 }

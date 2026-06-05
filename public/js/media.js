@@ -11,7 +11,13 @@
 
 import { CSRF_HEADERS, MEDIA_LIMITS } from './state.js';
 import { uuid } from './utils.js';
-import { compressVideo, compressImage, generateVideoThumb } from './compressor.js';
+import {
+  compressVideo,
+  compressImage,
+  generateVideoThumb,
+  trimAudio,
+  detectCapabilities,
+} from './compressor.js';
 import { audioPlayerMarkup } from './audio-player.js';
 
 // Subimos vía XHR (no fetch) para poder reportar el progreso real con
@@ -76,12 +82,15 @@ async function uploadCompressed(compressed, kind, onProgress) {
 // no se re-comprime: el recorder ya graba Opus a 24 kbps mono (ver
 // recorder.js), y los formatos subidos manualmente (mp3/m4a/ogg) ya están
 // comprimidos lo bastante.
-async function compressItem(file, kind, onProgress) {
+// `editParams` (opcional) = { crop?, trim? } en unidades de ORIGEN; el editor de
+// medios los produce. Null en el primer pase → comportamiento de siempre.
+async function compressItem(file, kind, onProgress, editParams = null) {
   if (kind === 'video') {
-    const result = await compressVideo(file, onProgress);
+    const result = await compressVideo(file, onProgress, editParams);
     let thumbBlob = null;
     try {
-      const t = await generateVideoThumb(file);
+      // Poster del clip recortado: arranca en trim.start si hay trim.
+      const t = await generateVideoThumb(file, { atTime: editParams?.trim?.start ?? null });
       thumbBlob = t.blob;
     } catch (e) {
       console.warn('thumb failed', e);
@@ -89,16 +98,32 @@ async function compressItem(file, kind, onProgress) {
     return { ...result, thumbBlob };
   }
   if (kind === 'audio') {
-    // Pasamos el File directo como blob — uploadBlob lee blob.type, y los
-    // tipos que aceptamos en el server ya están en la whitelist de media.ts.
+    // Con trim → ffmpeg lo recorta; sin trim, passthrough (uploadBlob lee
+    // blob.type, y los tipos aceptados ya están en la whitelist de media.ts).
+    if (editParams?.trim) return trimAudio(file, editParams.trim, onProgress);
     return { blob: file, width: null, height: null };
   }
-  return compressImage(file);
+  return compressImage(file, editParams);
 }
 
 // DOM puro: construye el item de preview con preview local + × + overlay
 // para el estado (barra de progreso + etiqueta). El overlay se crea aquí,
 // vacío y sin .visible: setItemStatus lo activa cuando hace falta.
+// ¿Se puede editar audio aquí? El trim de audio necesita ffmpeg (SharedArray
+// Buffer); sin él no ofrecemos el botón. Try/catch defensivo: detectCapabilities
+// toca globals de navegador que pueden no existir (p.ej. en happy-dom de tests).
+function canEditKind(kind) {
+  if (kind === 'image' || kind === 'video') return true;
+  if (kind === 'audio') {
+    try {
+      return detectCapabilities().ok;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export function createPreviewItem({ localId, previewUrl, kind }) {
   const el = document.createElement('div');
   el.className = `item item-${kind}`;
@@ -114,8 +139,13 @@ export function createPreviewItem({ localId, previewUrl, kind }) {
   } else {
     media = `<video src="${previewUrl}" muted></video>`;
   }
+  // Botón "recortar": lo cablea editor.js por delegación global (setupEditor).
+  const editBtn = canEditKind(kind)
+    ? `<button class="edit" type="button" aria-label="recortar">recortar</button>`
+    : '';
   el.innerHTML = `
     ${media}
+    ${editBtn}
     <button class="remove" type="button" aria-label="quitar">×</button>
     <div class="status" aria-live="polite">
       <div class="status-bar"><div class="status-bar-fill"></div></div>
@@ -213,9 +243,13 @@ export async function attachFile(file, previewRoot, pending) {
   previewRoot.appendChild(itemEl);
 
   itemEl.querySelector('.remove').onclick = () => {
+    const it = pending.get(localId);
     pending.delete(localId);
     itemEl.remove();
     URL.revokeObjectURL(previewUrl);
+    if (it?.editedPreviewUrl) URL.revokeObjectURL(it.editedPreviewUrl);
+    // Avisa por si el editor tenía este item abierto (lo escucha editor.js).
+    document.dispatchEvent(new CustomEvent('twoitter:item-removed', { detail: { localId } }));
   };
 
   const item = {
@@ -226,18 +260,29 @@ export async function attachFile(file, previewRoot, pending) {
     compressed: null,
     compressionPromise: null,
     compressionError: null,
+    editParams: null,       // { crop?, trim? } tras editar; null = sin editar
+    editedPreviewUrl: null, // object URL del blob editado mostrado en el preview
   };
   pending.set(localId, item);
 
-  // Lanza compresión async — no la await aquí. El submit la espera.
-  // Audio no se re-comprime; aún así pasa por el mismo flujo para reutilizar
-  // los estados/overlays de la barra de progreso.
+  // Lanza compresión async — no la await aquí. El submit la espera. Audio sin
+  // editar no se re-comprime, pero pasa por el mismo flujo para reutilizar los
+  // estados/overlays. runCompression se comparte con reprocessItem (editar).
   const initialLabel =
     kind === 'video' ? 'preparando vídeo…'
     : kind === 'audio' ? 'preparando audio…'
     : 'comprimiendo imagen…';
   setItemStatus(itemEl, 'compressing', { label: initialLabel });
-  item.compressionPromise = compressItem(file, kind, (p) => {
+  item.compressionPromise = runCompression(item, itemEl, localId, pending);
+}
+
+// Núcleo de compresión compartido por attachFile (primer pase) y reprocessItem
+// (tras editar). Lee item.file/kind/editParams, pinta el overlay de progreso,
+// revalida el tamaño contra MEDIA_LIMITS y deja el resultado en item.compressed.
+// Devuelve la promise para guardarla en item.compressionPromise.
+function runCompression(item, itemEl, localId, pending) {
+  const { kind } = item;
+  return compressItem(item.file, kind, (p) => {
     if (!pending.has(localId)) return; // el usuario quitó el item
     if (p.phase === 'loading') {
       // 'descargando ffmpeg…' / 'inicializando ffmpeg…' — barra indeterminada
@@ -247,7 +292,7 @@ export async function attachFile(file, previewRoot, pending) {
       const verb = kind === 'video' ? 'comprimiendo vídeo' : 'comprimiendo';
       setItemStatus(itemEl, 'compressing', { percent: p.percent, label: verb });
     }
-  })
+  }, item.editParams)
     .then((result) => {
       if (!pending.has(localId)) return null;
       // Validación de tamaño en cliente: si tras comprimir el blob aún supera
@@ -284,6 +329,65 @@ export async function attachFile(file, previewRoot, pending) {
       setItemStatus(itemEl, 'error', { message: err.message || 'error al comprimir' });
       throw err;
     });
+}
+
+// Re-procesa un item ya adjunto aplicando parámetros de edición (crop/trim).
+// Reutiliza runCompression (mismo overlay + revalidación) y, al terminar, cambia
+// el medio mostrado en el preview por el resultado editado. NO-destructivo:
+// siempre parte de item.file (el original), nunca del blob ya editado.
+export async function reprocessItem(localId, pending, previewRoot, editParams) {
+  const item = pending.get(localId);
+  if (!item) return null;
+  const itemEl = previewRoot.querySelector(`[data-local-id="${CSS.escape(localId)}"]`);
+
+  // Si el primer pase aún comprimía, espera a que asiente: ffmpeg es un
+  // singleton serializado y no queremos dos exec pisándose.
+  if (item.status === 'compressing' && item.compressionPromise) {
+    try { await item.compressionPromise; } catch { /* da igual, re-procesamos */ }
+    if (!pending.has(localId)) return null;
+  }
+
+  item.editParams = editParams;
+  item.compressed = null;
+  item.compressionError = null;
+  item.status = 'compressing';
+  if (itemEl) {
+    const label =
+      item.kind === 'video' ? 'reaplicando vídeo…'
+      : item.kind === 'audio' ? 'recortando audio…'
+      : 'recortando…';
+    setItemStatus(itemEl, 'compressing', { label });
+  }
+
+  item.compressionPromise = runCompression(item, itemEl, localId, pending);
+  // Swap del preview al resultado (no bloquea el submit, que espera la promise
+  // por su cuenta). El .catch evita un unhandled rejection en esta rama.
+  item.compressionPromise
+    .then((result) => {
+      if (result && pending.has(localId) && itemEl) updatePreviewMedia(itemEl, item, result);
+    })
+    .catch(() => { /* el overlay de error ya lo pintó runCompression */ });
+
+  return item.compressionPromise;
+}
+
+// Cambia el medio mostrado en el preview por el blob ya editado (object URL
+// nuevo), revocando el anterior. El File original NO se toca (la re-edición
+// parte de él). Para audio intercambia el <audio> dentro del player.
+function updatePreviewMedia(itemEl, item, result) {
+  if (!result?.blob) return;
+  const url = URL.createObjectURL(result.blob);
+  const prev = item.editedPreviewUrl;
+  item.editedPreviewUrl = url;
+  const el =
+    item.kind === 'image' ? itemEl.querySelector('img')
+    : item.kind === 'video' ? itemEl.querySelector('video')
+    : itemEl.querySelector('audio');
+  if (el) {
+    el.src = url;
+    if (item.kind !== 'image') { try { el.load(); } catch (_) {} }
+  }
+  if (prev) URL.revokeObjectURL(prev);
 }
 
 // Sube todos los items 'compressed' a R2 (esperando antes a que termine
@@ -345,5 +449,6 @@ function pickMediaFields({ kind, r2_key, thumb_key, width, height }) {
 export function revokePendingUrls(pending) {
   for (const m of pending.values()) {
     if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
+    if (m.editedPreviewUrl) URL.revokeObjectURL(m.editedPreviewUrl);
   }
 }

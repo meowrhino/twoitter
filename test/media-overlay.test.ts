@@ -40,6 +40,17 @@ describe('createPreviewItem', () => {
     const el = makeItem();
     expect(el.querySelector('.status')!.getAttribute('aria-live')).toBe('polite');
   });
+
+  it('imagen y vídeo llevan botón "recortar"', () => {
+    expect(makeItem('image').querySelector('.edit')).toBeTruthy();
+    expect(makeItem('video').querySelector('.edit')).toBeTruthy();
+  });
+
+  it('audio sin capacidades ffmpeg (happy-dom) NO lleva botón "recortar"', () => {
+    // El trim de audio necesita ffmpeg/SharedArrayBuffer; en el entorno de test
+    // no hay caps → canEditKind('audio') es false → no se pinta el botón.
+    expect(makeItem('audio').querySelector('.edit')).toBeFalsy();
+  });
 });
 
 describe('setItemStatus', () => {

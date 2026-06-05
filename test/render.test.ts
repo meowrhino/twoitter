@@ -7,11 +7,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderPost, renderThread } from '../public/js/render.js';
 import { updateReplyCount } from '../public/js/rails.js';
-import { hide } from '../public/js/hidden.js';
+import { hide, clearHidden } from '../public/js/hidden.js';
 
 function reset() {
   document.body.innerHTML = '';
   localStorage.clear();
+  clearHidden(); // invalida el cache de módulo de hidden.js (localStorage.clear no basta)
 }
 
 function makePost(over = {}) {

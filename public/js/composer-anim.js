@@ -8,13 +8,10 @@
 // natural (height auto) y el textarea puede volver a crecer al escribir.
 
 import { refreshActiveRail, lockstepRail } from './rails.js';
+import { prefersReducedMotion } from './utils.js';
 
 const RAIL_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 const COMPOSER_ANIM_MS = 320;
-
-function prefersReducedMotion() {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-}
 
 // Dos keyframes [colapsado, natural]. Colapsamos también padding y márgenes (no
 // sólo height) para que el composer nazca desde ~0px: con box-sizing:border-box,

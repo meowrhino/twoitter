@@ -93,3 +93,10 @@ export function nextFrame() {
 export function wait(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
+
+// ¿El usuario pidió movimiento reducido? Se consulta por-llamada (reacciona si
+// cambia el ajuste del SO). Guarda typeof window por si corre sin DOM (tests).
+export function prefersReducedMotion() {
+  return typeof window !== 'undefined'
+    && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}

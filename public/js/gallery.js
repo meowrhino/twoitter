@@ -12,7 +12,7 @@
 // Todo el wiring vive en setupGallery() y usa delegación global desde
 // document → sobrevive a re-renders del feed sin tener que rebindear.
 
-import { escapeHtml, nextFrame, wait } from './utils.js';
+import { escapeHtml, nextFrame, wait, prefersReducedMotion } from './utils.js';
 import { audioPlayerMarkup } from './audio-player.js';
 import { ensureModal, trapTab } from './modal.js';
 
@@ -22,9 +22,7 @@ import { ensureModal, trapTab } from './modal.js';
 // Si el usuario tiene prefers-reduced-motion, saltamos toda la animación
 // para no quedarnos 240ms con el stage en blanco (la CSS también respeta
 // el flag y deja la transición instantánea).
-const REDUCED_MOTION =
-  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const FADE_MS = REDUCED_MOTION ? 0 : 240;
+const FADE_MS = prefersReducedMotion() ? 0 : 240;
 
 // ----- templates (sin side effects) -----
 

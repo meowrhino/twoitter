@@ -14,7 +14,7 @@
 // notifyThreadChanged). render.js sólo renderiza y gestiona la activación;
 // nos delega todo lo que toca el rail.
 
-import { fmt } from './utils.js';
+import { fmt, prefersReducedMotion } from './utils.js';
 import { refreshHashtags } from './hashtags.js';
 
 // ----- contenedor lógico del thread -----
@@ -51,11 +51,6 @@ export function updateReplyCount(postEl, delta) {
 // es animable en CSS, así que medimos la altura natural y animamos con WAAPI.
 const REPLIES_ANIM_MS = 320;
 const REPLIES_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
-
-function prefersReducedMotion() {
-  return typeof window !== 'undefined'
-    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-}
 
 // ¿podemos animar? (WAAPI presente y el usuario no pidió reduced-motion).
 // En reduced-motion o sin WAAPI (p.ej. tests headless) caemos a toggle directo.

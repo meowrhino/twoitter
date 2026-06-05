@@ -506,18 +506,20 @@ export async function deletePost(
   if (ids.length === 0) return { softDeletedIds: [] };
   const placeholders = ids.map(() => "?").join(",");
 
-  // deleted_at lleva un nonce de 8 hex chars al final del timestamp ISO
-  // para que dos borrados en el mismo milisegundo no compartan valor.
-  // strftime('%f') es preciso a milisegundos: en bursts (script, retries)
-  // dos deletes podían colisionar y un restore traería de vuelta posts de
-  // otro borrado. El nonce hace la colisión ~1 en 4e9. Sigue siendo string
-  // ordenable por timestamp (el prefijo ISO sigue intacto al inicio).
+  // deleted_at lleva un nonce de 8 hex chars al final del timestamp ISO para
+  // que dos borrados distintos en el mismo milisegundo no compartan valor
+  // (sin esto, un restore podía resucitar posts de otro borrado colisionado).
+  // El nonce se calcula UNA vez aquí (no en SQL): hex(randomblob(4)) dentro del
+  // SET se evalúa POR FILA, así que cada post del cascade tendría un deleted_at
+  // distinto y restorePost (que matchea por valor exacto) solo revivría uno.
+  // new Date().toISOString() da el mismo formato que strftime('%Y-...%fZ').
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const deletedAt = `${new Date().toISOString()}-${nonce}`;
   await db
-    .prepare(
-      `UPDATE posts SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') || '-' || hex(randomblob(4))
-         WHERE id IN (${placeholders})`,
-    )
-    .bind(...ids)
+    .prepare(`UPDATE posts SET deleted_at = ? WHERE id IN (${placeholders})`)
+    .bind(deletedAt, ...ids)
     .run();
 
   return { softDeletedIds: ids };

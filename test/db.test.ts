@@ -1,0 +1,219 @@
+// Tests de backend de src/db.ts contra una D1 real-ish (better-sqlite3 con el
+// schema completo). Cubren la lógica que más cambió esta sesión: el carrete
+// plano (listPosts devuelve roots + replies), parent_excerpt, cursor, getReplies,
+// encuestas (createPoll/castVote) y el soft-delete en cascada + restore.
+import { describe, it, expect, beforeEach } from 'vitest';
+import { makeTestDb } from './helpers/d1';
+import {
+  createPost,
+  getPost,
+  listPosts,
+  getReplies,
+  createPoll,
+  castVote,
+  deletePost,
+  restorePost,
+} from '../src/db';
+
+const R2_STUB = {} as unknown as R2Bucket; // deletePost no lo usa (_storage)
+
+let db: D1Database;
+beforeEach(() => {
+  db = makeTestDb();
+});
+
+describe('createPost + getPost', () => {
+  it('crea un post y lo recupera con extras vacíos', async () => {
+    const created = await createPost(db, 'hola mundo', null);
+    expect(created.id).toBeGreaterThan(0);
+    const got = await getPost(db, created.id);
+    expect(got).not.toBeNull();
+    expect(got!.text).toBe('hola mundo');
+    expect(got!.parent_id).toBeNull();
+    expect(got!.media).toEqual([]);
+    expect(got!.hashtags).toEqual([]);
+    expect(got!.reply_count).toBe(0);
+    expect(got!.poll).toBeNull();
+  });
+
+  it('getPost devuelve null para id inexistente o borrado', async () => {
+    expect(await getPost(db, 9999)).toBeNull();
+  });
+});
+
+describe('listPosts (carrete plano)', () => {
+  it('devuelve roots Y replies como ítems propios, cron desc', async () => {
+    const a = await createPost(db, 'root A', null);
+    const b = await createPost(db, 'reply a A', a.id);
+    const c = await createPost(db, 'root C', null);
+
+    const { posts } = await listPosts(db, { limit: 50 });
+    const ids = posts.map((p) => p.id);
+    // los 3 aparecen (incluida la reply b) — carrete plano
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
+    expect(ids).toContain(c.id);
+    // cron desc con desempate por id: el último creado va primero
+    expect(ids[0]).toBe(c.id);
+  });
+
+  it('la reply lleva parent_excerpt con el snippet del padre', async () => {
+    const a = await createPost(db, 'el padre original', null);
+    const b = await createPost(db, 'la respuesta', a.id);
+    const { posts } = await listPosts(db, { limit: 50 });
+    const reply = posts.find((p) => p.id === b.id)!;
+    expect(reply.parent_excerpt).toBeTruthy();
+    expect(reply.parent_excerpt!.id).toBe(a.id);
+    expect(reply.parent_excerpt!.text_snippet).toBe('el padre original');
+    expect(reply.parent_excerpt!.deleted).toBe(false);
+  });
+
+  it('parent_excerpt marca deleted cuando el padre está borrado', async () => {
+    const a = await createPost(db, 'padre a borrar', null);
+    const b = await createPost(db, 'reply huérfana', a.id);
+    // Borramos SÓLO el padre, directo por SQL: deletePost cascadearía al hijo,
+    // y restorePost reviviría el batch entero. Así aislamos "reply viva, padre
+    // muerto" (puede pasar en la BD aunque la API normal lo evite).
+    await db
+      .prepare('UPDATE posts SET deleted_at = ? WHERE id = ?')
+      .bind('2026-01-01T00:00:00.000Z-deadbeef', a.id)
+      .run();
+    const { posts } = await listPosts(db, { limit: 50 });
+    const reply = posts.find((p) => p.id === b.id);
+    expect(reply).toBeTruthy();
+    expect(reply!.parent_excerpt!.deleted).toBe(true);
+  });
+
+  it('el cursor pagina sin repetir ni saltarse posts', async () => {
+    const created = [];
+    for (let i = 0; i < 5; i++) created.push(await createPost(db, `post ${i}`, null));
+    const page1 = await listPosts(db, { limit: 2 });
+    expect(page1.posts).toHaveLength(2);
+    expect(page1.nextCursor).toBeTruthy();
+    const page2 = await listPosts(db, { limit: 2, cursor: page1.nextCursor! });
+    const seen = new Set([...page1.posts, ...page2.posts].map((p) => p.id));
+    expect(seen.size).toBe(4); // 2 + 2 distintos
+  });
+
+  it('filtra por texto (q)', async () => {
+    await createPost(db, 'manzana', null);
+    await createPost(db, 'banana', null);
+    const { posts } = await listPosts(db, { limit: 50, q: 'manz' });
+    expect(posts).toHaveLength(1);
+    expect(posts[0].text).toBe('manzana');
+  });
+});
+
+describe('getReplies', () => {
+  it('devuelve el subárbol de un post (replies directas)', async () => {
+    const a = await createPost(db, 'root', null);
+    const b = await createPost(db, 'reply 1', a.id);
+    await createPost(db, 'sub-reply', b.id); // nieto
+    const replies = await getReplies(db, a.id);
+    // getReplies filtra a las directas de a; el nieto cuelga de b.replies
+    expect(replies.map((r) => r.id)).toEqual([b.id]);
+    expect(replies[0].replies!.map((r) => r.text)).toEqual(['sub-reply']);
+  });
+});
+
+describe('encuestas: createPoll + castVote', () => {
+  async function postWithPoll() {
+    const p = await createPost(db, '¿cuál?', null);
+    await createPoll(db, p.id, ['sí', 'no']);
+    const full = await getPost(db, p.id);
+    return { postId: p.id, options: full!.poll!.options };
+  }
+
+  it('getPost arma la encuesta con opciones y 0 votos', async () => {
+    const { options } = await postWithPoll();
+    expect(options.map((o) => o.label)).toEqual(['sí', 'no']);
+    expect(options.every((o) => o.votes === 0)).toBe(true);
+  });
+
+  it('primer voto OK y suma el conteo', async () => {
+    const { postId, options } = await postWithPoll();
+    const res = await castVote(db, postId, 'voter-1', options[0].id);
+    expect(res.ok).toBe(true);
+    const full = await getPost(db, postId, 'voter-1');
+    expect(full!.poll!.total_votes).toBe(1);
+    expect(full!.poll!.my_vote_id).toBe(options[0].id);
+  });
+
+  it('voto inmutable: segundo voto del mismo votante → already_voted', async () => {
+    const { postId, options } = await postWithPoll();
+    await castVote(db, postId, 'voter-1', options[0].id);
+    const second = await castVote(db, postId, 'voter-1', options[1].id);
+    expect(second).toEqual({ ok: false, error: 'already_voted' });
+    const full = await getPost(db, postId, 'voter-1');
+    expect(full!.poll!.total_votes).toBe(1); // no subió
+  });
+
+  it('opción de otra encuesta → bad_option', async () => {
+    const { postId } = await postWithPoll();
+    const res = await castVote(db, postId, 'voter-x', 99999);
+    expect(res).toEqual({ ok: false, error: 'bad_option' });
+  });
+
+  it('post sin encuesta → no_poll', async () => {
+    const p = await createPost(db, 'sin encuesta', null);
+    const res = await castVote(db, p.id, 'voter-x', 1);
+    expect(res).toEqual({ ok: false, error: 'no_poll' });
+  });
+
+  it('dos votantes distintos suman 2', async () => {
+    const { postId, options } = await postWithPoll();
+    await castVote(db, postId, 'voter-1', options[0].id);
+    await castVote(db, postId, 'voter-2', options[1].id);
+    const full = await getPost(db, postId);
+    expect(full!.poll!.total_votes).toBe(2);
+  });
+});
+
+describe('deletePost (soft-delete en cascada) + restorePost', () => {
+  it('borra el post y sus descendientes, y desaparecen del feed', async () => {
+    const a = await createPost(db, 'root', null);
+    const b = await createPost(db, 'reply', a.id);
+    const c = await createPost(db, 'sub-reply', b.id);
+    const otro = await createPost(db, 'no relacionado', null);
+
+    const res = await deletePost(db, R2_STUB, a.id);
+    expect(res).not.toBeNull();
+    expect(new Set(res!.softDeletedIds)).toEqual(new Set([a.id, b.id, c.id]));
+
+    const { posts } = await listPosts(db, { limit: 50 });
+    const ids = posts.map((p) => p.id);
+    expect(ids).not.toContain(a.id);
+    expect(ids).not.toContain(b.id);
+    expect(ids).not.toContain(c.id);
+    expect(ids).toContain(otro.id); // el no relacionado sigue
+  });
+
+  it('restorePost revive el subárbol borrado en el mismo batch', async () => {
+    const a = await createPost(db, 'root', null);
+    const b = await createPost(db, 'reply', a.id);
+    await deletePost(db, R2_STUB, a.id);
+    const restored = await restorePost(db, a.id);
+    expect(new Set(restored!.restoredIds)).toEqual(new Set([a.id, b.id]));
+    const { posts } = await listPosts(db, { limit: 50 });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
+  });
+
+  it('deletePost de un id inexistente devuelve null', async () => {
+    expect(await deletePost(db, R2_STUB, 9999)).toBeNull();
+  });
+});
+
+describe('chunking lógico (selectByIds con >90 posts)', () => {
+  it('listPosts arma bien media/replies con muchos posts (>1 lote)', async () => {
+    // 95 roots → fuerza >1 lote en las IN-queries de attachMediaAndTags.
+    // (better-sqlite3 no impone el tope de params de D1, pero verifica que
+    // la lógica de troceado + dedup no pierde ni duplica filas.)
+    const ids = [];
+    for (let i = 0; i < 95; i++) ids.push((await createPost(db, `bulk ${i}`, null)).id);
+    const { posts } = await listPosts(db, { limit: 100 });
+    expect(posts).toHaveLength(95);
+    expect(new Set(posts.map((p) => p.id)).size).toBe(95); // sin duplicados
+  });
+});

@@ -22,7 +22,7 @@ import {
   observeActiveRoot,
   scheduleRailClose,
   cancelRailClose,
-  refreshActiveRail,
+  bindRepliesToggle,
 } from './rails.js';
 import {
   renderThreadActionsHtml,
@@ -331,24 +331,6 @@ function renderReplyContext(excerpt) {
   return `<a class="reply-context" href="#${excerpt.id}">↓ en respuesta a: <span class="parent-snippet">${snippet}</span></a>`;
 }
 
-// Toggle de colapso del subárbol de replies de un BLOQUE. Colapsado por
-// defecto (.replies-collapsed → display:none en CSS). Al expandir, el
-// ResizeObserver del rail (observeActiveRoot en rails.js) detecta el cambio
-// de altura del root y repinta el riel amarillo si el post está activo.
-function bindRepliesToggle(toggle, nested) {
-  toggle.addEventListener('click', (e) => {
-    // Frenamos la propagación: expandir el hilo no debe disparar navegación
-    // por hash ni nada más; solo alterna la visibilidad del subárbol.
-    e.stopPropagation();
-    const collapsed = nested.classList.toggle('replies-collapsed');
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    // El subárbol cambió de altura (display none↔block). Si este thread es el
-    // activo, reajustamos el rail amarillo en el mismo gesto — igual que el
-    // reply-inline al abrir/cerrar. El ResizeObserver async no es fiable aquí
-    // (el cambio de display puede no disparar un resize observable a tiempo).
-    refreshActiveRail();
-  });
-}
 
 // Recursivo: renderiza un post + sus replies anidados.
 // Si el post raíz está oculto en localStorage, devolvemos null para que

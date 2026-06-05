@@ -188,6 +188,18 @@ export function makeInlineComposer(parentPostEl, parentId) {
         // el server y aparecerá al recargar.
         if (el && nested.isConnected) {
           nested.appendChild(el);
+          // Expandir el subárbol del root para que la nueva reply se vea
+          // in-situ (el BLOQUE arranca colapsado) y dejar el caret del toggle
+          // en estado expandido. updateReplyCount (vía notifyThreadChanged)
+          // ajusta el conteo del .resp-toggle/.resp-count del padre directo.
+          const rootPost = getThreadRoot(parentPostEl)?.querySelector(':scope > .post');
+          const rootNested = rootPost?.querySelector(':scope > .thread-replies');
+          if (rootNested) {
+            rootNested.classList.remove('replies-collapsed');
+            rootPost
+              .querySelector(':scope > .post-body > .post-foot > .resp-toggle')
+              ?.setAttribute('aria-expanded', 'true');
+          }
           notifyThreadChanged({
             parentPost: parentPostEl,
             threadRoot: getThreadRoot(parentPostEl),

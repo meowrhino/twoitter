@@ -38,20 +38,16 @@ export function updateReplyCount(postEl, delta) {
   const next = Math.max(0, current + delta);
   postEl.dataset.replyCount = String(next);
 
-  const foot = postEl.querySelector(':scope > .post-body > .post-foot');
-  if (!foot) return;
-
   // Dos affordances de contador según el tipo de post:
   //   - root del BLOQUE → botón .resp-toggle (colapsa/expande el subárbol)
   //   - reply anidada    → enlace .resp-count (salta a su posición)
-  // Actualizamos el que exista. Si es el toggle, mantenemos el plural correcto
-  // (el caret ▸/▾ es un ::before de CSS, así que textContent no lo pisa).
-  const toggle = foot.querySelector('.resp-toggle');
-  if (toggle) {
-    if (next === 0) { toggle.remove(); return; }
-    toggle.textContent = `${fmt(next)} ${next === 1 ? 'respuesta' : 'respuestas'}`;
+  // Un root es un .post que NO cuelga de ningún .thread-replies.
+  if (!postEl.closest('.thread-replies')) {
+    syncRootToggle(postEl, next);
     return;
   }
+  const foot = postEl.querySelector(':scope > .post-body > .post-foot');
+  if (!foot) return;
   const permalink = foot.querySelector('.permalink');
   let countLink = foot.querySelector('a.resp-count');
   if (next === 0) { countLink?.remove(); return; }
@@ -64,6 +60,43 @@ export function updateReplyCount(postEl, delta) {
     countLink.textContent = `${fmt(next)} resp`;
     permalink.after(countLink);
   }
+}
+
+// Toggle de colapso del subárbol de replies de un BLOQUE. Colapsado por
+// defecto (.replies-collapsed → display:none en CSS). Al expandir, el cambio
+// de altura del root se refleja en el riel amarillo (refreshActiveRail), igual
+// que el reply-inline al abrir/cerrar. Lo usan el render inicial (render.js) y
+// syncRootToggle al crear el botón dinámicamente.
+export function bindRepliesToggle(toggle, nested) {
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const collapsed = nested.classList.toggle('replies-collapsed');
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    refreshActiveRail();
+  });
+}
+
+// Asegura que el foot de un root tenga el .resp-toggle correcto reflejando su
+// nº de replies y el estado (colapsado/expandido) de su subárbol. Crea y cablea
+// el botón si falta (caso: primera reply a un root, que antes dejaba un
+// .resp-count incoherente), lo actualiza, o lo elimina si llega a 0. Limpia
+// cualquier .resp-count residual — los roots no lo usan.
+function syncRootToggle(rootPostEl, count) {
+  const foot = rootPostEl.querySelector(':scope > .post-body > .post-foot');
+  if (!foot) return;
+  foot.querySelector('a.resp-count')?.remove();
+  const nested = rootPostEl.querySelector(':scope > .thread-replies');
+  let toggle = foot.querySelector('.resp-toggle');
+  if (count === 0 || !nested) { toggle?.remove(); return; }
+  if (!toggle) {
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'resp-toggle';
+    foot.appendChild(toggle);
+    bindRepliesToggle(toggle, nested);
+  }
+  toggle.setAttribute('aria-expanded', String(!nested.classList.contains('replies-collapsed')));
+  toggle.textContent = `${fmt(count)} ${count === 1 ? 'respuesta' : 'respuestas'}`;
 }
 
 // ----- notificación de cambios en el thread -----

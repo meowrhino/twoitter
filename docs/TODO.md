@@ -4,15 +4,10 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ## Pendiente
 
-### Alta prioridad
-
-- [ ] **Rate limiting en los endpoints AUTHED** (`/api/upload`, `/api/posts` POST, `/api/posts/:id/transcribe`).
-  El de voto (público) ya tiene rate limit (binding `VOTE_LIMITER`). Falta extender el mismo patrón a las escrituras del dueño como defensa contra accidentes (script en bucle que funde la cuota de Workers AI / R2). Reusar `[[unsafe.bindings]]` con otro namespace y límite más holgado.
-
 ### Media prioridad
 
 - [ ] **Frontend tests del flujo con red** para `composer.js` (publicar) y `pages.js` (loadTimeline, auto-fetch).
-  `render.js` ya cubierto (reply-context, colapso, contador, encuesta, anti-XSS). Falta el submit de un post y la carga de timeline — necesitan mockear `fetch`/`api()`.
+  `render.js` ya cubierto (reply-context, colapso, contador, encuesta, anti-XSS) y los endpoints HTTP también (test/routes.test.ts). Falta el submit del composer y la carga de timeline en el cliente — necesitan mockear `fetch`/`api()`.
 
 - [ ] **Modularizar `public/style.css`** (~1400 líneas monolíticas, creció con carrete/colapso/responsive).
   División propuesta por dominio: `_colors.css`, `_typography.css`, `_layout.css`, `_post.css`, `_post-actions.css`, `_composer.css`, `_audio-player.css`, `_gallery.css`, `_menu.css`, `_toast.css`, `_login.css`, `_a11y.css`.
@@ -53,6 +48,12 @@ Reorganización grande de la TL + encuestas + revisión:
 - [x] README al día.
 
 Backlog atacado al final de la sesión:
+- [x] **Rate limit en endpoints authed** (WRITE_LIMITER 100/min para upload+posts,
+  TRANSCRIBE_LIMITER 15/min para transcribe) + middleware rateLimit() que DRYea
+  el patrón (el voto público también pasó a usarlo).
+- [x] **Tests de endpoints HTTP** (test/routes.test.ts vía app.request): POST
+  /api/posts (auth/CSRF/crear/vacío), voto (CSRF/200/409/404), redirect 301; y
+  db (syncHashtags, exportAll). 152 tests.
 - [x] **Tests de backend** (18): adapter D1 sobre better-sqlite3 (no pool-workers,
   ver commit). Cubre listPosts/cursor/parent_excerpt, getReplies, polls/voto,
   deletePost cascada + restore. **Encontró y arregló un bug real**: el nonce de

@@ -65,6 +65,60 @@ function setupSentinelObserver() {
   sentinelObserver.observe(sentinel);
 }
 
+// ----- scroll-spy: la URL /#id sigue al post que estás viendo -----
+//
+// Inverso del deep-link (clic en #id → scroll): conforme scrolleas, la barra de
+// direcciones se actualiza a /#id del post centrado en el viewport, vía
+// history.replaceState (NO location.hash, que dispararía el hashchange → un
+// scroll). Así recargar o compartir te devuelve a donde estabas. Patrón
+// scrollspy (como el de la web de mirandaperezhita), adaptado a un feed.
+//
+// Implementado con un listener de scroll (no IntersectionObserver): elegimos el
+// ítem del carrete cuyo borde superior ha cruzado la línea de activación (40%
+// del viewport). Como solo corre AL scrollear, la home arranca con la URL limpia.
+let spyActiveId = null;
+let spyLastTs = 0;
+
+// Ítem "activo" del carrete: el ÚLTIMO cuyo borde superior ha cruzado la línea
+// de activación (40% del viewport desde arriba). Patrón scrollspy: conforme
+// scrolleas, el activo avanza SIN huecos — a diferencia de "el que cruza el
+// centro exacto", que fallaba cuando el centro caía en el margen entre dos
+// threads. Los posts van en orden vertical en el DOM, así que en cuanto uno
+// queda por debajo de la línea, los siguientes también → cortamos el bucle.
+function activeCarouselPost() {
+  const line = innerHeight * 0.4;
+  let active = null;
+  for (const p of document.querySelectorAll('#timeline > .thread > .post')) {
+    if (p.getBoundingClientRect().top <= line) active = p;
+    else break;
+  }
+  return active;
+}
+
+function updateSpyHash() {
+  const p = activeCarouselPost();
+  if (!p) return;
+  const id = p.dataset.id;
+  if (!id || id === spyActiveId) return; // sin cambio → no reescribir la URL
+  spyActiveId = id;
+  // replaceState (no location.hash=): actualiza la barra de direcciones sin
+  // disparar el hashchange ni acumular entradas en el historial.
+  history.replaceState(history.state, '', '#' + id);
+}
+
+function setupScrollSpy() {
+  if (setupScrollSpy._wired) return; // idempotente: un solo listener
+  setupScrollSpy._wired = true;
+  // Throttle por timestamp (no rAF): ligero y no depende del bucle de paint
+  // — robusto también donde rAF no corre. ~10 cálculos/s sobran para el hash.
+  addEventListener('scroll', () => {
+    const now = Date.now();
+    if (now - spyLastTs < 100) return;
+    spyLastTs = now;
+    updateSpyHash();
+  }, { passive: true });
+}
+
 export async function loadTimeline(reset = false) {
   if (loading) return;
   loading = true;
@@ -82,10 +136,14 @@ export async function loadTimeline(reset = false) {
     // body vacío, etc.) no queremos romper el feed. Tratamos como "sin más".
     const posts = Array.isArray(data?.posts) ? data.posts : [];
     const timeline = $('#timeline');
-    if (reset) timeline.innerHTML = '';
+    if (reset) {
+      timeline.innerHTML = '';
+      spyActiveId = null; // el feed cambió; se recalcula al primer scroll
+    }
     await renderInChunks(posts, timeline);
     nextCursor = data?.nextCursor ?? null;
     $('#loadMore').hidden = !nextCursor;
+    setupScrollSpy(); // idempotente: cablea el listener de scroll una vez
     if (reset) {
       setupSentinelObserver();
       // Si la URL trae /#42 al cargar, posicionar la TL en ese post. Solo la

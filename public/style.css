@@ -692,6 +692,30 @@ body.sidebar-hidden .side-col { display: none; }
    toggle "N respuestas" del foot lo revela. display:none (no max-height) para
    que no participe en la medición del rail mientras está oculto. */
 .thread-replies.replies-collapsed { display: none; }
+
+/* Post oculto en este navegador: NO se quita del DOM, se colapsa a un stub
+   "este post está oculto" (revelable). El .post-body real se esconde; al
+   revelar (.revealed) se muestra y el stub desaparece. "desocultar" en la
+   barra lo recupera del todo. */
+.post-hidden:not(.revealed) > .post-body { display: none; }
+.post-hidden.revealed > .hidden-stub { display: none; }
+.hidden-stub {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 12px var(--post-pad-x);
+  margin: 4px 0 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.hidden-stub:hover { color: var(--text-dim); border-color: var(--border); }
+
 /* padding-right: 0 hace que el footer de cada nivel quede alineado en la
    misma columna X derecha que el root, en vez de irse 4px hacia dentro
    por cada nivel de anidamiento.

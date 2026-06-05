@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderPost, renderThread } from '../public/js/render.js';
 import { updateReplyCount } from '../public/js/rails.js';
+import { hide } from '../public/js/hidden.js';
 
 function reset() {
   document.body.innerHTML = '';
@@ -138,6 +139,32 @@ describe('updateReplyCount (contador dinámico)', () => {
     const rootEl = wrap.querySelector('article.post[data-id="1"]') as HTMLElement;
     updateReplyCount(rootEl, -1);
     expect(rootEl.querySelector('.resp-toggle')).toBeNull();
+  });
+});
+
+describe('posts ocultos', () => {
+  beforeEach(reset);
+
+  it('un post oculto se renderiza como stub revelable, no se omite', () => {
+    hide(7);
+    const el = renderPost(makePost({ id: 7 }), { topLevel: true });
+    expect(el.classList.contains('post-hidden')).toBe(true);
+    const stub = el.querySelector(':scope > .hidden-stub')!;
+    expect(stub).toBeTruthy();
+    expect(stub.textContent).toContain('oculto');
+  });
+
+  it('renderThread ya NO devuelve null para un post oculto', () => {
+    hide(7);
+    const el = renderThread(makePost({ id: 7 }));
+    expect(el).not.toBeNull();
+    expect(el!.classList.contains('post-hidden')).toBe(true);
+  });
+
+  it('un post no oculto se renderiza normal (sin stub)', () => {
+    const el = renderPost(makePost({ id: 7 }), { topLevel: true });
+    expect(el.classList.contains('post-hidden')).toBe(false);
+    expect(el.querySelector('.hidden-stub')).toBeNull();
   });
 });
 

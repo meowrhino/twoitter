@@ -13,7 +13,7 @@
 import { fmt, hoursAgo, escapeHtml, linkify, toast } from './utils.js';
 import { api } from './api.js';
 import { renderPostGallery } from './gallery.js';
-import { isHidden } from './hidden.js';
+import { isHidden, markPostHidden } from './hidden.js';
 import {
   markExtendsToBottom,
   paintActiveRail,
@@ -28,6 +28,7 @@ import {
   renderThreadActionsHtml,
   bindThreadActions,
   refreshThreadTranscribeBtn,
+  refreshThreadHideBtn,
   staggerActionButtons,
 } from './post-actions.js';
 
@@ -161,7 +162,9 @@ function bindPostClickToNavigate(postEl, p) {
   postEl.setAttribute('tabindex', '0');
   postEl.setAttribute('aria-label', `abrir post #${p.id}`);
   const activate = (e) => {
-    if (e.target.closest('a, button, video, .composer, .gallery')) return;
+    // El stub "este post está oculto" SÍ activa el post (excepción al salto de
+    // botones): así, al revelar un oculto, la barra aparece con "desocultar".
+    if (e.target.closest('a, button:not(.hidden-stub), video, .composer, .gallery')) return;
     // Si el click cae sobre un descendiente .post (otro post anidado), que
     // lo gestione él — no marcar también al padre.
     if (e.target.closest('.post') !== postEl) return;
@@ -169,9 +172,10 @@ function bindPostClickToNavigate(postEl, p) {
       if (el !== postEl) el.classList.remove('active');
     });
     postEl.classList.add('active');
-    // refreshThreadTranscribeBtn ANTES de sync: fija qué botones se ven, para
-    // que staggerActionButtons (dentro de sync) cuente sólo los visibles.
+    // refreshThread*Btn ANTES de sync: fijan qué botones se ven, para que
+    // staggerActionButtons (dentro de sync) cuente sólo los visibles.
     refreshThreadTranscribeBtn(postEl);
+    refreshThreadHideBtn(postEl);
     syncThreadActiveFlags();
   };
   postEl.addEventListener('click', activate);
@@ -316,6 +320,9 @@ export function renderPost(p, { topLevel = true } = {}) {
 
   if (p.poll) bindPollActions(el, p);
   bindPostClickToNavigate(el, p);
+  // Oculto en este navegador → colapsar a placeholder "este post está oculto"
+  // (revelable). No se quita del DOM; "desocultar" en la barra lo recupera.
+  if (isHidden(p.id)) markPostHidden(el);
   return el;
 }
 
@@ -341,7 +348,8 @@ function renderReplyContext(excerpt) {
 // .post-actions al final (tras .thread-replies). asRoot=false: descendiente,
 // no lleva barra propia — usará la del thread root.
 export function renderThread(p, { asRoot = true } = {}) {
-  if (isHidden(p.id)) return null;
+  // Los ocultos YA no se omiten (return null): renderPost los pinta como
+  // placeholder revelable. Así siempre hay forma de recuperarlos.
   // topLevel coincide con asRoot: solo el root del BLOQUE muestra el
   // header "en respuesta a (…)" si es una reply. Los descendientes ya
   // están dentro del BLOQUE de su padre — repetir el header sería ruido.

@@ -13,7 +13,7 @@ import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './composer.js';
 import { updateGalleryTranscript } from './gallery.js';
-import { hide } from './hidden.js';
+import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
 
 // ----- render HTML de las barras -----
 
@@ -26,9 +26,13 @@ export function renderThreadActionsHtml() {
   const transcribe = isAuthed()
     ? '<button class="transcribe-btn" type="button" hidden>transcribir</button>'
     : '';
+  // ocultar/desocultar: per-navegador (localStorage), por eso disponibles sin
+  // auth. Uno de los dos se muestra según el estado del .post.active vigente
+  // (refreshThreadHideBtn). Por defecto se ofrece "ocultar".
   const hideBtn = '<button class="hide-btn" type="button">ocultar</button>';
+  const unhideBtn = '<button class="unhide-btn" type="button" hidden>desocultar</button>';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${del}</div>`;
+  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${unhideBtn}${del}</div>`;
 }
 
 // ----- helpers de navegación por el árbol -----
@@ -125,10 +129,37 @@ async function doTranscribe(targetEl, btn) {
   btn.hidden = true;
 }
 
+// Muestra "ocultar" o "desocultar" en la barra del thread según si el .post
+// objetivo está oculto. Mismo patrón que refreshThreadTranscribeBtn: se llama
+// al activar un post (render.js) para que la barra refleje su estado.
+export function refreshThreadHideBtn(postEl) {
+  const host = getThreadHost(postEl);
+  const bar = host?.querySelector(':scope > .post-actions');
+  if (!bar) return;
+  const isHiddenPost = postEl.classList.contains('post-hidden');
+  const hideB = bar.querySelector('.hide-btn');
+  const unhideB = bar.querySelector('.unhide-btn');
+  if (hideB) hideB.hidden = isHiddenPost;
+  if (unhideB) unhideB.hidden = !isHiddenPost;
+}
+
+// Ocultar: ya NO quita del DOM. Colapsa el post (y todas sus copias en el feed,
+// porque el mismo twoitt sale como ítem suelto + anidado) a un placeholder
+// revelable. "desocultar" lo revierte.
 function doHide(targetEl) {
-  hide(targetEl.dataset.id);
-  removeFromDom(targetEl);
+  const id = targetEl.dataset.id;
+  hide(id);
+  document.querySelectorAll(`.post[data-id="${CSS.escape(id)}"]`).forEach(markPostHidden);
+  refreshThreadHideBtn(targetEl); // la barra del activo pasa a "desocultar"
   toast('post ocultado en este navegador', 'info');
+}
+
+function doUnhide(targetEl) {
+  const id = targetEl.dataset.id;
+  unhide(id);
+  document.querySelectorAll(`.post[data-id="${CSS.escape(id)}"]`).forEach(unmarkPostHidden);
+  refreshThreadHideBtn(targetEl); // vuelve a "ocultar"
+  toast('post visible de nuevo', 'info');
 }
 
 async function doDelete(targetEl) {
@@ -213,6 +244,10 @@ export function bindThreadActions(threadRootEl) {
     '.hide-btn': () => {
       const t = target();
       if (t) doHide(t);
+    },
+    '.unhide-btn': () => {
+      const t = target();
+      if (t) doUnhide(t);
     },
     '.delete-btn': () => {
       const t = target();

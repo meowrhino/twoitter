@@ -58,3 +58,34 @@ export function clearHidden() {
   cache = null;
   try { localStorage.removeItem(KEY); } catch {}
 }
+
+// ----- presentación: placeholder revelable -----
+//
+// Un post oculto NO se quita del DOM: se colapsa a un stub "este post está
+// oculto" (clicable). Click → .revealed muestra el contenido (peek). Para
+// recuperarlo del todo, la barra de acciones ofrece "desocultar" (ver
+// post-actions.js). Así nada queda atrapado sin retorno.
+
+export function markPostHidden(postEl) {
+  if (!postEl) return;
+  postEl.classList.add('post-hidden');
+  postEl.classList.remove('revealed');
+  if (postEl.querySelector(':scope > .hidden-stub')) return; // ya tiene stub
+  const stub = document.createElement('button');
+  stub.type = 'button';
+  stub.className = 'hidden-stub';
+  stub.textContent = 'este post está oculto';
+  stub.addEventListener('click', (e) => {
+    // No frenamos la propagación: queremos que el click TAMBIÉN active el post
+    // (listener global) para que la barra aparezca con "desocultar". Solo
+    // alternamos el peek del contenido.
+    postEl.classList.toggle('revealed');
+  });
+  postEl.insertBefore(stub, postEl.firstChild);
+}
+
+export function unmarkPostHidden(postEl) {
+  if (!postEl) return;
+  postEl.classList.remove('post-hidden', 'revealed');
+  postEl.querySelector(':scope > .hidden-stub')?.remove();
+}

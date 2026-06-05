@@ -25,3 +25,12 @@ bucket_name = "twoitter-storage"
 # @cf/openai/whisper-large-v3-turbo sin secrets externos.
 [ai]
 binding = "AI"
+
+# Rate limiting nativo de Workers (sin KV ni recurso externo). Lo usa el
+# endpoint PÚBLICO de votar encuestas para frenar spam por IP. namespace_id es
+# un id lógico que eliges tú; period sólo admite 10 o 60 (segundos).
+[[unsafe.bindings]]
+name = "VOTE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }

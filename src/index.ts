@@ -41,6 +41,11 @@ import {
 const WHISPER_LANGUAGE: string | null = "es";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
+// Binding de rate limiting nativo (wrangler.toml [[unsafe.bindings]]).
+interface RateLimit {
+  limit(opts: { key: string }): Promise<{ success: boolean }>;
+}
+
 type Bindings = {
   DB: D1Database;
   STORAGE: R2Bucket;
@@ -48,6 +53,7 @@ type Bindings = {
   AI: Ai;
   PASSWORD: string;
   AUTH_SECRET: string;
+  VOTE_LIMITER: RateLimit;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -335,6 +341,20 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), async (c) =>
 app.post("/api/posts/:id/poll/vote", requireCsrf(), async (c) => {
   const id = parseInt(c.req.param("id") ?? "");
   if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+
+  // Rate limit por IP: este endpoint es PÚBLICO (anónimo), así que un script
+  // podría spamear votos rotando cookies tv_id. 30/min por IP frena el abuso
+  // sin molestar a un humano. Fail-open si el binding no está (p.ej. dev viejo)
+  // — no queremos bloquear votos legítimos por un fallo del limitador.
+  try {
+    const ip = c.req.header("cf-connecting-ip") || "local";
+    const { success } = await c.env.VOTE_LIMITER.limit({ key: ip });
+    if (!success) {
+      return c.json({ error: "demasiados votos, espera un momento" }, 429);
+    }
+  } catch {
+    /* limitador no disponible: seguimos */
+  }
 
   let body: { option_id?: number };
   try {

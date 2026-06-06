@@ -95,6 +95,34 @@ al añadir una migración nueva: actualizar `schema.sql` (para clones desde cero
 - al pulsar "transcribir" en las acciones del post (sólo visible si hay audio sin transcript y estás logueado), se llama a `POST /api/posts/:id/transcribe` que descarga el blob de R2 y lo pasa por `@cf/openai/whisper-large-v3-turbo` con `language: "es"`. el resultado se guarda en `media.transcript` y queda cacheado.
 - cuota: el free tier de Workers AI da ~10k neuronas/día, suficiente para decenas de minutos de transcripción. para cambiar el idioma (auto-detectar o forzar otro), editar `WHISPER_LANGUAGE` en `src/index.ts`.
 
+## arquitectura (data-flow)
+
+```
+navegador  (public/, ES modules; entry public/app.js)
+   │  fetch vía js/api.js  —  cookie de sesión (HMAC) + header x-twoitter-csrf
+   ▼
+Worker Hono  (src/index.ts)  —  middleware: requireAuth · requireCsrf · rateLimit
+   ├─ /api/posts · /api/posts/:id · /poll/vote · /export  →  src/db.ts  →  D1 (SQLite)
+   ├─ /api/upload                →  R2 (STORAGE)   ← el cliente sube el blob YA comprimido
+   ├─ /r2/*                      →  R2 (proxy de lectura, cache-control immutable)
+   └─ /api/posts/:id/transcribe  →  Workers AI (Whisper)  →  cachea en D1 (media.transcript)
+```
+
+convenciones:
+
+- **payloads snake_case**: la API devuelve las columnas de D1 tal cual (`created_at`,
+  `parent_id`, `r2_key`, `reply_count`, `my_vote_id`…). El cliente las consume sin
+  renombrar; su estado interno propio va en camelCase (`nextCursor`, `localId`, `previewUrl`…).
+- **CSRF**: todo POST/DELETE exige el header `x-twoitter-csrf` (cualquier valor no vacío)
+  además de la cookie de sesión `SameSite=Lax` (`requireCsrf`).
+- **errores**: siempre `{ error: string }` + status HTTP (400/401/403/404/409/413/422/500).
+- **rate limits** (bindings nativos de Workers): `WRITE_LIMITER` (upload + crear posts,
+  authed), `VOTE_LIMITER` (voto, público), `TRANSCRIBE_LIMITER` (transcribe).
+- **compresión en cliente**: imagen → WebP (canvas/WASM), vídeo → VP8/WebM (ffmpeg.wasm),
+  audio → Opus directo del recorder. El server revalida tamaño y tipo antes de aceptar.
+
+Historial de cambios: ver [`CHANGELOG.md`](CHANGELOG.md).
+
 ## estructura
 
 ```

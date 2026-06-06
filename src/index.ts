@@ -41,6 +41,15 @@ import {
 const WHISPER_LANGUAGE: string | null = "es";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
+// Parsea un :id de ruta a entero positivo estricto. null si no es válido (rechaza
+// "5abc", "", "-1", "1.5" o ids fuera del rango seguro) → el caller responde 400.
+// parseInt aceptaba basura final ("5abc" → 5), actuando sobre el post equivocado.
+function parseId(raw: string | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 // Binding de rate limiting nativo (wrangler.toml [[unsafe.bindings]]).
 interface RateLimit {
   limit(opts: { key: string }): Promise<{ success: boolean }>;
@@ -152,8 +161,8 @@ app.get("/api/posts", async (c) => {
 });
 
 app.get("/api/posts/:id", async (c) => {
-  const id = parseInt(c.req.param("id") ?? "");
-  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
   const voterId = await readVoterId(c);
   const post = await getPost(c.env.DB, id, voterId);
   if (!post) return c.json({ error: "no encontrado" }, 404);
@@ -305,18 +314,18 @@ app.post("/api/posts", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LI
 });
 
 app.delete("/api/posts/:id", requireAuth(), requireCsrf(), async (c) => {
-  const id = parseInt(c.req.param("id") ?? "");
-  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
   // Soft delete: el post y sus descendientes se marcan con deleted_at pero
   // los assets de R2 se conservan. Recuperable vía POST /api/posts/:id/restore.
-  const result = await deletePost(c.env.DB, c.env.STORAGE, id);
+  const result = await deletePost(c.env.DB, id);
   if (!result) return c.json({ error: "no encontrado" }, 404);
   return c.json({ ok: true, soft_deleted_ids: result.softDeletedIds });
 });
 
 app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
-  const id = parseInt(c.req.param("id") ?? "");
-  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
   const result = await restorePost(c.env.DB, id);
   if (!result) return c.json({ error: "no encontrado o no estaba borrado" }, 404);
   return c.json({ ok: true, restored_ids: result.restoredIds });
@@ -327,8 +336,8 @@ app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
 // si el media ya tiene transcript, lo devuelve sin volver a llamar al modelo
 // (cachea para siempre — el blob de R2 es inmutable).
 app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e) => e.TRANSCRIBE_LIMITER), async (c) => {
-  const id = parseInt(c.req.param("id") ?? "");
-  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
 
   const media = await getAudioMediaForPost(c.env.DB, id);
   if (!media) return c.json({ error: "este post no tiene audio" }, 404);
@@ -390,8 +399,8 @@ app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e
 // Rate limit (VOTE_LIMITER) vía middleware: este endpoint es PÚBLICO, un script
 // podría spamear votos rotando cookies tv_id. 30/min por IP frena el abuso.
 app.post("/api/posts/:id/poll/vote", requireCsrf(), rateLimit((e) => e.VOTE_LIMITER), async (c) => {
-  const id = parseInt(c.req.param("id") ?? "");
-  if (isNaN(id)) return c.json({ error: "id invalido" }, 400);
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
 
   let body: { option_id?: number };
   try {

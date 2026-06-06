@@ -104,9 +104,12 @@ describe('POST /api/posts/:id/transcribe — auth/CSRF', () => {
 });
 
 describe('POST /api/posts/:id/transcribe — flujo', () => {
-  it('400 con id no numérico', async () => {
+  it('400 con id no numérico (incluida basura final como "5abc")', async () => {
     const res = await transcribe('abc', makeEnv(db), await authCookie());
     expect(res.status).toBe(400);
+    // parseId estricto: "5abc" ya NO se interpreta como 5 (parseInt lo hacía).
+    const res2 = await transcribe('5abc', makeEnv(db), await authCookie());
+    expect(res2.status).toBe(400);
   });
 
   it('404 si el post no tiene audio', async () => {

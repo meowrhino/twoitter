@@ -18,8 +18,6 @@ import {
 } from '../src/db';
 import { syncHashtags } from '../src/hashtags';
 
-const R2_STUB = {} as unknown as R2Bucket; // deletePost no lo usa (_storage)
-
 let db: D1Database;
 beforeEach(() => {
   db = makeTestDb();
@@ -189,7 +187,7 @@ describe('deletePost (soft-delete en cascada) + restorePost', () => {
     const c = await createPost(db, 'sub-reply', b.id);
     const otro = await createPost(db, 'no relacionado', null);
 
-    const res = await deletePost(db, R2_STUB, a.id);
+    const res = await deletePost(db, a.id);
     expect(res).not.toBeNull();
     expect(new Set(res!.softDeletedIds)).toEqual(new Set([a.id, b.id, c.id]));
 
@@ -204,7 +202,7 @@ describe('deletePost (soft-delete en cascada) + restorePost', () => {
   it('restorePost revive el subárbol borrado en el mismo batch', async () => {
     const a = await createPost(db, 'root', null);
     const b = await createPost(db, 'reply', a.id);
-    await deletePost(db, R2_STUB, a.id);
+    await deletePost(db, a.id);
     const restored = await restorePost(db, a.id);
     expect(new Set(restored!.restoredIds)).toEqual(new Set([a.id, b.id]));
     const { posts } = await listPosts(db, { limit: 50 });
@@ -214,7 +212,7 @@ describe('deletePost (soft-delete en cascada) + restorePost', () => {
   });
 
   it('deletePost de un id inexistente devuelve null', async () => {
-    expect(await deletePost(db, R2_STUB, 9999)).toBeNull();
+    expect(await deletePost(db, 9999)).toBeNull();
   });
 });
 
@@ -244,7 +242,7 @@ describe('exportAll', () => {
   it('excluye posts borrados y sus hijos huérfanos', async () => {
     const vivo = await createPost(db, 'vivo', null);
     const muerto = await createPost(db, 'a borrar', null);
-    await deletePost(db, R2_STUB, muerto.id);
+    await deletePost(db, muerto.id);
     const dump = await exportAll(db);
     const ids = dump.posts.map((p: { id: number }) => p.id);
     expect(ids).toContain(vivo.id);

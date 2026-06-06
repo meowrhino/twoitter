@@ -489,7 +489,6 @@ export async function setMediaTranscript(
 
 export async function deletePost(
   db: D1Database,
-  _storage: R2Bucket,
   id: number,
 ): Promise<{ softDeletedIds: number[] } | null> {
   // Soft delete: marca deleted_at en el post y sus descendientes pero deja

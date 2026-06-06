@@ -28,6 +28,20 @@ van por **fecha de sesión**. El detalle de cada una vive en `docs/TODO.md`
 - Evaluado y NO hecho: partir `rails.js` en dos (#3) — forzaría un import circular
   acordeón↔rail; la duplicación real ya la resolvió `animateHeight()`.
 
+### Revisión profunda nº2 (mismo día)
+Segunda pasada adversaria (3 revisores en paralelo) sobre el código ya limpiado:
+- **fix**: búsqueda con `q` > 200 chars devolvía el feed ENTERO (db.ts descartaba
+  el filtro `LIKE`). Truncado a 200 + test de regresión.
+- **dead code**: eliminadas las ramas de la vista single-post (`#replies`/
+  `#postContainer`) en rails/render/post-actions (la vista ya no existe).
+- **refactor**: `STANDARD_CURVE`/`ANIM_MS` a utils.js (curva+duración antes
+  triplicadas); `parseId` estricto para los `:id` ("5abc" ya no actúa sobre el 5);
+  `decodeOrientedBitmap` compartido (editor + compresor decodifican idéntico);
+  `_storage` muerto fuera de `deletePost`; el modal del editor se revela tras
+  decodificar; cancelar reply sin callback redundante.
+- Backend verificado limpio (SQL parametrizado, sin path traversal, allowlist de
+  upload sólida). Lightbox→módulo y split de index.ts/db.ts: diferidos.
+
 ## 2026-06-05 — carrete plano, encuestas y editor de medios (F0–F5)
 
 ### Added

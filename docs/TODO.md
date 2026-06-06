@@ -96,6 +96,14 @@ Evaluado y NO hecho (a propósito):
 son behavior-preserving por construcción pero no unit-testeables (happy-dom sin
 `Element.animate`; preview headless) → ojearlas en Brave real.
 
+**2ª revisión profunda (mismo día):** 3 revisores adversarios en paralelo sobre el
+código YA limpiado → 1 bug real (`q` > 200 devolvía el feed entero, con test),
+borrado de dead code de la vista single-post, y refactors menores (STANDARD_CURVE/
+ANIM_MS a utils, `parseId` estricto, `decodeOrientedBitmap` compartido, `_storage`
+muerto fuera, modal tras decode, cancel sin callback). Backend verificado limpio.
+Lightbox→módulo propio y split de index.ts/db.ts: evaluados y diferidos (Brave /
+no compensa aún).
+
 ## Done (sesión 2026-06-05)
 
 Reorganización grande de la TL + encuestas + revisión:

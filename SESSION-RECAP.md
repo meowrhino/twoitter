@@ -32,18 +32,18 @@ Módulos nuevos: `public/js/modal.js`, `public/js/render-poll.js`,
 
 ## Pendiente
 
-### F6 / F7 — editor de medios (siguiente fase del feature)
+### Editor de medios — estado
 
-El editor está en **F5: SOLO recorte de imagen** (modal + caja de recorte libre).
-Falta:
-
-- **F6 — vídeo (trim temporal + crop espacial)**. El plumbing del compresor ya
-  existe: `buildVideoArgs` (compressor-video.js) y `roundEvenCrop` (editor-geom.js).
-  `editor.js` `openEditor` despacha por `kind` y hoy rechaza lo no-imagen; F6 añade
-  `openVideoEditor`, que construirá sobre `modal.js` (#6) y `animateHeight`, y
-  activará las ramas vídeo/trim ya presentes y comentadas en `applyEdit` (#9) y el
-  hook `ctx.urls` de `closeEditor` (#10).
-- **F7 — trim de audio**. `trimAudio` (compressor-video.js) ya existe.
+- **Imagen**: recorte espacial (caja de 8 tiradores). ✅ (F5)
+- **Vídeo y notas de voz**: recorte temporal (trim) con pista de tiempo. ✅ (F6/F7,
+  2026-06-06) — `editor-trimtrack.js` + `openVideoEditor`/`openAudioEditor` (editor.js)
+  + `solveTrimConstraints`/`rangeToTrim` (editor-geom.js, testeados). El medio se
+  muestra con controles nativos (play manual, sin autoplay); `readMediaDuration` lleva
+  el workaround del webm con `duration=Infinity`. ⚠️ falta ojearlo en Brave real
+  (pointer/vídeo/ffmpeg no son testeables headless).
+- **Pendiente — recorte ESPACIAL de vídeo (zona)**: el plumbing existe
+  (`buildVideoArgs` crop + `roundEvenCrop`), pero requiere mapear el crop del cropbox
+  `{sx,sy,sw,sh}`→`{x,y,w,h}` y resolver caja-vs-controles del vídeo.
 
 ### Verificación manual pendiente (no automatizable aquí)
 

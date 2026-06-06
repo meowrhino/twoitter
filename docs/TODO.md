@@ -104,6 +104,13 @@ muerto fuera, modal tras decode, cancel sin callback). Backend verificado limpio
 Lightbox→módulo propio y split de index.ts/db.ts: evaluados y diferidos (Brave /
 no compensa aún).
 
+**Editor F6/F7 (mismo día):** construido el recorte TEMPORAL (trim) de vídeo y notas
+de voz. Nueva primitiva `editor-trimtrack.js` (pista con 2 tiradores %) + `openVideoEditor`/
+`openAudioEditor` (editor.js; medio con controles nativos, sin autoplay) + `solveTrimConstraints`/
+`rangeToTrim` (editor-geom.js, testeados) + workaround del webm `duration=Infinity`. El
+compresor ya lo soportaba (`buildVideoArgs -ss/-t`, `trimAudio`) → sin cambios. Pendiente:
+recorte ESPACIAL de vídeo (zona). ⚠️ La UI del trim necesita verificación en Brave.
+
 ## Done (sesión 2026-06-05)
 
 Reorganización grande de la TL + encuestas + revisión:

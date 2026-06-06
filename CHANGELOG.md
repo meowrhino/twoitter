@@ -4,6 +4,21 @@ Cambios notables de twoitter. Single-user, sin versionado semver: las entradas
 van por **fecha de sesión**. El detalle de cada una vive en `docs/TODO.md`
 (secciones "Done"), en `docs/handoffs/` y en `git log`.
 
+## 2026-06-06 — editor: trim de vídeo y notas de voz (F6/F7)
+
+### Added
+- **Recorte temporal (trim) de vídeo y notas de voz**: el botón "recortar" abre un
+  modal con el medio (controles nativos, sin autoplay) + una pista de tiempo con dos
+  tiradores inicio/fin para elegir el fragmento; "aplicar" re-comprime al recorte
+  (no-destructivo, re-editable). El plumbing del compresor ya lo soportaba
+  (`buildVideoArgs -ss/-t`, `trimAudio`); se añadió la UI: `editor-trimtrack.js` +
+  `solveTrimConstraints`/`rangeToTrim` (editor-geom.js, testeados) +
+  `openVideoEditor`/`openAudioEditor` (editor.js). Incluye el workaround del webm con
+  `duration=Infinity` de MediaRecorder (seek forzado) para leer la duración.
+
+### Pending
+- Recorte ESPACIAL de vídeo (zona): el plumbing existe; falta la UI (caja vs controles).
+
 ## 2026-06-06 — limpieza de revisión + cobertura
 
 ### Fixed

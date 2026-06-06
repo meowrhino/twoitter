@@ -21,7 +21,7 @@ stack: cloudflare workers + hono + d1 + r2 + workers ai (whisper).
 - **transcripción** de notas de voz vía Workers AI Whisper (botón "transcribir" en las acciones del post; cachea en BD, no llama dos veces)
 - multi-media por post, hilos (replies), hashtags `#tag` con sidebar
 - thumbnail de vídeo generado en cliente
-- **editor de medios**: botón "recortar" en cada media del composer → un modal con caja de recorte libre (8 tiradores) para recortar imágenes antes de publicar; re-comprime desde el original (no destructivo, re-editable). Recorte de vídeo (temporal + espacial) y trim de audio en camino.
+- **editor de medios**: botón "recortar" en cada media del composer → un modal para recortar imágenes (caja de recorte de 8 tiradores) y la DURACIÓN de vídeos y notas de voz (pista de recorte temporal con dos tiradores inicio/fin). Re-comprime desde el original, no-destructivo y re-editable. El recorte ESPACIAL de vídeo (zona) queda en camino.
 - player de audio custom (monoespaciado, accent, sin chrome nativo feo)
 - permalinks por post (`/#id`) para citar — posición en el carrete (la vieja
   ruta `/post/:id` redirige 301 a `/#id`)
@@ -151,9 +151,10 @@ public/
     media.js          orquesta compresión + subida (XHR con progreso) + submit
     preview-item.js   DOM del item de preview del composer (miniatura + overlay de estado)
     compressor.js     barril → compressor-video.js (ffmpeg.wasm) / compressor-image.js (canvas/webp)
-    editor.js         modal del editor de medios (recorte de imagen; vídeo/audio en camino)
+    editor.js         modal del editor: imagen (crop) + vídeo/audio (trim temporal)
     editor-geom.js    math pura del editor (crop/trim, sin DOM; testeada con vitest)
-    editor-cropbox.js primitiva UI de la caja de recorte (8 tiradores + cuerpo)
+    editor-cropbox.js primitiva UI de la caja de recorte espacial (8 tiradores)
+    editor-trimtrack.js primitiva UI de la pista de recorte temporal (trim)
     modal.js          scaffold de modal (role=dialog + aria-modal) + focus-trap, compartido
     gallery.js        galería: stage + thumbs + lightbox (crossfade compartido)
     audio-player.js, recorder.js               player de audio custom + grabación de notas

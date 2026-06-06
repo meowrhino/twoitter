@@ -8,10 +8,9 @@
 // natural (height auto) y el textarea puede volver a crecer al escribir.
 
 import { refreshActiveRail, animateHeight } from './rails.js';
-import { prefersReducedMotion } from './utils.js';
+import { prefersReducedMotion, STANDARD_CURVE, ANIM_MS } from './utils.js';
 
-const RAIL_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
-const COMPOSER_ANIM_MS = 320;
+// Curva y duración compartidas con el rail/acordeón → utils.js (STANDARD_CURVE/ANIM_MS).
 
 // Dos keyframes [colapsado, natural]. Colapsamos también padding y márgenes (no
 // sólo height) para que el composer nazca desde ~0px: con box-sizing:border-box,
@@ -41,8 +40,8 @@ export function animateComposerOpen(form) {
   // Sin fallback: si onfinish no llega, asentar el rail no es crítico al abrir
   // (el ResizeObserver acaba poniéndolo a medida); evitamos un timer redundante.
   animateHeight(form, [collapsed, natural], {
-    duration: COMPOSER_ANIM_MS,
-    easing: RAIL_CURVE,
+    duration: ANIM_MS,
+    easing: STANDARD_CURVE,
     fallback: false,
     onSettle: () => refreshActiveRail(),
   });
@@ -62,8 +61,8 @@ export function animateComposerClose(form, done) {
   if (prefersReducedMotion()) { settle(); return; }
   const { collapsed, natural } = composerFrames(form);
   animateHeight(form, [natural, collapsed], {
-    duration: COMPOSER_ANIM_MS,
-    easing: RAIL_CURVE,
+    duration: ANIM_MS,
+    easing: STANDARD_CURVE,
     onSettle: settle,
   });
 }

@@ -14,7 +14,7 @@
 // notifyThreadChanged). render.js sólo renderiza y gestiona la activación;
 // nos delega todo lo que toca el rail.
 
-import { fmt, prefersReducedMotion } from './utils.js';
+import { fmt, prefersReducedMotion, STANDARD_CURVE, ANIM_MS } from './utils.js';
 import { refreshHashtags } from './hashtags.js';
 
 // ----- contenedor lógico del thread -----
@@ -48,8 +48,8 @@ export function updateReplyCount(postEl, delta) {
 // (composer-anim.js), con el rail en lockstep, para que abrir/cerrar el hilo se
 // sienta igual de fluido que abrir/cerrar el cuadro de responder. height:auto no
 // es animable en CSS, así que medimos la altura natural y animamos con WAAPI.
-const REPLIES_ANIM_MS = 320;
-const REPLIES_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+// Duración y curva compartidas (ANIM_MS / STANDARD_CURVE en utils.js): las mismas
+// que el composer inline, para que rail, acordeón y composer se muevan idénticos.
 
 // ¿podemos animar? (WAAPI presente y el usuario no pidió reduced-motion).
 // En reduced-motion o sin WAAPI (p.ej. tests headless) caemos a toggle directo.
@@ -98,8 +98,8 @@ function animateRepliesOpen(nested) {
     { height: '0px', opacity: 0, overflow: 'hidden' },
     { height: `${h}px`, opacity: 1, overflow: 'hidden' },
   ], {
-    duration: REPLIES_ANIM_MS,
-    easing: REPLIES_CURVE,
+    duration: ANIM_MS,
+    easing: STANDARD_CURVE,
     forceFinish: true, // asienta la altura a natural si onfinish no llega
     onSettle: () => { nested._repliesAnimating = false; refreshActiveRail(); },
   });
@@ -119,8 +119,8 @@ function animateRepliesClose(nested) {
     { height: `${h}px`, opacity: 1, overflow: 'hidden' },
     { height: '0px', opacity: 0, overflow: 'hidden' },
   ], {
-    duration: REPLIES_ANIM_MS,
-    easing: REPLIES_CURVE,
+    duration: ANIM_MS,
+    easing: STANDARD_CURVE,
     onSettle: () => {
       nested.classList.add('replies-collapsed');
       nested._repliesAnimating = false;

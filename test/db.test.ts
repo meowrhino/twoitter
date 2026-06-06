@@ -105,6 +105,16 @@ describe('listPosts (carrete plano)', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].text).toBe('manzana');
   });
+
+  it('q > 200 chars se trunca, NO devuelve el feed entero (regresión)', async () => {
+    await createPost(db, 'manzana', null);
+    await createPost(db, 'banana', null);
+    // Antes: con q.length > 200 el filtro LIKE se descartaba → devolvía TODO.
+    // Ahora se trunca a 200; este patrón no aparece en ningún texto → 0 resultados.
+    const huge = 'z'.repeat(300);
+    const { posts } = await listPosts(db, { limit: 50, q: huge });
+    expect(posts).toHaveLength(0);
+  });
 });
 
 describe('getReplies', () => {

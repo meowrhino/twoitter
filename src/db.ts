@@ -328,9 +328,10 @@ export async function listPosts(
     );
     args.push(opts.tag.toLowerCase());
   }
-  if (opts.q && opts.q.length <= 200) {
-    // escape LIKE wildcards so user-typed % and _ are literal
-    const escaped = opts.q.replace(/[\\%_]/g, "\\$&");
+  if (opts.q) {
+    // Cap defensivo: TRUNCAR a 200, no descartar el filtro — si no, una q más
+    // larga devolvía el feed ENTERO. Escapar wildcards LIKE (% y _ → literales).
+    const escaped = opts.q.slice(0, 200).replace(/[\\%_]/g, "\\$&");
     conds.push("p.text LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }

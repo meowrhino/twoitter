@@ -51,14 +51,9 @@ function getThreadHost(postEl) {
   return host;
 }
 
-// En single, los replies de nivel 1 cuelgan de #replies (no de un .post):
-// su padre lógico para "N resp" es el post principal en #postContainer.
+// Padre lógico de un .post para ajustar su contador "N resp": el .post ancestro.
 function findLogicalParentPost(postEl) {
-  let parent = postEl.parentElement?.closest('.post');
-  if (!parent && postEl.closest('#replies')) {
-    parent = document.querySelector('#postContainer > .post');
-  }
-  return parent;
+  return postEl.parentElement?.closest('.post') ?? null;
 }
 
 // Llamada por render.js cuando un .post pasa a .active: actualiza si el
@@ -187,7 +182,7 @@ async function doDelete(targetEl) {
 function removeFromDom(targetEl, ctx = null) {
   const parentPost = ctx?.parentPost ?? findLogicalParentPost(targetEl);
   const root = ctx?.root ?? getThreadRoot(targetEl);
-  if (targetEl.closest('.thread-replies') || targetEl.closest('#replies')) {
+  if (targetEl.closest('.thread-replies')) {
     targetEl.remove();
   } else {
     targetEl.closest('.thread')?.remove() || targetEl.remove();

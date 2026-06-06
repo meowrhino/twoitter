@@ -172,7 +172,7 @@ export function focusPostFromHash(behavior = 'smooth') {
 // thread. Evitamos un selector :has() en CSS porque su invalidación dinámica al
 // quitar una clase está bugueada en algunas versiones de Chromium.
 function syncThreadActiveFlags() {
-  document.querySelectorAll('.thread > .post, #replies > .post').forEach((root) => {
+  document.querySelectorAll('.thread > .post').forEach((root) => {
     const active = root.classList.contains('active')
       ? root
       : root.querySelector('.post.active');

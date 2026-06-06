@@ -19,12 +19,11 @@ import { refreshHashtags } from './hashtags.js';
 
 // ----- contenedor lógico del thread -----
 
-// Contenedor lógico del thread para un .post:
-// - timeline: el .thread ancestro
-// - single (replies anidados): el #replies ancestro
-// - single (post principal): null (no tiene rail)
+// Contenedor lógico del thread para un .post: el .thread ancestro (o null si no
+// está en un thread). (Antes contemplaba el #replies de la vista single-post, ya
+// eliminada — la TL es un carrete plano.)
 export function getThreadRoot(postEl) {
-  return postEl.closest('.thread') || postEl.closest('#replies');
+  return postEl.closest('.thread');
 }
 
 // ----- contador "N resp" -----
@@ -178,22 +177,15 @@ function syncRootToggle(rootPostEl, count) {
 // (los rails geométricos los reflowea el browser solo) y refresca el
 // sidebar de tags.
 //   parentPost  → ancestro cuyo "N resp" hay que ajustar (null si root nuevo)
-//   threadRoot  → contenedor lógico devuelto por getThreadRoot(): puede ser
-//                 un .thread (timeline o single-view reply) o #replies
-//                 (single view). Null si el cambio no afecta a un thread.
+//   threadRoot  → el .thread devuelto por getThreadRoot(). Null si el cambio
+//                 no afecta a un thread.
 //   delta       → +1 al añadir, -1 al borrar, 0 si solo es reorder
 export function notifyThreadChanged({ parentPost = null, threadRoot = null, delta = 0 } = {}) {
   if (parentPost && delta) updateReplyCount(parentPost, delta);
   if (threadRoot) {
-    if (threadRoot.id === 'replies') {
-      // En single view, cada hijo directo de #replies es root de su propio
-      // thread (renderThread con asRoot:true). Recalcular cada uno.
-      threadRoot.querySelectorAll(':scope > .post').forEach(markExtendsToBottom);
-    } else {
-      // .thread: el root del thread es su único hijo .post.
-      const root = threadRoot.querySelector(':scope > .post');
-      if (root) markExtendsToBottom(root);
-    }
+    // El root del thread es su único hijo .post directo.
+    const root = threadRoot.querySelector(':scope > .post');
+    if (root) markExtendsToBottom(root);
   }
   refreshHashtags();
 }

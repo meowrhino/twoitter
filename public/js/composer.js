@@ -6,7 +6,7 @@ import { isAuthed } from './auth.js';
 import { mediaKindOf, toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { renderThread } from './render.js';
-import { notifyThreadChanged, getThreadRoot, refreshActiveRail } from './rails.js';
+import { notifyThreadChanged, getThreadRoot } from './rails.js';
 import { wireRecorderButton, canRecord } from './recorder.js';
 import { animateComposerOpen, animateComposerClose } from './composer-anim.js';
 import { wirePollBlock, collectPollOptions, resetPollBlock } from './composer-poll.js';
@@ -142,12 +142,9 @@ export function makeInlineComposer(parentPostEl, parentId) {
   form.querySelector('.cancel').onclick = () => {
     const state = composerState.get(form);
     if (state) revokePendingUrls(state.pending);
-    // Encoge el composer (en lockstep con el rail) y, al terminar, lo quita.
-    // refreshActiveRail asienta el rail a su altura final ya sin composer.
-    animateComposerClose(form, () => {
-      form.remove();
-      refreshActiveRail();
-    });
+    // animateComposerClose ya hace form.remove() + refreshActiveRail() al terminar
+    // (en su settle); no necesita callback (done por defecto = no-op).
+    animateComposerClose(form);
   };
 
   wireComposer({

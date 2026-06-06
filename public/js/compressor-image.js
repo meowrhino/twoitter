@@ -85,18 +85,24 @@ function loadWebpEncoder() {
   return encoderPromise;
 }
 
+// Decodifica un File a ImageBitmap respetando la orientación EXIF ('from-image'),
+// con fallback a decode plano en navegadores sin esa opción. Compartido con el
+// editor (editor.js) para que ambos vivan en EL MISMO espacio de píxeles — si
+// divergieran, la caja de recorte se desalinearía respecto al output. Lanza si falla.
+export async function decodeOrientedBitmap(file) {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch (_) {
+    return await createImageBitmap(file); // navegadores sin la opción imageOrientation
+  }
+}
+
 // Dibuja el File en un canvas reescalado y devuelve { canvas, ctx, w, h }.
 // `crop` (opcional) es un sub-rect { sx, sy, sw, sh } en píxeles del bitmap ya
 // orientado — el MISMO espacio en el que el editor dibuja la caja, porque ambos
 // decodifican con 'from-image'. Si no hay crop, se usa el frame entero.
 async function drawToCanvas(file, crop = null) {
-  let bitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch (_) {
-    // navegadores antiguos sin la opción imageOrientation
-    bitmap = await createImageBitmap(file);
-  }
+  const bitmap = await decodeOrientedBitmap(file);
   const srcW = bitmap.width;
   const srcH = bitmap.height;
 

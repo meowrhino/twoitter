@@ -52,7 +52,7 @@ export function animateComposerOpen(form) {
 // onSettle idempotente de animateHeight + su fallback setTimeout garantizan que
 // corre aunque la animación nunca termine (en background WAAPI se pausa y
 // onfinish no dispara → sin esto, la respuesta no se insertaría).
-export function animateComposerClose(form, done) {
+export function animateComposerClose(form, done = () => {}) {
   const settle = () => {
     form.remove();
     done();

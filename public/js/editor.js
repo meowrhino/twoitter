@@ -16,6 +16,7 @@
 import { composerState } from './state.js';
 import { toast } from './utils.js';
 import { reprocessItem } from './media.js';
+import { decodeOrientedBitmap } from './compressor-image.js';
 import { computeDisplayBox } from './editor-geom.js';
 import { createCropBox } from './editor-cropbox.js';
 import { ensureModal, trapTab } from './modal.js';
@@ -69,15 +70,11 @@ function reflow() {
 async function openImageEditor(base) {
   let bitmap;
   try {
-    bitmap = await createImageBitmap(base.item.file, { imageOrientation: 'from-image' });
-  } catch (_) {
-    try {
-      bitmap = await createImageBitmap(base.item.file);
-    } catch (err) {
-      console.error('editor: no se pudo decodificar la imagen', err);
-      toast('no se pudo abrir la imagen', 'error');
-      return false;
-    }
+    bitmap = await decodeOrientedBitmap(base.item.file);
+  } catch (err) {
+    console.error('editor: no se pudo decodificar la imagen', err);
+    toast('no se pudo abrir la imagen', 'error');
+    return false;
   }
   const srcW = bitmap.width;
   const srcH = bitmap.height;
@@ -123,14 +120,17 @@ async function openEditor(base) {
   }
 
   prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  editorEl.hidden = false;
-  document.body.classList.add('editor-open');
-
+  // Decodificar ANTES de revelar el modal: si tardara o fallara no parpadea un
+  // modal vacío (importa más en F6: el vídeo decodifica más lento). El
+  // requestAnimationFrame(reflow) de openImageEditor corre tras revelar → mide
+  // con el canvas ya visible.
   const ok = await openImageEditor(base);
   if (!ok) {
     closeEditor();
     return;
   }
+  editorEl.hidden = false;
+  document.body.classList.add('editor-open');
 
   // Observa cambios de tamaño del medio (rotación, resize de ventana). En el
   // preview headless el ResizeObserver no dispara; el resize de ventana sí.

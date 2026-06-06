@@ -1304,6 +1304,59 @@ body.editor-open { overflow: hidden; }
   .cropbox-e, .cropbox-w { margin-top: -10px; }
 }
 
+/* ----- editor: pista de recorte temporal (trim · vídeo/audio) ----- */
+
+/* Fila entre el stage y la toolbar; vacía (display:none) para imagen. */
+.editor-trim { display: flex; align-items: center; justify-content: center; }
+.editor-trim:empty { display: none; }
+
+.trimtrack {
+  position: relative;
+  width: min(95vw, 640px);
+  height: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  touch-action: none;
+  cursor: pointer;
+}
+.trimtrack-sel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(232, 176, 74, 0.18); /* --accent al 18% */
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  cursor: move;
+  touch-action: none;
+}
+.trimtrack-handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  margin-left: -7px;
+  background: var(--accent);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.trimtrack-label {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 11px var(--mono);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+@media (max-width: 720px) {
+  .trimtrack { height: 34px; }
+  .trimtrack-handle { width: 20px; height: 20px; margin-top: -10px; margin-left: -10px; }
+}
+
 /* ---------- media · audio player + transcripción ---------- */
 
 /* Preview de audio en el composer: usa el mismo audio-player que el feed

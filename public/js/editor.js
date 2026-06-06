@@ -10,8 +10,10 @@
 // recogemos los parámetros de edición y llamamos reprocessItem (media.js), que
 // re-comprime desde el File original y cambia el preview.
 //
-// F5 implementa el camino de IMAGEN (recorte). Vídeo (trim+crop) y audio (trim)
-// se enchufan en openEditor por kind en fases siguientes.
+// openEditor despacha por kind: IMAGEN → recorte espacial (caja sobre un canvas);
+// VÍDEO y AUDIO → recorte temporal (trim) con una pista de tiempo (editor-
+// trimtrack.js) bajo el medio, que se muestra con controles nativos (play manual,
+// sin autoplay). El crop espacial de vídeo queda para una fase posterior.
 
 import { composerState } from './state.js';
 import { toast } from './utils.js';
@@ -20,6 +22,7 @@ import { decodeOrientedBitmap } from './compressor-image.js';
 import { computeDisplayBox } from './editor-geom.js';
 import { createCropBox } from './editor-cropbox.js';
 import { ensureModal, trapTab } from './modal.js';
+import { createTrimTrack } from './editor-trimtrack.js';
 
 let editorEl = null;
 let prevFocus = null;
@@ -32,6 +35,7 @@ function ensureEditor() {
     html: `
     <div class="editor-panel">
       <div class="editor-stage"></div>
+      <div class="editor-trim"></div>
       <div class="editor-toolbar">
         <button class="editor-reset link-btn" type="button">restablecer</button>
         <span class="grow"></span>
@@ -110,21 +114,79 @@ async function openImageEditor(base) {
   return true;
 }
 
+// Lee la duración (s) de un <audio>/<video> ya con su src. Algunos webm de
+// MediaRecorder reportan duration=Infinity hasta hacer un seek al final; forzamos
+// el cálculo saltando a un tiempo enorme, esperando a que se vuelva finita y
+// volviendo a 0. Rechaza por timeout/error.
+function readMediaDuration(el) {
+  return new Promise((resolve, reject) => {
+    const ok = (d) => { cleanup(); try { el.currentTime = 0; } catch {} resolve(d); };
+    const fail = () => { cleanup(); reject(new Error('no se pudo leer la duración')); };
+    const timer = setTimeout(fail, 10_000);
+    const onDur = () => { if (Number.isFinite(el.duration) && el.duration > 0) ok(el.duration); };
+    function cleanup() {
+      clearTimeout(timer);
+      el.removeEventListener('durationchange', onDur);
+      el.removeEventListener('error', fail);
+    }
+    el.addEventListener('durationchange', onDur);
+    el.addEventListener('error', fail, { once: true });
+    const probe = () => {
+      if (Number.isFinite(el.duration) && el.duration > 0) { ok(el.duration); return; }
+      try { el.currentTime = 1e7; } catch {} // fuerza el recálculo de duration
+    };
+    if (el.readyState >= 1) probe();
+    else el.addEventListener('loadedmetadata', probe, { once: true });
+  });
+}
+
+// Sesión de trim (vídeo o audio): mete el medio en el stage con controles nativos
+// (play manual, SIN autoplay), lee la duración y crea la pista de recorte.
+async function openTrimEditor(base, kind, mediaHtml) {
+  const url = URL.createObjectURL(base.item.file);
+  const stage = editorEl.querySelector('.editor-stage');
+  stage.innerHTML = mediaHtml(url);
+  const mediaEl = stage.querySelector(kind === 'video' ? 'video' : 'audio');
+  let duration;
+  try {
+    duration = await readMediaDuration(mediaEl);
+  } catch (err) {
+    console.error('editor: no se pudo leer la duración', err);
+    toast('no se pudo abrir el ' + (kind === 'video' ? 'vídeo' : 'audio'), 'error');
+    URL.revokeObjectURL(url);
+    return false;
+  }
+  const trimEl = editorEl.querySelector('.editor-trim');
+  const trimtrack = createTrimTrack(trimEl, { duration });
+  // Re-semilla del recorte previo (re-edición no-destructiva).
+  const prev = base.item.editParams?.trim;
+  if (prev) trimtrack.setRange({ start: prev.start, end: prev.start + prev.duration });
+  ctx = { ...base, kind, mediaEl, trimtrack, urls: [url] };
+  return true;
+}
+
+function openVideoEditor(base) {
+  return openTrimEditor(base, 'video', (url) =>
+    `<video class="editor-media" src="${url}" controls playsinline preload="auto"></video>`);
+}
+
+function openAudioEditor(base) {
+  return openTrimEditor(base, 'audio', (url) =>
+    `<audio src="${url}" controls preload="auto"></audio>`);
+}
+
 async function openEditor(base) {
   ensureEditor();
   const kind = base.item.kind;
-  if (kind !== 'image') {
-    // Vídeo/audio llegan en F6/F7; de momento, aviso honesto.
-    toast('edición de ' + (kind === 'video' ? 'vídeo' : 'audio') + ': próximamente', 'info');
-    return;
-  }
-
   prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  // Decodificar ANTES de revelar el modal: si tardara o fallara no parpadea un
-  // modal vacío (importa más en F6: el vídeo decodifica más lento). El
-  // requestAnimationFrame(reflow) de openImageEditor corre tras revelar → mide
-  // con el canvas ya visible.
-  const ok = await openImageEditor(base);
+
+  // Preparar el medio ANTES de revelar el modal: si tardara o fallara (decode de
+  // imagen / lectura de duración) no parpadea un modal vacío.
+  let ok = false;
+  if (kind === 'image') ok = await openImageEditor(base);
+  else if (kind === 'video') ok = await openVideoEditor(base);
+  else if (kind === 'audio') ok = await openAudioEditor(base);
+  else { toast('no se puede editar este medio', 'info'); return; }
   if (!ok) {
     closeEditor();
     return;
@@ -132,11 +194,13 @@ async function openEditor(base) {
   editorEl.hidden = false;
   document.body.classList.add('editor-open');
 
-  // Observa cambios de tamaño del medio (rotación, resize de ventana). En el
-  // preview headless el ResizeObserver no dispara; el resize de ventana sí.
-  ctx.ro = new ResizeObserver(() => reflow());
-  ctx.ro.observe(ctx.mediaEl);
-  window.addEventListener('resize', reflow);
+  // Solo la imagen ancla la caja al rect de contenido (letterbox) → necesita el
+  // ResizeObserver + resize. La pista de trim es % y no requiere reflow.
+  if (kind === 'image') {
+    ctx.ro = new ResizeObserver(() => reflow());
+    ctx.ro.observe(ctx.mediaEl);
+    window.addEventListener('resize', reflow);
+  }
 
   // Foco al primer control (punto de entrada al modal).
   editorEl.querySelector('.editor-apply')?.focus();
@@ -146,16 +210,15 @@ async function openEditor(base) {
 
 function applyEdit() {
   if (!ctx) return;
-  const crop = ctx.kind === 'image' || ctx.kind === 'video'
-    ? ctx.cropbox?.getCropSource(ctx.displayBox)
-    : null;
+  // Imagen → crop espacial (caja); vídeo/audio → trim temporal (pista).
+  const crop = ctx.kind === 'image' ? ctx.cropbox?.getCropSource(ctx.displayBox) : null;
+  const trim = (ctx.kind === 'video' || ctx.kind === 'audio') ? ctx.trimtrack?.getTrim() : null;
 
-  // editParams resultante. Mantén el trim previo si lo hubiera (vídeo/audio, F6+).
   const editParams = {};
   if (crop) editParams.crop = crop;
-  if (ctx.item.editParams?.trim) editParams.trim = ctx.item.editParams.trim;
+  if (trim) editParams.trim = trim;
 
-  // No-op: nada que aplicar y nada editado antes → no re-encodear por gusto.
+  // No-op: nada nuevo y nada editado antes → no re-encodear por gusto.
   const hadEdits = !!(ctx.item.editParams && (ctx.item.editParams.crop || ctx.item.editParams.trim));
   const hasEdits = !!(editParams.crop || editParams.trim);
   if (!hasEdits && !hadEdits) {
@@ -167,9 +230,10 @@ function applyEdit() {
   closeEditor();
 }
 
-function resetCrop() {
-  if (!ctx?.cropbox) return;
-  ctx.cropbox.setFraction({ x: 0, y: 0, w: 1, h: 1 });
+function resetEdits() {
+  if (!ctx) return;
+  ctx.cropbox?.setFraction({ x: 0, y: 0, w: 1, h: 1 }); // imagen: caja a frame completo
+  ctx.trimtrack?.reset();                                // vídeo/audio: rango completo
 }
 
 function closeEditor() {
@@ -178,13 +242,15 @@ function closeEditor() {
     ctx.ro?.disconnect();
     window.removeEventListener('resize', reflow);
     ctx.cropbox?.destroy();
-    // ctx.urls va vacío hoy a propósito: el editor de imagen no crea object URLs
-    // propios (pinta sobre un <canvas>). Hook para F6 (vídeo): openVideoEditor
-    // empujará aquí los blob URLs del <video> del stage para revocarlos al cerrar.
+    ctx.trimtrack?.destroy();
+    // Revoca los object URLs del medio (vídeo/audio empujan aquí el suyo; el
+    // editor de imagen pinta sobre canvas y no crea ninguno).
     for (const u of ctx.urls || []) URL.revokeObjectURL(u);
   }
   const stage = editorEl.querySelector('.editor-stage');
   if (stage) stage.innerHTML = '';
+  const trimEl = editorEl.querySelector('.editor-trim');
+  if (trimEl) trimEl.innerHTML = '';
   editorEl.hidden = true;
   document.body.classList.remove('editor-open');
   const focusBack = ctx?.triggerEl;
@@ -233,7 +299,7 @@ export function setupEditor() {
     if (!editorEl || editorEl.hidden) return;
     if (e.target.closest('.editor-cancel')) { closeEditor(); return; }
     if (e.target.closest('.editor-apply')) { applyEdit(); return; }
-    if (e.target.closest('.editor-reset')) { resetCrop(); return; }
+    if (e.target.closest('.editor-reset')) { resetEdits(); return; }
     if (e.target === editorEl) closeEditor(); // click en backdrop
   });
 

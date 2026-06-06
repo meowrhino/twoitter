@@ -146,3 +146,37 @@ export function pxToTime(clientX, rect, duration) {
   const f = clamp((clientX - rect.left) / rect.width, 0, 1);
   return f * duration;
 }
+
+// ----- recorte temporal (trim): vídeo / audio -----
+
+// Duración mínima del clip recortado, en segundos: por debajo los dos tiradores
+// se solapan. Se exporta para que la pista (editor-trimtrack.js) lo reuse.
+export const MIN_TRIM = 0.3;
+
+// Resuelve el arrastre de un borde del rango de recorte temporal [start, end]
+// contra [0, duration], con duración mínima `min`. `edge`:
+//   - 'start' | 'end' → mueve ese borde; el opuesto queda fijo (ancla)
+//   - 'body'          → traslada la ventana entera (tamaño fijo)
+// Modelo por bordes, igual que solveCropConstraints: exacto y sin "empujar el
+// ancla". Devuelve { start, end } clampados.
+export function solveTrimConstraints(range, edge, duration, min = MIN_TRIM) {
+  const m = Math.max(0, Math.min(min, duration));
+  let { start, end } = range;
+  if (edge === 'body') {
+    const len = end - start;
+    start = clamp(start, 0, duration - len);
+    return { start, end: start + len };
+  }
+  if (edge === 'start') start = clamp(start, 0, end - m);
+  if (edge === 'end') end = clamp(end, start + m, duration);
+  return { start, end };
+}
+
+// Convierte un rango [start, end] (segundos) al { start, duration } que consumen
+// trimAudio / buildVideoArgs. Devuelve null (centinela "sin recorte") cuando el
+// rango cubre casi todo el clip (margen < eps en ambos extremos) → el caller
+// omite el trim y la salida queda idéntica al camino sin editar.
+export function rangeToTrim(range, duration, eps = 0.05) {
+  const full = range.start <= eps && range.end >= duration - eps;
+  return full ? null : { start: range.start, duration: range.end - range.start };
+}

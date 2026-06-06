@@ -8,7 +8,10 @@ import {
   roundEvenCrop,
   cropAndScaleDims,
   pxToTime,
+  solveTrimConstraints,
+  rangeToTrim,
   MIN_CROP,
+  MIN_TRIM,
 } from '../public/js/editor-geom.js';
 
 describe('clamp', () => {
@@ -153,6 +156,46 @@ describe('cropSourceRect / sourceCropToDisplay', () => {
   it('sourceCropToDisplay es la inversa', () => {
     const crop = { sx: 100, sy: 50, sw: 400, sh: 200 };
     expect(sourceCropToDisplay(crop, displayBox)).toEqual({ x: 10, y: 5, w: 40, h: 20 });
+  });
+});
+
+describe('solveTrimConstraints', () => {
+  const D = 10; // duración total del clip (s)
+
+  it('start: mueve el inicio dejando el fin fijo', () => {
+    expect(solveTrimConstraints({ start: 3, end: 8 }, 'start', D)).toEqual({ start: 3, end: 8 });
+  });
+  it('start: no cruza el fin (respeta el mínimo)', () => {
+    const r = solveTrimConstraints({ start: 9, end: 8 }, 'start', D, 0.3);
+    expect(r.start).toBeCloseTo(7.7); // end - min
+    expect(r.end).toBe(8);
+  });
+  it('start: no baja de 0', () => {
+    expect(solveTrimConstraints({ start: -5, end: 8 }, 'start', D).start).toBe(0);
+  });
+  it('start: usa MIN_TRIM como mínimo por defecto', () => {
+    expect(solveTrimConstraints({ start: 9.9, end: 10 }, 'start', D).start).toBeCloseTo(10 - MIN_TRIM);
+  });
+  it('end: no pasa de la duración', () => {
+    expect(solveTrimConstraints({ start: 2, end: 99 }, 'end', D).end).toBe(D);
+  });
+  it('end: respeta el mínimo respecto al inicio', () => {
+    expect(solveTrimConstraints({ start: 5, end: 5 }, 'end', D, 0.3).end).toBeCloseTo(5.3);
+  });
+  it('body: traslada manteniendo la longitud, clampado al final', () => {
+    expect(solveTrimConstraints({ start: 8, end: 12 }, 'body', D)).toEqual({ start: 6, end: 10 });
+  });
+});
+
+describe('rangeToTrim', () => {
+  it('rango completo → null (sin recorte)', () => {
+    expect(rangeToTrim({ start: 0, end: 10 }, 10)).toBeNull();
+  });
+  it('rango casi-completo dentro de eps → null', () => {
+    expect(rangeToTrim({ start: 0.02, end: 9.98 }, 10, 0.05)).toBeNull();
+  });
+  it('rango recortado → { start, duration }', () => {
+    expect(rangeToTrim({ start: 2, end: 7 }, 10)).toEqual({ start: 2, duration: 5 });
   });
 });
 

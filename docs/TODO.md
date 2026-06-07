@@ -31,20 +31,15 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
   `getAudioMediaForPost`/`setMediaTranscript`. AI y STORAGE stubbeados en el env.
   10 tests → 218 totales. Ya no queda cobertura de backend pendiente.
 
-- [ ] **Verificar audio en iPhone + botón GPS en Brave/iPhone** (HUMANO): lo único no
-  testeable headless tras la 2ª tanda.
-  - **Audio**: en iPhone (incluso con el interruptor de silencio puesto), pulsar ▶ en una
-    nota → debe SONAR (ahora va por Web Audio API) y la barra avanzar. El motor (decode,
-    reloj rAF, pausa, seek) está verificado en preview; falta confirmar el sonido real.
-    Nota: una nota grabada en ESCRITORIO (webm/opus) seguirá sin sonar en iPhone (no
-    transcodificable en cliente) — limitación documentada.
-  - **GPS/geofence**: pulsar "ubicación" → permiso → coords + campo de nombre + ✕; al
-    volver al mismo sitio, el nombre se autorrellena. Auto-save + autofill ya verificados
-    E2E en preview con GPS simulado.
-  - **Crop de vídeo (zona)**: adjuntar vídeo → "recortar" → "recortar zona" → arrastrar la
-    caja → "aplicar" → el preview queda recortado. La UI está verificada; falta el
-    recompresado real con ffmpeg (no testeable headless), como el trim F6/F7.
-  - Migraciones remotas: la 005/006 se aplican en el deploy de esta sesión.
+- [ ] **Verificación humana en iPhone/Brave** (lo único no testeable headless):
+  - [x] **Audio en iPhone**: CONFIRMADO por el usuario el 2026-06-07 — las notas
+    (ya en mp4/AAC, reproducción por Web Audio API) suenan en el iPhone. ✓
+  - [ ] **GPS/geofence**: pulsar "ubicación" → permiso → coords + nombre + ✕; al volver al
+    mismo sitio el nombre se autorrellena; + página /places. (El usuario lo probará al
+    usarlo.) Auto-save + autofill ya verificados E2E en preview con GPS simulado.
+  - [ ] **Crop de vídeo (zona)** y **trim F6/F7**: adjuntar vídeo → "recortar" →
+    "recortar zona"/tiradores → "aplicar". UI verificada; falta el recompresado real con
+    ffmpeg (no testeable headless). (El usuario lo probará al usarlo.)
 
 - [ ] **Verificar F6/F7 en Brave** (HUMANO — lo único bloqueante): el recorte temporal
   de vídeo y notas de voz está desplegado, pero la UI (arrastrar tiradores, reproducir,

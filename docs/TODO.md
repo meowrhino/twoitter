@@ -4,17 +4,11 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ## Pendiente
 
-> Estado al cierre de la sesión 2026-06-05: TODO lo de valor alto/medio está
-> hecho y desplegado (ver "Done" abajo). Lo que queda es lo de abajo, con mi
-> recomendación honesta baked-in para retomarlo en frío.
->
-> Segunda pasada el 2026-06-05 (review en frío con la app en vivo + un agente
-> Explore): NO salieron bugs nuevos. El backend aguanta los edge-cases (id no
-> numérico→400, negativo/gigante→404, limit absurdo→capa a 100, JSON roto→400,
-> poll de 1 opción→400, texto >4000→400, path traversal en `/r2/`→404). Los
-> "hallazgos" del agente eran falsos positivos (la cookie `tv_id` persistente
-> es por diseño; el shape del 409 de voto está justificado; el botón
-> transcribir ya tiene guard anti-doble-click). Sigue en pie SÓLO lo de abajo.
+> Estado al cierre de las sesiones del 2026-06-06: el **editor de medios está
+> COMPLETO** — imagen (crop) + vídeo/audio (trim temporal), desplegado. Las dos
+> revisiones profundas (15 hallazgos + 2ª pasada) están aplicadas y en producción
+> (ver "Done" abajo y `CHANGELOG.md`). NO hay deuda ni nada a medias; lo de abajo es
+> lo único que queda: una verificación humana en Brave + dos fases futuras opcionales.
 
 ### Lo que queda pendiente (todo menor / opcional)
 
@@ -25,13 +19,29 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
   `getAudioMediaForPost`/`setMediaTranscript`. AI y STORAGE stubbeados en el env.
   10 tests → 218 totales. Ya no queda cobertura de backend pendiente.
 
+- [ ] **Verificar F6/F7 en Brave** (HUMANO — lo único bloqueante): el recorte temporal
+  de vídeo y notas de voz está desplegado, pero la UI (arrastrar tiradores, reproducir,
+  recodificar con ffmpeg) no es testeable headless. Probar: adjuntar → "recortar" →
+  mover tiradores inicio/fin → "aplicar" → el preview queda recortado; reabrir re-siembra
+  el rango; "restablecer" = completo; sin autoplay. Si algo falla, afinar tamaño de la
+  pista / `MIN_TRIM` / el workaround de webm `duration=Infinity` (`readMediaDuration`).
+
+### Fases futuras del editor (opcionales · plumbing parcial listo)
+
+- [ ] **Recorte ESPACIAL de vídeo (zona)**: hoy el vídeo solo recorta duración. El
+  plumbing existe (`buildVideoArgs` crop + `roundEvenCrop`); falta la UI (caja sobre el
+  vídeo, resolviendo el conflicto con los controles nativos) + mapear el crop del cropbox
+  `{sx,sy,sw,sh}`→`{x,y,w,h}` en `compressVideo`. `sourceCropToDisplay` (editor-geom.js)
+  es su hook.
+- [ ] **Sacar el lightbox de `gallery.js`** (~427 líneas) a su módulo. Viable sin ciclo,
+  pero bajo valor y requiere ojearlo en Brave (animación sin tests). Diferido.
+
 ### Útil pero baja urgencia
 
-- [ ] **Docs**: en el README, un diagrama del data-flow (cliente → API →
-  D1/R2/Workers AI) + convenciones (snake_case server vs camelCase client, header
-  CSRF `x-twoitter-csrf`, error shape `{ error: string }`, los 3 rate-limiters).
-  Y un **CHANGELOG.md** (hoy no hay versionado de cambios de API shape).
-  **Recomendación:** rápido y agradable cuando apetezca.
+- [x] **Docs** (DONE 2026-06-06): README con sección "arquitectura (data-flow)"
+  (cliente → Hono → D1/R2/Workers AI) + convenciones (snake_case, CSRF
+  `x-twoitter-csrf`, error shape `{ error: string }`, los 3 rate-limiters), y
+  **CHANGELOG.md** por fecha de sesión.
 
 ### Descartado a propósito (NO hacer salvo que cambie el contexto)
 

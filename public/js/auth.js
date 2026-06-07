@@ -1,7 +1,7 @@
 // ----- auth check + visibilidad anon/authed -----
 
 import { $, $$ } from './utils.js';
-import { SIDEBAR_KEY, POLL_LIMITS, MEDIA_LIMITS } from './state.js';
+import { SIDEBAR_KEY, POLL_LIMITS, MEDIA_LIMITS, savedPlaces } from './state.js';
 import { api } from './api.js';
 
 // Estado interno mutable: solo lo modifica este módulo. Los demás
@@ -17,6 +17,16 @@ export async function checkAuth() {
   if (data?.poll) Object.assign(POLL_LIMITS, data.poll);
   if (data?.media) Object.assign(MEDIA_LIMITS, data.media);
   applyAuthVisibility();
+  // Sitios guardados (solo authed): los usa el composer para autorrellenar el
+  // nombre al capturar GPS. Fire-and-forget; un fallo no bloquea el arranque.
+  if (IS_AUTHED) loadSavedPlaces();
+}
+
+async function loadSavedPlaces() {
+  const { ok, data } = await api('/api/places');
+  if (!ok || !Array.isArray(data)) return;
+  savedPlaces.length = 0;
+  savedPlaces.push(...data);
 }
 
 export function applyAuthVisibility() {

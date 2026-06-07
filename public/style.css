@@ -611,6 +611,24 @@ body.sidebar-hidden .side-col { display: none; }
   .rec-btn.is-recording { animation: none; }
 }
 
+/* Control de ubicación del composer: un input de texto (etiqueta opcional) +
+   el botón "ubicación" (.geo-btn, gemelo visual de .rec-btn). El input es mono
+   y discreto; cuando el botón captura coords se marca con el accent. */
+.loc-input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  min-width: 8ch;
+  max-width: 16ch;
+}
+.loc-input::placeholder { color: var(--muted); }
+.loc-input:focus { outline: none; border-color: var(--accent); color: var(--text); }
+.geo-btn.has-geo { border-color: var(--accent); color: var(--accent); }
+
 /* ---------- EL CARRETE (.post): timeline + .post + rail gris ---------- */
 
 .filter-banner {
@@ -812,7 +830,11 @@ body.sidebar-hidden .side-col { display: none; }
 .post-foot {
   display: flex;
   align-items: center;
-  gap: 16px;
+  /* flex-wrap + row-gap pequeño: si la ubicación es larga, baja a una segunda
+     línea en vez de desbordar o comprimir el #id/fecha. */
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 4px;
   font-family: var(--mono);
   font-size: 0.75rem;
   color: var(--muted);
@@ -833,6 +855,13 @@ body.sidebar-hidden .side-col { display: none; }
    visuales) para que el contador tenga un punto de anclaje propio y no dependa
    solo de la herencia si el footer cambia. */
 .post-foot .resp-count { font-variant-numeric: tabular-nums; }
+/* "📍 lugar" en el pie. <a> si hay coords (link a mapa, hereda hover de
+   '.post-foot a'); <span> si solo etiqueta. Se muestra entera: si no cabe en la
+   fila, .post-foot (flex-wrap) la baja de línea. word-break parte un token largo
+   sin espacios para que no desborde horizontalmente. */
+.post-foot .post-loc {
+  word-break: break-word;
+}
 /* .resp-toggle ("N respuestas ▸/▾"): botón que colapsa/expande el subárbol de
    replies del BLOQUE (root). Se ve como el resto del footer (mono, muted) pero
    es tappable: caret a la izquierda que rota según aria-expanded. */
@@ -1304,6 +1333,14 @@ body.editor-open { overflow: hidden; }
   .cropbox-e, .cropbox-w { margin-top: -10px; }
 }
 
+/* VÍDEO: la caja de recorte arranca inactiva (pointer-events:none → los controles
+   nativos del vídeo funcionan para previsualizar/scrub el trim). El botón
+   "recortar zona" la activa (.crop-on). La imagen no usa esto: su overlay siempre
+   está activo (no tiene controles que tapar). */
+.editor-stage.crop-video .cropbox-overlay { pointer-events: none; opacity: 0; }
+.editor-stage.crop-video.crop-on .cropbox-overlay { pointer-events: auto; opacity: 1; }
+.editor-crop-toggle[aria-pressed="true"] { color: var(--accent); }
+
 /* ----- editor: pista de recorte temporal (trim · vídeo/audio) ----- */
 
 /* Fila entre el stage y la toolbar; vacía (display:none) para imagen. */
@@ -1699,3 +1736,68 @@ button.poll-option:focus-visible {
   color: var(--accent);
   border-color: var(--accent-dim);
 }
+
+/* ---------- páginas ligeras (/compose, /places) ---------- */
+
+.compose-nav {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  margin: 4px 0 16px;
+}
+.places-title {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+.places-help {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
+.places-empty {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+.places-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Una fila por sitio: nombre editable + radio + link a mapa + guardar/borrar.
+   Envuelve en móvil (flex-wrap) para no apretar los controles. */
+.place-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.place-row .place-name { flex: 1 1 12ch; max-width: none; }
+.place-radius {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.place-radius-input {
+  width: 7ch;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+.place-map {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.place-map:hover { color: var(--accent); }

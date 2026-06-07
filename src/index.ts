@@ -12,17 +12,22 @@ import type { Context, Next } from "hono";
 import {
   attachMedia,
   castVote,
+  createPlace,
   createPoll,
   createPost,
+  deletePlace,
   deletePost,
   exportAll,
+  findNearbyPlace,
   getAudioMediaForPost,
   getPost,
   getReplies,
   listHashtags,
+  listPlaces,
   listPosts,
   restorePost,
   setMediaTranscript,
+  updatePlace,
 } from "./db";
 import { syncHashtags } from "./hashtags";
 import {
@@ -40,6 +45,11 @@ import {
 // null y el endpoint omitirá el campo `language` en la llamada al modelo.
 const WHISPER_LANGUAGE: string | null = "es";
 const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
+
+// Dueño de los sitios guardados. Hoy hay un solo usuario (auth por contraseña
+// compartida) → identidad fija. Cuando entre multi-usuario, esto saldrá de la
+// sesión del usuario autenticado y los endpoints de places ya filtran por owner.
+const OWNER_ID = "me";
 
 // Parsea un :id de ruta a entero positivo estricto. null si no es válido (rechaza
 // "5abc", "", "-1", "1.5" o ids fuera del rango seguro) → el caller responde 400.
@@ -72,6 +82,32 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.onError((err, c) => {
   console.error("worker error:", err?.message, err?.stack);
   return c.json({ error: "internal" }, 500);
+});
+
+// Cross-origin isolation (COOP/COEP) en TODA respuesta. Habilita SharedArrayBuffer
+// (que ffmpeg.wasm multi-thread necesita) desde el primer byte, SIN el viejo
+// coi-serviceworker.js (que forzaba 1-2 recargas en la primera visita, lento sobre
+// todo en móvil donde iOS evicta el SW). El core de ffmpeg se carga vía toBlobURL
+// (blob: same-origin) + fetch CORS a jsdelivr, ambos compatibles con require-corp;
+// los medios de R2 van por /r2/* (same-origin, exentos de CORP). iOS soporta
+// require-corp (no credentialless), por eso elegimos ese.
+// Las respuestas de ASSETS.fetch traen headers inmutables → si .set() lanza,
+// reconstruimos la Response.
+app.use("*", async (c, next) => {
+  await next();
+  try {
+    c.res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    c.res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  } catch {
+    const headers = new Headers(c.res.headers);
+    headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    c.res = new Response(c.res.body, {
+      status: c.res.status,
+      statusText: c.res.statusText,
+      headers,
+    });
+  }
 });
 
 // CSRF: writes require a custom header that HTML forms cannot set,
@@ -175,6 +211,42 @@ app.get("/api/hashtags", async (c) => {
   return c.json(tags);
 });
 
+// Sitios guardados (geofence). Datos del dueño → requireAuth. El composer los
+// pide al cargar para autorrellenar el nombre cuando capturas GPS cerca de uno.
+app.get("/api/places", requireAuth(), async (c) => {
+  return c.json(await listPlaces(c.env.DB));
+});
+
+// Renombrar / ajustar radio de un sitio. Solo el dueño (updatePlace filtra por
+// owner). 404 si no existe o no es tuyo.
+app.patch("/api/places/:id", requireAuth(), requireCsrf(), async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
+  let body: { name?: string; radius?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "json invalido" }, 400);
+  }
+  const name = (body.name ?? "").trim().slice(0, LOCATION_MAX_LEN);
+  if (!name) return c.json({ error: "nombre vacio" }, 400);
+  // Radio en metros: clamp a [10, 100000]; valor inválido → 150 por defecto.
+  const raw = Number(body.radius);
+  const radius = Number.isFinite(raw) && raw >= 10 && raw <= 100000 ? raw : 150;
+  const updated = await updatePlace(c.env.DB, id, { name, radius }, OWNER_ID);
+  if (!updated) return c.json({ error: "no encontrado" }, 404);
+  return c.json(updated);
+});
+
+// Borrar un sitio guardado. Solo el dueño. 404 si no existe o no es tuyo.
+app.delete("/api/places/:id", requireAuth(), requireCsrf(), async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
+  const ok = await deletePlace(c.env.DB, id, OWNER_ID);
+  if (!ok) return c.json({ error: "no encontrado" }, 404);
+  return c.json({ ok: true });
+});
+
 // ---------- API: writes (gated) ----------
 
 // Límites de encuesta. Tope blando, fácil de subir si hace falta.
@@ -193,6 +265,10 @@ type PostBody = {
     height?: number | null;
   }>;
   poll?: { options?: unknown } | null;
+  // Ubicación opcional: etiqueta de texto + coords (del botón "ubicación").
+  location?: string | null;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 type MediaInput = {
@@ -211,6 +287,9 @@ type PostValidation =
       media: MediaInput[];
       pollOptions: string[] | null;
       parentId: number | null;
+      location: string | null;
+      lat: number | null;
+      lng: number | null;
     };
 
 // Valida y sanea el body de un post nuevo. Devuelve los valores listos para
@@ -273,7 +352,34 @@ export async function validatePostBody(
     width: m.width ?? null,
     height: m.height ?? null,
   }));
-  return { ok: true, text, media, pollOptions, parentId: body.parent_id ?? null };
+
+  // Ubicación. La etiqueta se trunca a LOCATION_MAX_LEN (defensa: el input ya
+  // limita en cliente). Las coords solo se guardan si AMBAS son números válidos
+  // en rango — un map link necesita lat y lng; media coord no sirve.
+  const location = (body.location ?? "").trim().slice(0, LOCATION_MAX_LEN) || null;
+  const { lat, lng } = parseCoords(body.lat, body.lng);
+
+  return { ok: true, text, media, pollOptions, parentId: body.parent_id ?? null, location, lat, lng };
+}
+
+// Tope de la etiqueta de ubicación (coincide con el maxlength del input).
+const LOCATION_MAX_LEN = 120;
+
+// Valida un par lat/lng. Devuelve ambos como número solo si los dos son finitos
+// y caen en rango geográfico; en cualquier otro caso devuelve ambos null (no
+// guardamos una coord suelta: el link a mapa necesita las dos).
+function parseCoords(rawLat: unknown, rawLng: unknown): { lat: number | null; lng: number | null } {
+  // null/undefined/"" = "no vino coord". OJO: Number(null) === 0 (un punto
+  // válido en el golfo de Guinea), así que sin este guard un post con SOLO
+  // etiqueta de texto acabaría con lat/lng 0,0 y un link a mapa espurio.
+  if (rawLat == null || rawLng == null || rawLat === "" || rawLng === "")
+    return { lat: null, lng: null };
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+  const ok =
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  return ok ? { lat, lng } : { lat: null, lng: null };
 }
 
 // Persiste un post ya validado (fila + media + hashtags + encuesta).
@@ -285,12 +391,27 @@ export async function persistPost(
     media: MediaInput[];
     pollOptions: string[] | null;
     parentId: number | null;
+    location: string | null;
+    lat: number | null;
+    lng: number | null;
   },
 ): Promise<number> {
-  const post = await createPost(db, v.text, v.parentId);
+  const post = await createPost(db, v.text, v.parentId, v.location, v.lat, v.lng);
   await attachMedia(db, post.id, v.media);
   await syncHashtags(db, post.id, v.text);
   if (v.pollOptions) await createPoll(db, post.id, v.pollOptions);
+
+  // Geofence: si el post trae ubicación CON NOMBRE + coords y no hay ya un sitio
+  // guardado dentro de su radio, lo guardamos para autorrellenar la próxima vez.
+  // En try/catch: un fallo aquí nunca debe tumbar la publicación (el post ya está).
+  if (v.location && v.lat != null && v.lng != null) {
+    try {
+      const near = await findNearbyPlace(db, v.lat, v.lng);
+      if (!near) await createPlace(db, v.location, v.lat, v.lng, 150, OWNER_ID);
+    } catch (err) {
+      console.error("auto-save place failed:", err);
+    }
+  }
   return post.id;
 }
 
@@ -513,6 +634,15 @@ app.get("/r2/*", async (c) => {
 
 app.get("/", (c) =>
   c.env.ASSETS.fetch(new Request(new URL("/index.html", c.req.url))),
+);
+// Página ligera para publicar (sin el peso del timeline), pensada para poco
+// internet. Sirve compose.html para la URL bonita /compose.
+app.get("/compose", (c) =>
+  c.env.ASSETS.fetch(new Request(new URL("/compose.html", c.req.url))),
+);
+// Gestión de sitios guardados (renombrar / borrar / ajustar radio).
+app.get("/places", (c) =>
+  c.env.ASSETS.fetch(new Request(new URL("/places.html", c.req.url))),
 );
 // /post/:id quedó obsoleto: ya no hay vista detalle. El feed es ahora un
 // "carrete plano" donde cada post es una posición. Redirigimos 301 a /#id

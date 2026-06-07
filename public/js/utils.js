@@ -108,3 +108,19 @@ export function prefersReducedMotion() {
 // bundler, pero al menos el JS tiene una sola fuente).
 export const STANDARD_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 export const ANIM_MS = 320;
+
+// Distancia en metros entre dos puntos (lat/lng en grados), haversine. Espejo
+// intencional de src/geo.ts (sin bundler no se puede compartir un módulo entre
+// cliente y servidor). Lo usa el composer para el geofence de sitios guardados.
+export function haversineMeters(aLat, aLng, bLat, bLng) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}

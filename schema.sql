@@ -6,6 +6,13 @@ CREATE TABLE IF NOT EXISTS posts (
     -- Soft delete: NULL = visible; ISO timestamp = en papelera. Los assets
     -- de R2 se conservan para poder restaurar. Filtramos en listPosts/getPost.
     deleted_at TEXT,
+    -- Ubicación (opcional). `location` es la etiqueta de texto que se muestra
+    -- (ej. "Barcelona", "casa"); lat/lng son coords opcionales capturadas por
+    -- el botón "ubicación" del composer (Geolocation API) para enlazar a un
+    -- mapa. Pueden venir las tres, solo la etiqueta, o ninguna.
+    location TEXT,
+    lat REAL,
+    lng REAL,
     FOREIGN KEY (parent_id) REFERENCES posts(id)
 );
 
@@ -68,6 +75,20 @@ CREATE INDEX IF NOT EXISTS idx_posts_deleted ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id, position);
 CREATE INDEX IF NOT EXISTS idx_hashtags_tag ON hashtags(tag);
 CREATE INDEX IF NOT EXISTS idx_poll_options_post ON poll_options(post_id, position);
+-- Sitios guardados (geofence). Se autocrean al publicar con ubicación nombrada +
+-- coords; el composer autorrellena el nombre cuando vuelves dentro del radio.
+CREATE TABLE IF NOT EXISTS places (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    radius REAL NOT NULL DEFAULT 150,
+    -- Dueño del sitio. Hoy un solo usuario ('me'); pensado para multi-usuario:
+    -- solo el dueño puede editar/eliminar el suyo.
+    owner TEXT NOT NULL DEFAULT 'me',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_poll_votes_option ON poll_votes(option_id);
 
 -- Para DBs existentes, correr migraciones (idempotentes pero ALTER falla si
@@ -78,3 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_poll_votes_option ON poll_votes(option_id);
 --   npm run db:migrate:002:remote  (prod)
 --   npm run db:migrate:003         (local)   -- añade tablas de polls
 --   npm run db:migrate:003:remote  (prod)
+--   npm run db:migrate:004         (local)   -- añade posts.location/lat/lng
+--   npm run db:migrate:004:remote  (prod)
+--   npm run db:migrate:005         (local)   -- añade la tabla places (geofence)
+--   npm run db:migrate:005:remote  (prod)

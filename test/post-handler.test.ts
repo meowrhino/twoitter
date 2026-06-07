@@ -3,7 +3,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { makeTestDb } from './helpers/d1';
 import { validatePostBody, persistPost } from '../src/index';
-import { createPost, getPost } from '../src/db';
+import { createPost, getPost, listPlaces } from '../src/db';
+
+// Helper: persistPost requiere los campos de ubicación; los defaulteamos a null
+// para no repetirlos en cada caso que no los testea.
+function pp(over: Record<string, unknown> = {}) {
+  return { text: null, media: [], pollOptions: null, parentId: null, location: null, lat: null, lng: null, ...over } as Parameters<typeof persistPost>[1];
+}
 
 let db: D1Database;
 beforeEach(() => {
@@ -89,8 +95,39 @@ describe('persistPost', () => {
   });
 
   it('crea la encuesta cuando hay pollOptions', async () => {
-    const id = await persistPost(db, { text: '¿cuál?', media: [], pollOptions: ['a', 'b'], parentId: null });
+    const id = await persistPost(db, pp({ text: '¿cuál?', pollOptions: ['a', 'b'] }));
     const got = await getPost(db, id);
     expect(got!.poll!.options.map((o) => o.label)).toEqual(['a', 'b']);
+  });
+});
+
+describe('persistPost — geofence (auto-save de sitios)', () => {
+  it('auto-guarda un sitio cuando el post trae nombre + coords', async () => {
+    await persistPost(db, pp({ text: 'en la playa', location: 'Barceloneta', lat: 41.3784, lng: 2.1925 }));
+    const places = await listPlaces(db);
+    expect(places).toHaveLength(1);
+    expect(places[0].name).toBe('Barceloneta');
+  });
+
+  it('NO duplica un sitio dentro del radio (150 m), aunque el nombre cambie', async () => {
+    await persistPost(db, pp({ text: 'a', location: 'casa', lat: 41.3851, lng: 2.1734 }));
+    await persistPost(db, pp({ text: 'b', location: 'mi casa', lat: 41.3855, lng: 2.1734 })); // ~44 m
+    expect(await listPlaces(db)).toHaveLength(1);
+  });
+
+  it('crea un 2º sitio si está fuera del radio', async () => {
+    await persistPost(db, pp({ text: 'a', location: 'casa', lat: 41.3851, lng: 2.1734 }));
+    await persistPost(db, pp({ text: 'b', location: 'oficina', lat: 41.3901, lng: 2.1734 })); // ~555 m
+    expect(await listPlaces(db)).toHaveLength(2);
+  });
+
+  it('NO guarda sitio si hay coords pero no nombre', async () => {
+    await persistPost(db, pp({ text: 'solo coords', lat: 41.3851, lng: 2.1734 }));
+    expect(await listPlaces(db)).toHaveLength(0);
+  });
+
+  it('NO guarda sitio si hay nombre pero no coords', async () => {
+    await persistPost(db, pp({ text: 'solo etiqueta', location: 'algun sitio' }));
+    expect(await listPlaces(db)).toHaveLength(0);
   });
 });

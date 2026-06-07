@@ -51,9 +51,27 @@ function renderPostFoot(p, { collapsible = false } = {}) {
   return `
     <div class="post-foot">
       <a href="#${p.id}" class="permalink" title="${escapeHtml(p.created_at)}"><span class="post-id">#${p.id}</span> · ${hoursAgo(p.created_at)}</a>
+      ${renderLocation(p)}
       ${respEl}
     </div>
   `;
+}
+
+// "📍 ubicación" en el pie. Si hay lat+lng → link a un mapa (Google Maps `?q=`,
+// que en móvil abre la app de mapas instalada; en escritorio, la web). La
+// etiqueta es el nombre si lo escribiste, o las coordenadas si no. Sin coords y
+// sin nombre → nada. El nombre se escapa (texto libre); las coords son números.
+function renderLocation(p) {
+  const hasCoords = p.lat != null && p.lng != null;
+  if (!p.location && !hasCoords) return '';
+  const label = escapeHtml(
+    p.location || `${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`,
+  );
+  if (hasCoords) {
+    const url = `https://www.google.com/maps?q=${p.lat},${p.lng}`;
+    return `<a class="post-loc" href="${url}" target="_blank" rel="noopener noreferrer">📍 ${label}</a>`;
+  }
+  return `<span class="post-loc">📍 ${label}</span>`;
 }
 
 // ----- encuesta -----

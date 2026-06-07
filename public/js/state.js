@@ -23,6 +23,12 @@ export const POLL_LIMITS = { min: 2, max: 10, optLen: 80 };
 // Permiten avisar al usuario antes de subir; el server los revalida.
 export const MEDIA_LIMITS = { image: 10485760, video: 52428800, audio: 26214400 };
 
+// Sitios guardados (geofence). checkAuth() los rellena desde /api/places (mismo
+// patrón mutable-no-reasignado que POLL_LIMITS: se vacía y se rellena en sitio,
+// así los importadores ven el contenido actual por live binding). El composer
+// los lee al capturar GPS para autorrellenar el nombre del sitio.
+export const savedPlaces = [];
+
 // Estado por composer (no contamina el nodo DOM con props ad-hoc).
 // WeakMap permite GC automático cuando el <form> sale del DOM y ya nadie
 // más lo referencia. shape: { pending: Map<localId, mediaState>, preview }

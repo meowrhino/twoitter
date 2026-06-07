@@ -42,7 +42,7 @@ export function detectCapabilities() {
   const hasWASM = typeof WebAssembly !== 'undefined';
   const hasSAB = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
   if (!hasWASM) return { ok: false, reason: 'el navegador no soporta WebAssembly' };
-  if (!hasSAB) return { ok: false, reason: 'recarga la página una vez para activar el compresor' };
+  if (!hasSAB) return { ok: false, reason: 'tu navegador no permite el compresor de vídeo aquí (sin SharedArrayBuffer)' };
   return { ok: true };
 }
 
@@ -180,11 +180,16 @@ export async function compressVideo(file, onProgress, editParams = null) {
 
     const actualInput = usedWorkerFS ? `${mountPoint}/${file.name}` : inputName;
 
+    // El editor produce el crop como { sx, sy, sw, sh } (igual que la imagen);
+    // buildVideoArgs lo espera como { x, y, w, h }. Renombramos aquí.
+    const ep = editParams?.crop;
+    const cropArg = ep ? { x: ep.sx, y: ep.sy, w: ep.sw, h: ep.sh } : null;
+
     const args = buildVideoArgs({
       input: actualInput,
       output: outputName,
       trim: editParams?.trim ?? null,
-      crop: editParams?.crop ?? null,
+      crop: cropArg,
       srcW: meta.width,
       srcH: meta.height,
       preset: PRESET,

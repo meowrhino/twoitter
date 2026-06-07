@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>twoitter · publicar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+  <!-- COOP/COEP los sirve el Worker (ver src/index.ts); sin coi-serviceworker. -->
+</head>
+<body class="compose-page">
+  <div class="layout">
+    <main class="main-col">
+      <p class="compose-nav"><a href="/">← volver al timeline</a></p>
+      <form id="composer" class="composer">
+        <textarea id="text" placeholder="pega aquí (cmd+v) o escribe... usa #tags"></textarea>
+        <div id="mediaPreview" class="media-preview"></div>
+        <div id="composerPoll" class="composer-poll" hidden>
+          <div class="composer-poll-head">
+            <span>encuesta</span>
+            <span class="grow"></span>
+            <button type="button" class="link-btn poll-close" title="cerrar encuesta">×</button>
+          </div>
+          <div class="composer-poll-rows"></div>
+          <button type="button" class="composer-poll-add">+ añadir opción</button>
+        </div>
+        <div class="composer-foot">
+          <label class="file-btn">
+            adjuntar
+            <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple hidden />
+          </label>
+          <button type="button" id="btnRecord" class="rec-btn" aria-label="grabar nota de voz">grabar</button>
+          <button type="button" id="btnPoll" class="rec-btn poll-btn" aria-pressed="false" aria-label="añadir encuesta">encuesta</button>
+          <button type="button" id="btnGeo" class="geo-btn rec-btn" aria-label="añadir ubicación">ubicación</button>
+          <input type="text" id="locInput" class="loc-input" placeholder="nombre del sitio (opcional)" maxlength="120" aria-label="nombre del sitio" hidden />
+          <button type="button" id="btnGeoClear" class="geo-clear link-btn" aria-label="quitar ubicación" title="quitar ubicación" hidden>✕</button>
+          <span class="hint">cmd+v para pegar</span>
+          <button type="submit" id="btnPost" class="btn-primary">publicar</button>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <!-- ffmpeg.js (UMD) expone window.FFmpegWASM; cárgalo antes de compose.js. -->
+  <script src="/ffmpeg.js"></script>
+  <script type="module" src="/compose.js"></script>
+</body>
+</html>

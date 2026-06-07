@@ -1,3 +1,5 @@
+import { haversineMeters } from "./geo";
+
 export interface MediaRow {
   id: number;
   post_id: number;
@@ -18,6 +20,12 @@ export interface PostRow {
   parent_id: number | null;
   created_at: string;
   deleted_at?: string | null;
+  // Ubicación opcional. `location` es la etiqueta de texto que se muestra;
+  // lat/lng son coords (del botón "ubicación") para enlazar a un mapa. El
+  // frontend pinta el link sólo si hay lat+lng; si no, la etiqueta a secas.
+  location?: string | null;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface PollOptionPublic {
@@ -293,15 +301,15 @@ async function getDescendants(
   return selectByIds<PostRow>(
     db,
     parentIds,
-    (ph) => `WITH RECURSIVE descendants(id, text, parent_id, created_at, level) AS (
-         SELECT p.id, p.text, p.parent_id, p.created_at, 1
+    (ph) => `WITH RECURSIVE descendants(id, text, parent_id, created_at, location, lat, lng, level) AS (
+         SELECT p.id, p.text, p.parent_id, p.created_at, p.location, p.lat, p.lng, 1
            FROM posts p WHERE p.parent_id IN (${ph}) AND p.deleted_at IS NULL
          UNION ALL
-         SELECT c.id, c.text, c.parent_id, c.created_at, d.level + 1
+         SELECT c.id, c.text, c.parent_id, c.created_at, c.location, c.lat, c.lng, d.level + 1
            FROM posts c JOIN descendants d ON c.parent_id = d.id
            WHERE d.level < 256 AND c.deleted_at IS NULL
        )
-       SELECT id, text, parent_id, created_at FROM descendants ORDER BY created_at ASC`,
+       SELECT id, text, parent_id, created_at, location, lat, lng FROM descendants ORDER BY created_at ASC`,
   );
 }
 
@@ -427,12 +435,15 @@ export async function createPost(
   db: D1Database,
   text: string | null,
   parentId: number | null,
+  location: string | null = null,
+  lat: number | null = null,
+  lng: number | null = null,
 ): Promise<PostRow> {
   const row = await db
     .prepare(
-      "INSERT INTO posts (text, parent_id, created_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) RETURNING *",
+      "INSERT INTO posts (text, parent_id, location, lat, lng, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')) RETURNING *",
     )
-    .bind(text, parentId)
+    .bind(text, parentId, location, lat, lng)
     .first<PostRow>();
   return row!;
 }
@@ -574,13 +585,96 @@ export async function listHashtags(
   return res.results;
 }
 
+// ---------- places (sitios guardados / geofence) ----------
+
+export interface PlaceRow {
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+  radius: number;
+  // Dueño del sitio. Hoy un solo usuario ('me'); multi-usuario futuro: solo el
+  // dueño puede editar/eliminar (updatePlace/deletePlace filtran por owner).
+  owner: string;
+  created_at: string;
+}
+
+export async function listPlaces(db: D1Database): Promise<PlaceRow[]> {
+  const res = await db
+    .prepare("SELECT * FROM places ORDER BY id")
+    .all<PlaceRow>();
+  return res.results;
+}
+
+export async function createPlace(
+  db: D1Database,
+  name: string,
+  lat: number,
+  lng: number,
+  radius = 150,
+  owner = "me",
+): Promise<PlaceRow> {
+  const row = await db
+    .prepare(
+      "INSERT INTO places (name, lat, lng, radius, owner) VALUES (?, ?, ?, ?, ?) RETURNING *",
+    )
+    .bind(name, lat, lng, radius, owner)
+    .first<PlaceRow>();
+  return row!;
+}
+
+// Renombra / ajusta el radio de un sitio, SOLO si pertenece a `owner`. Devuelve
+// la fila actualizada o null (no existe o no es tuyo). El check de owner va en el
+// WHERE para que sea atómico.
+export async function updatePlace(
+  db: D1Database,
+  id: number,
+  fields: { name: string; radius: number },
+  owner = "me",
+): Promise<PlaceRow | null> {
+  const row = await db
+    .prepare(
+      "UPDATE places SET name = ?, radius = ? WHERE id = ? AND owner = ? RETURNING *",
+    )
+    .bind(fields.name, fields.radius, id, owner)
+    .first<PlaceRow>();
+  return row ?? null;
+}
+
+// Borra un sitio SOLO si es de `owner`. Devuelve true si borró algo.
+export async function deletePlace(
+  db: D1Database,
+  id: number,
+  owner = "me",
+): Promise<boolean> {
+  const res = await db
+    .prepare("DELETE FROM places WHERE id = ? AND owner = ?")
+    .bind(id, owner)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
+// Devuelve el primer sitio guardado cuyo radio contiene el punto dado, o null.
+// La tabla es pequeña (single-user) → cargarla entera y filtrar en memoria basta.
+export async function findNearbyPlace(
+  db: D1Database,
+  lat: number,
+  lng: number,
+): Promise<PlaceRow | null> {
+  const places = await listPlaces(db);
+  for (const p of places) {
+    if (haversineMeters(lat, lng, p.lat, p.lng) <= p.radius) return p;
+  }
+  return null;
+}
+
 export async function exportAll(db: D1Database) {
   // Solo posts vivos: el resto de queries (listPosts/getPost/getReplies) filtran
   // deleted_at IS NULL; el export debe respetar el mismo contrato y no sacar
   // contenido de la papelera. media/hashtags/polls cuelgan por post_id, pero al
   // venir los posts ya filtrados, los hijos de posts borrados quedan huérfanos
   // en el JSON sin su post — los excluimos también con un subselect.
-  const [posts, media, hashtags, polls, pollOptions, pollVotes] = await Promise.all([
+  const [posts, media, hashtags, polls, pollOptions, pollVotes, places] = await Promise.all([
     db.prepare("SELECT * FROM posts WHERE deleted_at IS NULL ORDER BY id").all(),
     db
       .prepare(
@@ -609,6 +703,8 @@ export async function exportAll(db: D1Database) {
         "SELECT * FROM poll_votes WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id, created_at",
       )
       .all(),
+    // Sitios guardados: datos del usuario, no cuelgan de posts → export propio.
+    db.prepare("SELECT * FROM places ORDER BY id").all(),
   ]);
   return {
     exported_at: new Date().toISOString(),
@@ -618,6 +714,7 @@ export async function exportAll(db: D1Database) {
     polls: polls.results,
     poll_options: pollOptions.results,
     poll_votes: pollVotes.results,
+    places: places.results,
   };
 }
 

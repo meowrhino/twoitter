@@ -26,6 +26,8 @@ function setupForm() {
       <textarea id="text"></textarea>
       <div id="mediaPreview"></div>
       <input type="file" id="fileInput" />
+      <input type="text" id="locInput" class="loc-input" />
+      <button type="button" class="geo-btn">ubicación</button>
       <button type="submit">publicar</button>
     </form>
   `;
@@ -34,6 +36,7 @@ function setupForm() {
     text: document.getElementById('text') as HTMLTextAreaElement,
     preview: document.getElementById('mediaPreview') as HTMLDivElement,
     fileInput: document.getElementById('fileInput') as HTMLInputElement,
+    locInput: document.getElementById('locInput') as HTMLInputElement,
     submit: document.querySelector('#composer button[type="submit"]') as HTMLButtonElement,
   };
 }
@@ -74,6 +77,22 @@ describe('wireComposer — publicar un post', () => {
     expect(body.parent_id).toBeNull();
     expect(body.media).toEqual([]);
     expect(posted).toEqual(serverPost);
+  });
+
+  it('la etiqueta de ubicación viaja en el body (location)', async () => {
+    const { form, text, preview, fileInput, locInput } = setupForm();
+    vi.stubGlobal('fetch', mockFetch({ id: 9 }, { status: 201 }));
+    wireComposer({ form, text, preview, fileInput, parentId: null, onPosted: () => {} });
+
+    text.value = 'twoitt con sitio';
+    locInput.value = 'Barcelona';
+    submitForm(form);
+
+    await vi.waitFor(() => expect(fetch as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalled());
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.location).toBe('Barcelona');
+    expect(body.lat).toBeNull();
+    expect(body.lng).toBeNull();
   });
 
   it('reply: parent_id viaja en el body', async () => {

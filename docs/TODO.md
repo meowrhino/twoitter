@@ -4,6 +4,18 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ## Pendiente
 
+> Estado al cierre del 2026-06-07 (2ª tanda): además de la ubicación básica, hechos
+> 5 frentes (plan en `~/.claude/plans/`): **audio suena en iPhone** (Web Audio),
+> **ubicación sin truncar**, **sitios guardados (geofence D1)**, **COOP/COEP desde el
+> Worker** (sin recargas, fuera el coi-serviceworker) y **página `/compose` ligera**.
+> 254 tests verdes. Verificado en preview salvo lo que no es testeable headless (audio
+> audible y botón GPS → Brave/iPhone). Antes de desplegar: `npm run db:migrate:005:remote`.
+> Ver "Done (sesión 2026-06-07 · 2ª tanda)" abajo y `CHANGELOG.md`.
+>
+> Estado al cierre del 2026-06-07 (1ª tanda): añadida la **ubicación por post** — botón
+> "ubicación" que captura coords GPS, con nombre opcional a posteriori (si no, salen las
+> coords); link a un mapa. Sin servicios externos.
+>
 > Estado al cierre de las sesiones del 2026-06-06: el **editor de medios está
 > COMPLETO** — imagen (crop) + vídeo/audio (trim temporal), desplegado. Las dos
 > revisiones profundas (15 hallazgos + 2ª pasada) están aplicadas y en producción
@@ -19,6 +31,21 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
   `getAudioMediaForPost`/`setMediaTranscript`. AI y STORAGE stubbeados en el env.
   10 tests → 218 totales. Ya no queda cobertura de backend pendiente.
 
+- [ ] **Verificar audio en iPhone + botón GPS en Brave/iPhone** (HUMANO): lo único no
+  testeable headless tras la 2ª tanda.
+  - **Audio**: en iPhone (incluso con el interruptor de silencio puesto), pulsar ▶ en una
+    nota → debe SONAR (ahora va por Web Audio API) y la barra avanzar. El motor (decode,
+    reloj rAF, pausa, seek) está verificado en preview; falta confirmar el sonido real.
+    Nota: una nota grabada en ESCRITORIO (webm/opus) seguirá sin sonar en iPhone (no
+    transcodificable en cliente) — limitación documentada.
+  - **GPS/geofence**: pulsar "ubicación" → permiso → coords + campo de nombre + ✕; al
+    volver al mismo sitio, el nombre se autorrellena. Auto-save + autofill ya verificados
+    E2E en preview con GPS simulado.
+  - **Crop de vídeo (zona)**: adjuntar vídeo → "recortar" → "recortar zona" → arrastrar la
+    caja → "aplicar" → el preview queda recortado. La UI está verificada; falta el
+    recompresado real con ffmpeg (no testeable headless), como el trim F6/F7.
+  - Migraciones remotas: la 005/006 se aplican en el deploy de esta sesión.
+
 - [ ] **Verificar F6/F7 en Brave** (HUMANO — lo único bloqueante): el recorte temporal
   de vídeo y notas de voz está desplegado, pero la UI (arrastrar tiradores, reproducir,
   recodificar con ffmpeg) no es testeable headless. Probar: adjuntar → "recortar" →
@@ -28,13 +55,13 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
 
 ### Fases futuras del editor (opcionales · plumbing parcial listo)
 
-- [ ] **Recorte ESPACIAL de vídeo (zona)**: hoy el vídeo solo recorta duración. El
-  plumbing existe (`buildVideoArgs` crop + `roundEvenCrop`); falta la UI (caja sobre el
-  vídeo, resolviendo el conflicto con los controles nativos) + mapear el crop del cropbox
-  `{sx,sy,sw,sh}`→`{x,y,w,h}` en `compressVideo`. `sourceCropToDisplay` (editor-geom.js)
-  es su hook.
-- [ ] **Sacar el lightbox de `gallery.js`** (~427 líneas) a su módulo. Viable sin ciclo,
-  pero bajo valor y requiere ojearlo en Brave (animación sin tests). Diferido.
+- [x] **Recorte ESPACIAL de vídeo (zona)** (DONE 2026-06-07): caja de recorte sobre el
+  vídeo, activable con el botón "recortar zona" (overlay `pointer-events:none` por
+  defecto → los controles nativos funcionan; `.crop-on` lo activa). Reusa `createCropBox`
+  + geometría testeada; `compressVideo` mapea `{sx,sy,sw,sh}`→`{x,y,w,h}` para
+  `buildVideoArgs`. Vídeo admite trim + crop. ⚠️ Recompresado ffmpeg = verificar en Brave.
+- [x] **Sacar el lightbox de `gallery.js`** (DONE 2026-06-07): extraído a `lightbox.js`
+  con `gallery-core.js` para las primitivas compartidas (sin ciclo gallery↔lightbox).
 
 ### Útil pero baja urgencia
 
@@ -63,6 +90,80 @@ Lista de mejoras pendientes priorizadas por impacto vs esfuerzo. Generadas tras 
   subdominio) que hoy no aplica. Reconsiderar SOLO si eso cambia.
 - [ ] **sessionStorage**: `state.js` guarda `CSRF_HEADERS` siempre. Cosmético,
   no es vuln. Trivial si molesta.
+
+## Done (sesión 2026-06-07 · 3ª tanda)
+
+"Haz todo": 5 frentes más (240→**263 tests**, tsc + bundles esbuild verdes).
+
+- [x] **Gestión de sitios guardados** (`/places`): renombrar / ajustar radio / borrar.
+  `places.owner` (migración 006) + `PATCH`/`DELETE /api/places/:id` (filtran por dueño,
+  forward-compat multi-usuario) + `updatePlace`/`deletePlace` (db) + página
+  `places.html`/`places.js` + link en menú. E2E verificado en preview.
+- [x] **Audio universal (mp4/AAC)**: `recorder.js` prioriza `audio/mp4` → una nota
+  grabada en cualquier dispositivo suena en todos (antes webm de escritorio no sonaba
+  en iPhone). Fallback a webm/opus. `isTypeSupported('audio/mp4')` confirmado en Chromium.
+- [x] **Recorte ESPACIAL de vídeo (zona)**: ver "Fases futuras del editor" arriba.
+- [x] **Modularización**: lightbox extraído (`gallery.js` → `lightbox.js` +
+  `gallery-core.js`, sin ciclo); borrado `coi-serviceworker.js` (muerto). El explorador
+  confirmó que el resto del código ya está bien ordenado/comentado.
+- [x] **Verificación humana del crop de vídeo en Brave**: pendiente abajo (junto al audio
+  y F6/F7). El recompresado ffmpeg no es testeable headless.
+
+## Done (sesión 2026-06-07 · 2ª tanda)
+
+5 frentes del plan (`~/.claude/plans/vale-si-que-funciona-*.md`). 240→**254 tests**,
+`tsc` y bundles esbuild (app.js + el nuevo compose.js, metafile) en verde.
+
+- [x] **Audio suena en iPhone (Web Audio)**: el `<audio>` inline lo muta el interruptor
+  de silencio de iOS. Reescrito `audio-player.js`: sonido por `decodeAudioData` →
+  `AudioBufferSourceNode` (ignora el silencio), `<audio>` solo para `src`/`duration`,
+  progreso por reloj rAF (`ctx.currentTime`). Fallback al elemento si no hay AudioContext
+  o el formato no decodifica. ⚠️ Audible = verificación iPhone; motor verificado en preview.
+- [x] **Ubicación sin truncar**: `.post-loc` sin `max-width`/`ellipsis`; `.post-foot`
+  con `flex-wrap` (baja de línea si no cabe).
+- [x] **Sitios guardados (geofence)**: migración 005 `places`; `src/geo.ts` haversine;
+  `listPlaces`/`createPlace`/`findNearbyPlace` + export; auto-save en `persistPost`
+  (dedup por distancia, radio 150 m); `GET /api/places`; cliente `state.savedPlaces`
+  (fetch en checkAuth) + autofill en `composer-location.js`. E2E verificado en preview.
+- [x] **COOP/COEP desde el Worker**: middleware `app.use("*")` → cross-origin isolation
+  desde el primer byte sin `coi-serviceworker.js` (que forzaba recargas). Quitado el
+  `<script>` del coi; app.js/compose.js desregistran el SW viejo. Verificado
+  `crossOriginIsolated=true` sin SW.
+- [x] **Página `/compose` ligera**: extraído `makeInlineComposer` → `inline-composer.js`
+  (composer.js deja de arrastrar render.js → grafo del timeline); `compose.html` +
+  `compose.js` (16 módulos/45 KB, sin render/rails/gallery); ruta `/compose`; link en menú.
+  Verificado: publica desde /compose y las replies de la TL siguen OK.
+
+Evaluado/descartado: transcodificar audio a AAC para compat cross-device — el ffmpeg.wasm
+del proyecto solo encodea ogg/vorbis (que iOS tampoco reproduce), así que una nota grabada
+en escritorio (webm) no sonará en iPhone; no solucionable en cliente. Documentado.
+
+## Done (sesión 2026-06-07)
+
+**Ubicación por post.** Enfoque elegido tras proponer 3 opciones (etiqueta manual /
+GPS / EXIF) y una iteración: botón "ubicación" que captura coords GPS; tras capturarlas
+aparece un campo OPCIONAL para nombrar el sitio + una ✕; si no escribes nombre, salen
+las coordenadas. Link a un mapa (`google.com/maps?q=`). **Sin servicios externos ni
+endpoints nuevos** — las coords viajan en el body de `POST /api/posts`.
+
+- **Schema/backend**: migración `004_add_location.sql` (`posts.location`/`lat`/`lng`) +
+  `schema.sql`. `createPost` acepta los 3 campos (params opcionales → no rompe callers);
+  el CTE de `getDescendants` los arrastra (replies con ubicación). `validatePostBody`
+  (nombre trim/cap 120 + `parseCoords` con rango geográfico), `persistPost`, tipos
+  `PostRow`/`PostBody`.
+- **Frontend**: módulo `composer-location.js` (botón GPS → capturar → revelar campo de
+  nombre + ✕; coords aparte del nombre; reset al publicar) cableado en ambos composers;
+  `renderLocation` en render.js (link a mapa con nombre, o las coords si no hay nombre);
+  CSS de `.loc-input`/`.geo-btn.has-geo`/`.geo-clear`/`.post-loc`.
+- **Tests** (→ **240**): db roundtrip + replies, render del pie (coords vs nombre, escape
+  XSS), payload del composer, y regresión del bug de coords. `tsc` + bundle esbuild verdes.
+- **Bug cazado verificando en el preview**: nombre sin GPS → `lat/lng 0,0` + link espurio
+  (`Number(null)===0`). Fix en `parseCoords` (null/""/undefined = sin coord) + test.
+- **Iteración descartada**: la 1ª versión llevaba reverse-geocoding (coords→nombre vía
+  Nominatim, endpoint `/api/geocode`, `placeNameFromNominatim`) y un campo de texto siempre
+  visible. Se simplificó a petición del usuario → todo eso eliminado.
+- **Pendiente**: verificar el botón GPS en Brave (no testeable headless) y correr
+  `db:migrate:004:remote` antes del deploy. UI + render ya verificados e2e en el preview.
 
 ## Done (sesión 2026-06-06)
 

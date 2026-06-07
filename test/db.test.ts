@@ -15,6 +15,11 @@ import {
   restorePost,
   listHashtags,
   exportAll,
+  createPlace,
+  listPlaces,
+  findNearbyPlace,
+  updatePlace,
+  deletePlace,
 } from '../src/db';
 import { syncHashtags } from '../src/hashtags';
 
@@ -39,6 +44,80 @@ describe('createPost + getPost', () => {
 
   it('getPost devuelve null para id inexistente o borrado', async () => {
     expect(await getPost(db, 9999)).toBeNull();
+  });
+
+  it('persiste y devuelve ubicación (etiqueta + coords)', async () => {
+    const created = await createPost(db, 'desde la playa', null, 'Barcelona, España', 41.3851, 2.1734);
+    const got = await getPost(db, created.id);
+    expect(got!.location).toBe('Barcelona, España');
+    expect(got!.lat).toBeCloseTo(41.3851);
+    expect(got!.lng).toBeCloseTo(2.1734);
+  });
+
+  it('post sin ubicación deja location/lat/lng en null', async () => {
+    const created = await createPost(db, 'sin lugar', null);
+    const got = await getPost(db, created.id);
+    expect(got!.location).toBeNull();
+    expect(got!.lat).toBeNull();
+    expect(got!.lng).toBeNull();
+  });
+
+  it('las replies arrastran su ubicación por el CTE de getReplies', async () => {
+    const root = await createPost(db, 'root', null);
+    await createPost(db, 'reply con sitio', root.id, 'casa', null, null);
+    const replies = await getReplies(db, root.id);
+    expect(replies[0].location).toBe('casa');
+  });
+});
+
+describe('places (sitios guardados / geofence)', () => {
+  it('createPlace + listPlaces round-trip con radio por defecto 150', async () => {
+    const p = await createPlace(db, 'casa', 41.3851, 2.1734);
+    expect(p.id).toBeGreaterThan(0);
+    expect(p.radius).toBe(150);
+    const all = await listPlaces(db);
+    expect(all).toHaveLength(1);
+    expect(all[0].name).toBe('casa');
+  });
+
+  it('findNearbyPlace encuentra un sitio a ~44 m y NO a ~555 m', async () => {
+    await createPlace(db, 'casa', 41.3851, 2.1734); // radio 150
+    const near = await findNearbyPlace(db, 41.3855, 2.1734); // ~44 m
+    expect(near?.name).toBe('casa');
+    const far = await findNearbyPlace(db, 41.3901, 2.1734); // ~555 m
+    expect(far).toBeNull();
+  });
+
+  it('findNearbyPlace devuelve null sin sitios guardados', async () => {
+    expect(await findNearbyPlace(db, 41.3851, 2.1734)).toBeNull();
+  });
+
+  it('createPlace stampa owner (default "me")', async () => {
+    const p = await createPlace(db, 'casa', 41.3851, 2.1734);
+    expect(p.owner).toBe('me');
+  });
+
+  it('updatePlace renombra y ajusta radio si eres el dueño', async () => {
+    const p = await createPlace(db, 'casa', 41.3851, 2.1734);
+    const up = await updatePlace(db, p.id, { name: 'mi casa', radius: 300 }, 'me');
+    expect(up?.name).toBe('mi casa');
+    expect(up?.radius).toBe(300);
+  });
+
+  it('updatePlace devuelve null si no eres el dueño', async () => {
+    const p = await createPlace(db, 'casa', 41.3851, 2.1734); // owner 'me'
+    const up = await updatePlace(db, p.id, { name: 'hack', radius: 150 }, 'otro');
+    expect(up).toBeNull();
+    // y no se modificó
+    expect((await listPlaces(db))[0].name).toBe('casa');
+  });
+
+  it('deletePlace borra si eres el dueño, no si no lo eres', async () => {
+    const p = await createPlace(db, 'casa', 41.3851, 2.1734);
+    expect(await deletePlace(db, p.id, 'otro')).toBe(false);
+    expect(await listPlaces(db)).toHaveLength(1);
+    expect(await deletePlace(db, p.id, 'me')).toBe(true);
+    expect(await listPlaces(db)).toHaveLength(0);
   });
 });
 

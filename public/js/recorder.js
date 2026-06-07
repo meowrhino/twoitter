@@ -6,21 +6,26 @@
 //              (audio/webm normalmente) listo para pasar a attachFile().
 //
 // Una sola sesión activa por composer (gestionado por el caller). No
-// re-comprimimos: grabamos Opus directo a 24 kbps mono (ver opts abajo), que
-// ya es tamaño de nota de voz. El default del navegador serían ~128 kbps.
+// re-comprimimos: grabamos directo a 24 kbps mono (AAC en mp4 u Opus en webm
+// según el navegador, ver opts/PREFERRED_TYPES), que ya es tamaño de nota de
+// voz. El default del navegador serían ~128 kbps.
 
 import { uuid } from './utils.js';
 import { attachFile } from './media.js';
 import { toast } from './utils.js';
 
-// Prioridad de mimeTypes: opus webm → ogg opus → mp4. Safari (~iOS) puede
-// negar el primero, así que probamos el siguiente. Si todo falla, dejamos
-// que MediaRecorder elija por defecto.
+// Prioridad de mimeTypes: mp4/AAC PRIMERO. Es el único formato que graban TANTO
+// iOS (WebKit) como el Chromium moderno (Chrome/Brave ≥111), así que produce una
+// nota UNIVERSAL que suena en todos los dispositivos. Los navegadores que no lo
+// soporten (Firefox, Safari viejo) caen a webm/opus. Antes íbamos webm primero,
+// lo que dejaba las notas grabadas en escritorio sin reproducir en iPhone.
+// Si todo falla, dejamos que MediaRecorder elija por defecto.
 const PREFERRED_TYPES = [
+  'audio/mp4',
+  'audio/mp4;codecs=mp4a.40.2',
   'audio/webm;codecs=opus',
   'audio/ogg;codecs=opus',
   'audio/webm',
-  'audio/mp4',
 ];
 
 // 24 kbps mono: calidad de voz por encima de WhatsApp (~16 kbps) y ~5× más

@@ -26,6 +26,18 @@ import { setupEditor } from './js/editor.js';
 import { loadHashtags } from './js/hashtags.js';
 import { loadTimeline, setupTimelineComposer } from './js/pages.js';
 
+// Limpieza: el coi-serviceworker.js de versiones anteriores quedaba instalado y
+// seguía forzando recargas. Ahora COOP/COEP los sirve el Worker, así que lo
+// desregistramos para usuarios que vuelven. No recargamos (esta carga ya llega
+// aislada por las cabeceras del Worker).
+navigator.serviceWorker?.getRegistrations?.()
+  .then((regs) =>
+    regs.forEach((r) => {
+      if (r.active?.scriptURL.includes('coi-serviceworker')) r.unregister();
+    }),
+  )
+  .catch(() => {});
+
 (async () => {
   await checkAuth();
   setupMenu();

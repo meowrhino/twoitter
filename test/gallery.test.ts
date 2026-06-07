@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderPostGallery, swapStage, openLightbox, closeLightbox, updateGalleryTranscript } from '../public/js/gallery.js';
+import { renderPostGallery, swapStage, updateGalleryTranscript } from '../public/js/gallery.js';
+import { openLightbox, closeLightbox } from '../public/js/lightbox.js';
 
 function mount(html: string) {
   document.body.innerHTML = html;

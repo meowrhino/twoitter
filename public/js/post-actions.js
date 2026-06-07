@@ -11,7 +11,7 @@ import { api } from './api.js';
 import { toast } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
-import { makeInlineComposer } from './composer.js';
+import { makeInlineComposer } from './inline-composer.js';
 import { updateGalleryTranscript } from './gallery.js';
 import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
 

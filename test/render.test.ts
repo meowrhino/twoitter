@@ -277,3 +277,45 @@ describe('render de encuesta', () => {
     expect(el.querySelector('.poll-option-mine')).toBeTruthy();
   });
 });
+
+describe('ubicación en el pie del post', () => {
+  beforeEach(reset);
+
+  it('con lat/lng pinta un <a> a un mapa con la etiqueta', () => {
+    const el = renderPost(makePost({ location: 'Barcelona', lat: 41.3851, lng: 2.1734 }), { topLevel: true });
+    const loc = el.querySelector('.post-loc') as HTMLAnchorElement;
+    expect(loc).toBeTruthy();
+    expect(loc.tagName).toBe('A');
+    expect(loc.getAttribute('href')).toContain('google.com/maps');
+    expect(loc.getAttribute('href')).toContain('q=41.3851,2.1734');
+    expect(loc.textContent).toContain('📍');
+    expect(loc.textContent).toContain('Barcelona');
+  });
+
+  it('coords sin nombre → la etiqueta SON las coordenadas', () => {
+    const el = renderPost(makePost({ location: null, lat: 41.3851, lng: 2.1734 }), { topLevel: true });
+    const loc = el.querySelector('.post-loc') as HTMLAnchorElement;
+    expect(loc.tagName).toBe('A');
+    expect(loc.textContent).toContain('41.38510');
+  });
+
+  it('solo etiqueta (sin coords) → <span>, sin link', () => {
+    const el = renderPost(makePost({ location: 'casa', lat: null, lng: null }), { topLevel: true });
+    const loc = el.querySelector('.post-loc') as HTMLElement;
+    expect(loc).toBeTruthy();
+    expect(loc.tagName).toBe('SPAN');
+    expect(loc.textContent).toContain('casa');
+  });
+
+  it('sin ubicación → no hay .post-loc', () => {
+    const el = renderPost(makePost(), { topLevel: true });
+    expect(el.querySelector('.post-loc')).toBeNull();
+  });
+
+  it('escapa la etiqueta (texto libre del usuario)', () => {
+    const el = renderPost(makePost({ location: '<img src=x onerror=alert(1)>' }), { topLevel: true });
+    const loc = el.querySelector('.post-loc') as HTMLElement;
+    expect(loc.querySelector('img')).toBeNull();
+    expect(loc.textContent).toContain('<img');
+  });
+});

@@ -11,9 +11,10 @@
 // re-comprime desde el File original y cambia el preview.
 //
 // openEditor despacha por kind: IMAGEN → recorte espacial (caja sobre un canvas);
-// VÍDEO y AUDIO → recorte temporal (trim) con una pista de tiempo (editor-
-// trimtrack.js) bajo el medio, que se muestra con controles nativos (play manual,
-// sin autoplay). El crop espacial de vídeo queda para una fase posterior.
+// VÍDEO → recorte temporal (trim, pista de tiempo) Y espacial (caja, activable con
+// el botón "recortar zona" para no tapar los controles nativos); AUDIO → solo trim.
+// El medio de vídeo/audio se muestra con controles nativos (play manual, sin
+// autoplay) para previsualizar/scrub.
 
 import { composerState } from './state.js';
 import { toast } from './utils.js';
@@ -37,6 +38,7 @@ function ensureEditor() {
       <div class="editor-stage"></div>
       <div class="editor-trim"></div>
       <div class="editor-toolbar">
+        <button class="editor-crop-toggle link-btn" type="button" aria-pressed="false" hidden>recortar zona</button>
         <button class="editor-reset link-btn" type="button">restablecer</button>
         <span class="grow"></span>
         <button class="editor-cancel link-btn" type="button">cancelar</button>
@@ -52,7 +54,7 @@ function ensureEditor() {
 // del medio, descontando letterbox. Guarda el displayBox para que applyEdit
 // pueda mapear el recorte a px de origen. Reusable en cada resize.
 function reflow() {
-  if (!ctx) return;
+  if (!ctx || !ctx.overlay) return; // audio no tiene caja de recorte
   const stage = editorEl.querySelector('.editor-stage');
   const stageRect = stage.getBoundingClientRect();
   const elemRect = ctx.mediaEl.getBoundingClientRect();
@@ -162,6 +164,34 @@ async function openTrimEditor(base, kind, mediaHtml) {
   const prev = base.item.editParams?.trim;
   if (prev) trimtrack.setRange({ start: prev.start, end: prev.start + prev.duration });
   ctx = { ...base, kind, mediaEl, trimtrack, urls: [url] };
+
+  // VÍDEO: además del trim, recorte espacial (zona). El vídeo conserva sus
+  // controles nativos (scrub/preview del trim); la caja de recorte vive en un
+  // overlay que arranca INACTIVO (el botón "recortar zona" lo activa) para no
+  // tapar esos controles. srcW/srcH ya están disponibles (readMediaDuration
+  // esperó a los metadatos). AUDIO no lleva caja.
+  if (kind === 'video') {
+    const srcW = mediaEl.videoWidth;
+    const srcH = mediaEl.videoHeight;
+    if (srcW > 0 && srcH > 0) {
+      stage.classList.add('crop-video'); // CSS: overlay inactivo hasta "recortar zona"
+      const overlay = document.createElement('div');
+      overlay.className = 'cropbox-overlay';
+      stage.appendChild(overlay);
+      const cropbox = createCropBox(overlay);
+      ctx.srcW = srcW;
+      ctx.srcH = srcH;
+      ctx.overlay = overlay;
+      ctx.cropbox = cropbox;
+      ctx.displayBox = null;
+      // Re-semilla del recorte espacial previo.
+      if (base.item.editParams?.crop) {
+        const c = base.item.editParams.crop;
+        cropbox.setFraction({ x: c.sx / srcW, y: c.sy / srcH, w: c.sw / srcW, h: c.sh / srcH });
+      }
+      requestAnimationFrame(reflow);
+    }
+  }
   return true;
 }
 
@@ -194,12 +224,19 @@ async function openEditor(base) {
   editorEl.hidden = false;
   document.body.classList.add('editor-open');
 
-  // Solo la imagen ancla la caja al rect de contenido (letterbox) → necesita el
-  // ResizeObserver + resize. La pista de trim es % y no requiere reflow.
-  if (kind === 'image') {
+  // Imagen y vídeo anclan la caja de recorte al rect de contenido (letterbox) →
+  // necesitan ResizeObserver + resize. La pista de trim es % y no requiere reflow.
+  if (ctx.overlay) {
     ctx.ro = new ResizeObserver(() => reflow());
     ctx.ro.observe(ctx.mediaEl);
     window.addEventListener('resize', reflow);
+  }
+
+  // El botón "recortar zona" solo aplica al vídeo (su caja arranca inactiva).
+  const cropToggle = editorEl.querySelector('.editor-crop-toggle');
+  if (cropToggle) {
+    cropToggle.hidden = !(kind === 'video' && ctx.cropbox);
+    cropToggle.setAttribute('aria-pressed', 'false');
   }
 
   // Foco al primer control (punto de entrada al modal).
@@ -210,8 +247,11 @@ async function openEditor(base) {
 
 function applyEdit() {
   if (!ctx) return;
-  // Imagen → crop espacial (caja); vídeo/audio → trim temporal (pista).
-  const crop = ctx.kind === 'image' ? ctx.cropbox?.getCropSource(ctx.displayBox) : null;
+  // Crop espacial (caja): imagen siempre; vídeo si tiene caja. Trim temporal
+  // (pista): vídeo y audio. El vídeo puede llevar AMBOS a la vez.
+  const crop = (ctx.kind === 'image' || ctx.kind === 'video') && ctx.cropbox && ctx.displayBox
+    ? ctx.cropbox.getCropSource(ctx.displayBox)
+    : null;
   const trim = (ctx.kind === 'video' || ctx.kind === 'audio') ? ctx.trimtrack?.getTrim() : null;
 
   const editParams = {};
@@ -248,7 +288,12 @@ function closeEditor() {
     for (const u of ctx.urls || []) URL.revokeObjectURL(u);
   }
   const stage = editorEl.querySelector('.editor-stage');
-  if (stage) stage.innerHTML = '';
+  if (stage) {
+    stage.innerHTML = '';
+    stage.classList.remove('crop-video', 'crop-on'); // estado del toggle de recorte
+  }
+  const cropToggle = editorEl.querySelector('.editor-crop-toggle');
+  if (cropToggle) { cropToggle.hidden = true; cropToggle.setAttribute('aria-pressed', 'false'); }
   const trimEl = editorEl.querySelector('.editor-trim');
   if (trimEl) trimEl.innerHTML = '';
   editorEl.hidden = true;
@@ -300,6 +345,16 @@ export function setupEditor() {
     if (e.target.closest('.editor-cancel')) { closeEditor(); return; }
     if (e.target.closest('.editor-apply')) { applyEdit(); return; }
     if (e.target.closest('.editor-reset')) { resetEdits(); return; }
+    // "recortar zona" (solo vídeo): activa/desactiva el overlay de la caja. Al
+    // activar, pausa el vídeo para cropear sobre un frame fijo.
+    const cropToggle = e.target.closest('.editor-crop-toggle');
+    if (cropToggle) {
+      const stage = editorEl.querySelector('.editor-stage');
+      const on = stage.classList.toggle('crop-on');
+      cropToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) { try { ctx?.mediaEl?.pause(); } catch {} reflow(); }
+      return;
+    }
     if (e.target === editorEl) closeEditor(); // click en backdrop
   });
 

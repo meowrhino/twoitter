@@ -449,12 +449,9 @@ body.sidebar-hidden .side-col { display: none; }
      de un gap normal entre filas. */
   gap: 8px 10px;
 }
-.composer-foot .hint {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  flex: 1;
-}
+/* Espaciador flexible del foot: empuja "publicar" (y cancelar/responder en el
+   inline) a la derecha, dejando los botones de adjuntar/grabar/etc. a la izquierda. */
+.composer-foot .grow { flex: 1; }
 .file-btn {
   display: inline-block;
   padding: 6px 12px;
@@ -1061,7 +1058,6 @@ body.sidebar-hidden .side-col { display: none; }
   font-size: 0.95em;
 }
 .reply-inline textarea { min-height: 44px; }
-.reply-inline .composer-foot .grow { flex: 1; }
 .reply-inline .link-btn {
   background: none;
   border: none;

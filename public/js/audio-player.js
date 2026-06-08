@@ -93,8 +93,10 @@ function currentOf(audio) {
   if (audio.__fallback) return audio.currentTime || 0;
   if (audio.__src) {
     const ctx = getCtx();
-    const t = (audio.__offset || 0) + (ctx ? ctx.currentTime - audio.__startCtx : 0);
-    return Math.min(durationOf(audio), t);
+    // Guard de __startCtx: si por una carrera estuviera sin fijar, evita NaN
+    // (que pintaría anchos NaN% / --:--).
+    const elapsed = ctx && Number.isFinite(audio.__startCtx) ? ctx.currentTime - audio.__startCtx : 0;
+    return Math.min(durationOf(audio), (audio.__offset || 0) + elapsed);
   }
   return audio.__offset || 0;
 }
@@ -218,6 +220,15 @@ function startSource(player, audio, ctx, buf, offset) {
 
 async function play(player, audio) {
   pauseOthers(audio);
+  // Fallback pegajoso: si ya caímos al elemento (sin AudioContext o un formato que
+  // no decodifica, p.ej. webm viejo en iPhone), NO reintentamos Web Audio — eso
+  // re-fetcharía + re-decodificaría el archivo entero para volver a fallar, y podría
+  // cruzar los dos caminos de reproducción. Reproducimos el elemento directamente.
+  if (audio.__fallback) { startFallback(player, audio); return; }
+  // Guard de reentrada: play() es async (await resume/decode); sin esto, un doble
+  // clic rápido (antes de que __src exista) lanzaría dos runs solapados.
+  if (audio.__starting) return;
+  audio.__starting = true;
   try {
     const ctx = getCtx();
     if (!ctx) throw new Error('no AudioContext');
@@ -234,6 +245,8 @@ async function play(player, audio) {
     // interruptor en iOS, pero funciona en escritorio o con el switch quitado.
     console.warn('web audio falló, fallback al elemento', e);
     startFallback(player, audio);
+  } finally {
+    audio.__starting = false;
   }
 }
 

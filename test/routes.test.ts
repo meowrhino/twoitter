@@ -191,6 +191,17 @@ describe('PATCH / DELETE /api/places/:id', () => {
     expect(res.status).toBe(400);
   });
 
+  it('PATCH 400 (no 500) con nombre no-string', async () => {
+    const id = await seedPlace();
+    const res = await app.request(`/api/places/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ name: 42 }), // String(42)="42" → no vacío → 200 de hecho
+    }, env);
+    // 42 coercionado a "42" es un nombre válido → 200 (lo importante: NO 500).
+    expect(res.status).not.toBe(500);
+  });
+
   it('DELETE borra (200) y luego 404', async () => {
     const id = await seedPlace();
     const del = await app.request(`/api/places/${id}`, { method: 'DELETE', headers: { 'x-twoitter-csrf': '1', cookie: await authCookie() } }, env);

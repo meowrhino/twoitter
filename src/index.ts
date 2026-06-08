@@ -48,7 +48,11 @@ const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
 
 // Dueño de los sitios guardados. Hoy hay un solo usuario (auth por contraseña
 // compartida) → identidad fija. Cuando entre multi-usuario, esto saldrá de la
-// sesión del usuario autenticado y los endpoints de places ya filtran por owner.
+// sesión del usuario autenticado.
+// OJO multi-usuario: hoy SOLO PATCH/DELETE filtran por owner (atómico en el WHERE).
+// GET /api/places (listPlaces) y findNearbyPlace devuelven TODOS los sitios — bien
+// para un usuario, pero al añadir más habrá que filtrar también esos dos por owner
+// (si no, se filtran nombres/coords ajenos y el dedup del geofence cruza usuarios).
 const OWNER_ID = "me";
 
 // Parsea un :id de ruta a entero positivo estricto. null si no es válido (rechaza
@@ -228,7 +232,9 @@ app.patch("/api/places/:id", requireAuth(), requireCsrf(), async (c) => {
   } catch {
     return c.json({ error: "json invalido" }, 400);
   }
-  const name = (body.name ?? "").trim().slice(0, LOCATION_MAX_LEN);
+  // String(): un body manipulado podría mandar name no-string (número/objeto);
+  // sin coerción, .trim() lanzaría → 500 en vez de un 400 limpio.
+  const name = String(body.name ?? "").trim().slice(0, LOCATION_MAX_LEN);
   if (!name) return c.json({ error: "nombre vacio" }, 400);
   // Radio en metros: clamp a [10, 100000]; valor inválido → 150 por defecto.
   const raw = Number(body.radius);
@@ -356,7 +362,7 @@ export async function validatePostBody(
   // Ubicación. La etiqueta se trunca a LOCATION_MAX_LEN (defensa: el input ya
   // limita en cliente). Las coords solo se guardan si AMBAS son números válidos
   // en rango — un map link necesita lat y lng; media coord no sirve.
-  const location = (body.location ?? "").trim().slice(0, LOCATION_MAX_LEN) || null;
+  const location = String(body.location ?? "").trim().slice(0, LOCATION_MAX_LEN) || null;
   const { lat, lng } = parseCoords(body.lat, body.lng);
 
   return { ok: true, text, media, pollOptions, parentId: body.parent_id ?? null, location, lat, lng };

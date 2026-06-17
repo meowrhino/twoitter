@@ -12,34 +12,24 @@ export function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
-// Dominio del ecosistema propio: los enlaces a él o a sus subdominios se pintan
-// en gold (clase .internal-link) en vez del amarillo normal, y se autolinkan
-// aunque se escriban SIN http:// (p.ej. lemuria.meowrhino.studio). Un único
-// punto de verdad: cambia esto y cambian detección + color a la vez.
-export const INTERNAL_DOMAIN = 'meowrhino.studio';
-
-// ¿el host es el dominio interno o un subdominio suyo? (decide el color gold)
-function isInternalHost(host) {
-  const h = host.toLowerCase();
-  return h === INTERNAL_DOMAIN || h.endsWith('.' + INTERNAL_DOMAIN);
-}
-
-// Hashtags + URLs → enlaces. El texto se HTML-escapa antes para evitar
-// inyección; el regex de URL excluye '<' para no romper el HTML ya escapado.
+// Hashtags + URLs → enlaces. El texto se HTML-escapa ANTES, lo que hace seguro
+// el linkify sin validar con new URL: el href no puede llevar comillas crudas ni
+// '<'/'>' (no hay fuga del atributo ni inyección de tags), y el esquema siempre
+// es http(s) (lo exige el regex, o se antepone https://).
 //
-// Dos clases de enlace se detectan:
+// Se detectan dos clases de enlace:
 //   1) URLs con esquema explícito (http/https), de cualquier dominio.
-//   2) Dominios PELADOS de meowrhino.studio (sin esquema). Se limita a ese
-//      ecosistema a propósito: cero falsos positivos (un "archivo.txt" suelto no
-//      se linka). Todo lo demás necesita http(s)://.
-// El COLOR (gold vs amarillo) lo decide el host de DESTINO, no cómo se escribió:
-// https://lemuria.meowrhino.studio y lemuria.meowrhino.studio van ambos en gold.
+//   2) Dominios PELADOS de meowrhino.* (sin esquema): meowrhino.studio,
+//      meowrhino.github.io, lemuria.meowrhino.studio… Limitado a ese ecosistema
+//      a propósito (cero falsos positivos); el resto necesita http(s)://.
+// El COLOR lo decide el CSS por el href (.link en amarillo; si el href contiene
+// "meowrhino", gold), así que aquí solo marcamos el <a> con class="link".
 export function linkify(text) {
   const esc = escapeHtml(text);
   let out = esc.replace(/#([\p{L}\p{N}_]+)/gu, (_, t) =>
     `<a class="hashtag" href="/?tag=${encodeURIComponent(t.toLowerCase())}">#${escapeHtml(t)}</a>`,
   );
-  const URL_RE = /(https?:\/\/[^\s<]+|(?:[a-z0-9-]+\.)*meowrhino\.studio(?:\/[^\s<]*)?)/gi;
+  const URL_RE = /(https?:\/\/[^\s<]+|(?:[a-z0-9-]+\.)*meowrhino\.(?:[a-z0-9-]+\.)*[a-z]{2,}(?:\/[^\s<]*)?)/gi;
   out = out.replace(URL_RE, (raw) => {
     // Puntuación de cierre pegada al final: no forma parte del enlace
     // ("…studio." al cerrar una frase). No tocamos ) ni ] para no romper URLs
@@ -48,14 +38,7 @@ export function linkify(text) {
     const trail = m ? m[0] : '';
     const u = trail ? raw.slice(0, -trail.length) : raw;
     const href = /^https?:\/\//i.test(u) ? u : `https://${u}`;
-    let host;
-    try {
-      const parsed = new URL(href.replace(/&amp;/g, '&'));
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return raw;
-      host = parsed.hostname;
-    } catch { return raw; }
-    const cls = isInternalHost(host) ? ' class="internal-link"' : '';
-    return `<a${cls} href="${href}" target="_blank" rel="noopener noreferrer">${u}</a>${trail}`;
+    return `<a class="link" href="${href}" target="_blank" rel="noopener noreferrer">${u}</a>${trail}`;
   });
   return out;
 }

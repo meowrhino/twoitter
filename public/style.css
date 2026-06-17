@@ -12,9 +12,11 @@
   --faint: #3a342d;
   --accent: #e8b04a;
   --accent-dim: #b58836;
-  /* gold para enlaces a páginas propias (*.meowrhino.studio): más brillante y
-     amarillo que el --accent ámbar, para que destaquen como "internas". */
-  --gold: #ffd24a;
+  /* color de los links de URL DENTRO de los posts (no de toda la UI: eso es
+     --accent). Amarillo normal; gold para los que apuntan a un dominio
+     meowrhino (meowrhino.studio, meowrhino.github.io…). */
+  --yellow: #FFFF00;
+  --gold: #FFD700;
   --danger: #d97a6a;
   --dots: #1a1612;
   --mono: 'JetBrains Mono', 'Menlo', monospace;
@@ -105,10 +107,12 @@ a {
 }
 a:hover { border-bottom-color: var(--accent-dim); }
 
-/* enlaces a páginas propias (*.meowrhino.studio): gold en vez del amarillo.
-   El JS (linkify) marca estos con .internal-link según el host de destino. */
-a.internal-link { color: var(--gold); }
-a.internal-link:hover { border-bottom-color: var(--gold); }
+/* links de URL en posts (los marca el linkify con .link): amarillo, y gold si
+   el href contiene "meowrhino". El selector del gold gana por ESPECIFICIDAD
+   (a.link[href*=…] > a.link), así que el orden de las reglas da igual. */
+.post-text a.link { color: var(--yellow); }
+.post-text a.link[href*="meowrhino"] { color: var(--gold); }
+.post-text a.link:hover { border-bottom-color: currentColor; }
 
 /* focus-visible: anillo de foco solo cuando se navega con teclado
    (no aparece al hacer click), siguiendo el estándar UA pero con el

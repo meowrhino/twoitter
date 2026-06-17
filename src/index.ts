@@ -624,15 +624,40 @@ app.get("/api/export", requireAuth(), async (c) => {
 
 // ---------- R2 serving (public, like images on twitter) ----------
 
+// Soporta HTTP Range requests. Sin esto el navegador no puede MOVER la barra de
+// un vídeo: el seek manda `Range: bytes=…` y necesita un `206 Partial Content`
+// con `Content-Range`. Se notaba sobre todo con MP4 (índice `moov` al final →
+// obliga a leer por rangos); un WebM recién encodeado a veces buscaba dentro de
+// lo ya bufferizado y disimulaba el fallo. Pasándole las cabeceras de la request
+// a R2, este parsea el `Range` y devuelve el objeto con `.range` resuelto.
 app.get("/r2/*", async (c) => {
   const key = c.req.path.replace(/^\/r2\//, "");
-  const obj = await c.env.STORAGE.get(key);
+  const rangeHeader = c.req.header("range");
+  const obj = await c.env.STORAGE.get(
+    key,
+    rangeHeader ? { range: c.req.raw.headers } : undefined,
+  );
   if (!obj) return c.notFound();
+
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set("etag", obj.httpEtag);
   headers.set("cache-control", "public, max-age=31536000, immutable");
   headers.set("x-content-type-options", "nosniff");
+  headers.set("accept-ranges", "bytes");
+
+  // R2 sólo trae `.range` si aplicó un rango. Cubrimos las tres formas de
+  // R2Range ({offset,length} | {length} | {suffix}) para calcular Content-Range.
+  if (rangeHeader && obj.range) {
+    const r = obj.range as { offset?: number; length?: number; suffix?: number };
+    const offset = r.suffix != null ? obj.size - r.suffix : r.offset ?? 0;
+    const length = r.suffix != null ? r.suffix : r.length ?? obj.size - offset;
+    headers.set("content-range", `bytes ${offset}-${offset + length - 1}/${obj.size}`);
+    headers.set("content-length", String(length));
+    return new Response(obj.body, { status: 206, headers });
+  }
+
+  headers.set("content-length", String(obj.size));
   return new Response(obj.body, { headers });
 });
 

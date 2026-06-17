@@ -151,11 +151,31 @@ export function buildVideoArgs({ input, output, trim = null, crop = null, srcW =
   return args;
 }
 
+// ─── "gana el más pequeño" (PURA, testeable) ────────────────────
+// Reencodear a VP8 hincha los vídeos que YA venían en un códec moderno y
+// eficiente (H.264/H.265 — un export de IA o un .mp4 ya optimizado): el preset
+// 720p/2Mbps apunta a más bitrate que la fuente y, encima, dobla la compresión
+// → archivo más pesado y peor. Si NO hubo edición (crop/trim), el original es
+// web-safe y cabe en el límite y pesa menos que el WebM, mejor subir el original
+// tal cual: nunca subimos algo más grande y degradado.
+//   - .mov/quicktime queda FUERA a propósito: suele ser HEVC y no lo reproducen
+//     Chrome/Firefox aunque el subidor (Safari) sí → mantenemos el reencode.
+//   - sizeLimit falsy (aún sin cargar) no bloquea: el original es más pequeño
+//     que el WebM, que ya pasa la revalidación de tamaño, así que es seguro.
+export function shouldKeepOriginalVideo({ fileType, fileSize, encodedSize, sizeLimit, edited }) {
+  if (edited) return false;
+  if (fileType !== 'video/mp4' && fileType !== 'video/webm') return false;
+  if (sizeLimit && fileSize > sizeLimit) return false;
+  return fileSize < encodedSize;
+}
+
 // ─── compressVideo ──────────────────────────────────────────────
 
 // `editParams` (opcional) puede traer { trim, crop } en unidades de ORIGEN; el
 // editor de medios los produce. Sin él, comprime el vídeo entero como siempre.
-export async function compressVideo(file, onProgress, editParams = null) {
+// `sizeLimit` (opcional, bytes) habilita "gana el más pequeño": ver
+// shouldKeepOriginalVideo.
+export async function compressVideo(file, onProgress, editParams = null, sizeLimit = 0) {
   await loadFFmpeg(onProgress);
   const meta = await extractVideoMetadata(file);
 
@@ -208,6 +228,21 @@ export async function compressVideo(file, onProgress, editParams = null) {
 
     const data = await ffmpeg.readFile(outputName);
     const blob = new Blob([data.buffer], { type: 'video/webm' });
+
+    // "Gana el más pequeño": si el reencode quedó más pesado que el original y
+    // este es web-safe + sin editar + dentro de límite, devolvemos el original
+    // (con SUS dimensiones, no las del output 720p). Ver shouldKeepOriginalVideo.
+    const edited = !!(editParams?.trim?.duration > 0 || editParams?.crop);
+    if (shouldKeepOriginalVideo({
+      fileType: file.type, fileSize: file.size, encodedSize: blob.size, sizeLimit, edited,
+    })) {
+      return {
+        blob: file,
+        width: meta.width || null,
+        height: meta.height || null,
+        duration: meta.duration || null,
+      };
+    }
 
     // Dimensiones reales del output (post-orientación + post-escalado)
     const outMeta = await extractVideoMetadata(blob).catch(() => ({}));

@@ -85,7 +85,10 @@ async function uploadCompressed(compressed, kind, onProgress) {
 // medios los produce. Null en el primer pase → comportamiento de siempre.
 async function compressItem(file, kind, onProgress, editParams = null) {
   if (kind === 'video') {
-    const result = await compressVideo(file, onProgress, editParams);
+    // sizeLimit habilita "gana el más pequeño" en compressVideo: si el reencode
+    // a WebM queda más pesado que el original (vídeo ya eficiente, sin editar),
+    // se sube el original. El mismo MEDIA_LIMITS revalida después en runCompression.
+    const result = await compressVideo(file, onProgress, editParams, MEDIA_LIMITS.video);
     let thumbBlob = null;
     try {
       // Poster del clip recortado: arranca en trim.start si hay trim.

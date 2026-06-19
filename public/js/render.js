@@ -27,7 +27,6 @@ import {
 import {
   renderThreadActionsHtml,
   bindThreadActions,
-  refreshThreadTranscribeBtn,
   refreshThreadHideBtn,
   staggerActionButtons,
 } from './post-actions.js';
@@ -105,9 +104,8 @@ function bindPostClickToNavigate(postEl, p) {
       if (el !== postEl) el.classList.remove('active');
     });
     postEl.classList.add('active');
-    // refreshThread*Btn ANTES de sync: fijan qué botones se ven, para que
+    // refreshThreadHideBtn ANTES de sync: fija qué botones se ven, para que
     // staggerActionButtons (dentro de sync) cuente sólo los visibles.
-    refreshThreadTranscribeBtn(postEl);
     refreshThreadHideBtn(postEl);
     syncThreadActiveFlags();
   };
@@ -163,12 +161,10 @@ export function focusPostFromHash(behavior = 'smooth') {
     if (other !== el) other.classList.remove('active');
   });
   el.classList.add('active');
-  // refreshThread*Btn ANTES de sync (igual que bindPostClickToNavigate): fijan
+  // refreshThreadHideBtn ANTES de sync (igual que bindPostClickToNavigate): fija
   // qué botones se ven para que staggerActionButtons cuente solo los visibles.
-  // Sin el de ocultar, un post alcanzado por /#id mostraba "ocultar" estando ya
-  // oculto (la barra es única por thread y conserva el estado de la activación
-  // anterior).
-  refreshThreadTranscribeBtn(el);
+  // Sin esto, un post alcanzado por /#id mostraba "ocultar" estando ya oculto
+  // (la barra es única por thread y conserva el estado de la activación anterior).
   refreshThreadHideBtn(el);
   syncThreadActiveFlags();
 }
@@ -246,10 +242,6 @@ export function renderPost(p, { topLevel = true } = {}) {
   el.dataset.id = p.id;
   // source of truth para updateReplyCount tras add/delete
   el.dataset.replyCount = String(p.reply_count || 0);
-  // Flag para que la barra única del thread sepa si mostrar "transcribir"
-  // cuando este post sea el target activo. Se actualiza tras transcribir.
-  const audios = (p.media || []).filter((m) => m.kind === 'audio');
-  el.dataset.hasUntranscribed = audios.some((m) => !m.transcript) ? '1' : '0';
   el.innerHTML = `
     <div class="post-body">
       ${topLevel ? renderReplyContext(p.parent_excerpt) : ''}

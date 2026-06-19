@@ -12,27 +12,24 @@ import { toast } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './inline-composer.js';
-import { updateGalleryTranscript } from './gallery.js';
 import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
 
 // ----- render HTML de las barras -----
 
-// Barra única por thread (timeline / replies anidados). Renderiza TODOS los
-// botones disponibles según auth; "transcribir" se muestra/oculta dinámicamente
-// según el .post.active vigente (refreshThreadTranscribeBtn).
+// Barra única por thread (timeline / replies anidados). Renderiza los botones
+// disponibles según auth. (Transcribir ya NO vive aquí: es un botón por-audio
+// dentro de la galería, ver stageItemHtml en gallery.js — así cada nota de un
+// twoitt con varios audios se transcribe por separado.)
 export function renderThreadActionsHtml() {
   const view = '<button class="vertwoitt-btn" type="button">ver twoitt</button>';
   const reply = isAuthed() ? '<button class="reply-btn" type="button">responder</button>' : '';
-  const transcribe = isAuthed()
-    ? '<button class="transcribe-btn" type="button" hidden>transcribir</button>'
-    : '';
   // ocultar/desocultar: per-navegador (localStorage), por eso disponibles sin
   // auth. Uno de los dos se muestra según el estado del .post.active vigente
   // (refreshThreadHideBtn). Por defecto se ofrece "ocultar".
   const hideBtn = '<button class="hide-btn" type="button">ocultar</button>';
   const unhideBtn = '<button class="unhide-btn" type="button" hidden>desocultar</button>';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${unhideBtn}${del}</div>`;
+  return `<div class="post-actions">${view}${reply}${hideBtn}${unhideBtn}${del}</div>`;
 }
 
 // ----- helpers de navegación por el árbol -----
@@ -56,26 +53,15 @@ function findLogicalParentPost(postEl) {
   return postEl.parentElement?.closest('.post') ?? null;
 }
 
-// Llamada por render.js cuando un .post pasa a .active: actualiza si el
-// botón "transcribir" de la barra del thread debe verse (depende del flag
-// dataset.hasUntranscribed del nuevo target).
-export function refreshThreadTranscribeBtn(postEl) {
-  const host = getThreadHost(postEl);
-  const bar = host?.querySelector(':scope > .post-actions');
-  const btn = bar?.querySelector('.transcribe-btn');
-  if (!btn) return;
-  btn.hidden = postEl.dataset.hasUntranscribed !== '1';
-}
-
 // Escalona la entrada/salida de los botones de una barra al ritmo del rail.
 // Setea en cada botón VISIBLE dos índices que el CSS usa como retardo:
 //   --si → índice desde la DERECHA (0 = el más a la derecha): apertura en
 //          cascada derecha→izquierda, sincronizada con el rail creciendo.
 //   --sc → índice desde la IZQUIERDA: cierre simétrico inverso (los de la
 //          izquierda se van primero) cuando el rail se recoge.
-// Se recalcula en cada activación porque "transcribir" se muestra/oculta según
-// el target: contar sólo los visibles evita un hueco en mitad de la cascada.
-// Debe llamarse DESPUÉS de refreshThreadTranscribeBtn (que fija qué se ve).
+// Se recalcula en cada activación porque "ocultar/desocultar" se muestra/oculta
+// según el target: contar sólo los visibles evita un hueco en mitad de la
+// cascada. Debe llamarse DESPUÉS de refreshThreadHideBtn (que fija qué se ve).
 export function staggerActionButtons(bar) {
   if (!bar) return;
   const btns = [...bar.children].filter((b) => b.tagName === 'BUTTON' && !b.hidden);
@@ -104,29 +90,9 @@ function openReplyComposer(targetEl, parentId) {
   // lockstepRail lo pega frame a frame. No hace falta repintar aquí.
 }
 
-async function doTranscribe(targetEl, btn) {
-  if (btn.disabled) return;
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'transcribiendo…';
-  const { ok, data } = await api(`/api/posts/${targetEl.dataset.id}/transcribe`, { method: 'POST' });
-  if (!ok) {
-    toast(data?.error || 'error al transcribir', 'error');
-    btn.disabled = false;
-    btn.textContent = original;
-    return;
-  }
-  const gallery = targetEl.querySelector(':scope > .post-body .gallery');
-  updateGalleryTranscript(gallery, data.transcript);
-  targetEl.dataset.hasUntranscribed = '0';
-  btn.disabled = false;
-  btn.textContent = original;
-  btn.hidden = true;
-}
-
 // Muestra "ocultar" o "desocultar" en la barra del thread según si el .post
-// objetivo está oculto. Mismo patrón que refreshThreadTranscribeBtn: se llama
-// al activar un post (render.js) para que la barra refleje su estado.
+// objetivo está oculto. Se llama al activar un post (render.js) para que la
+// barra refleje su estado.
 export function refreshThreadHideBtn(postEl) {
   const host = getThreadHost(postEl);
   const bar = host?.querySelector(':scope > .post-actions');
@@ -238,11 +204,6 @@ export function bindThreadActions(threadRootEl) {
     '.reply-btn': () => {
       const t = target();
       if (t) openReplyComposer(t, t.dataset.id);
-    },
-    '.transcribe-btn': async (btn) => {
-      const t = target();
-      if (!t || btn.hidden) return;
-      await doTranscribe(t, btn);
     },
     '.hide-btn': () => {
       const t = target();

@@ -36,7 +36,7 @@ export function mediaItemHtml(m) {
 export function readMedia(galleryEl) {
   try {
     const arr = JSON.parse(galleryEl.dataset.media || '[]');
-    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, transcript: m.tr || null }));
+    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, id: m.id ?? null, transcript: m.tr || null }));
   } catch { return []; }
 }
 

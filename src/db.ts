@@ -470,10 +470,10 @@ export async function attachMedia(
   );
 }
 
-// Devuelve el primer media de tipo audio de un post. La UI sólo permite 1
-// audio por post, así que con el primero basta. Usado por /transcribe para
-// localizar el blob a procesar y por el botón "transcribir" para saber si
-// hace falta llamar al modelo.
+// Devuelve el PRIMER media de tipo audio de un post (orden de la galería).
+// Un post puede tener varios audios; la transcripción es por-audio (ver
+// getMediaById + /api/media/:id/transcribe), así que esto ya NO lo usa el
+// endpoint — queda como helper general (lo usan los tests).
 export async function getAudioMediaForPost(
   db: D1Database,
   postId: number,
@@ -483,6 +483,20 @@ export async function getAudioMediaForPost(
       "SELECT * FROM media WHERE post_id = ? AND kind = 'audio' ORDER BY position ASC, id ASC LIMIT 1",
     )
     .bind(postId)
+    .first<MediaRow>();
+  return row ?? null;
+}
+
+// Devuelve un media por su id (cualquier kind), o null si no existe. Lo usa
+// /api/media/:id/transcribe para localizar el blob de UN audio concreto del
+// post (no necesariamente el primero) y transcribirlo/cachearlo por separado.
+export async function getMediaById(
+  db: D1Database,
+  mediaId: number,
+): Promise<MediaRow | null> {
+  const row = await db
+    .prepare("SELECT * FROM media WHERE id = ?")
+    .bind(mediaId)
     .first<MediaRow>();
   return row ?? null;
 }

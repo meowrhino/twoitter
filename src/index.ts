@@ -19,7 +19,7 @@ import {
   deletePost,
   exportAll,
   findNearbyPlace,
-  getAudioMediaForPost,
+  getMediaById,
   getPost,
   getReplies,
   listHashtags,
@@ -458,16 +458,20 @@ app.post("/api/posts/:id/restore", requireAuth(), requireCsrf(), async (c) => {
   return c.json({ ok: true, restored_ids: result.restoredIds });
 });
 
-// Transcribe la nota de audio de un post vía Workers AI (Whisper).
-// Detrás de auth+CSRF: solo el dueño puede gastar la cuota. Idempotente:
-// si el media ya tiene transcript, lo devuelve sin volver a llamar al modelo
-// (cachea para siempre — el blob de R2 es inmutable).
-app.post("/api/posts/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e) => e.TRANSCRIBE_LIMITER), async (c) => {
+// Transcribe UNA nota de audio concreta (por media id) vía Workers AI (Whisper).
+// Antes era por post y sólo cogía el primer audio; ahora cada audio de un twoitt
+// se transcribe y cachea por separado, así un post con varias notas las tiene
+// todas. Detrás de auth+CSRF: solo el dueño gasta cuota. Idempotente: si el media
+// ya tiene transcript, lo devuelve sin volver a llamar al modelo (cachea para
+// siempre — el blob de R2 es inmutable).
+app.post("/api/media/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e) => e.TRANSCRIBE_LIMITER), async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) return c.json({ error: "id invalido" }, 400);
 
-  const media = await getAudioMediaForPost(c.env.DB, id);
-  if (!media) return c.json({ error: "este post no tiene audio" }, 404);
+  const media = await getMediaById(c.env.DB, id);
+  if (!media || media.kind !== "audio") {
+    return c.json({ error: "media de audio no encontrado" }, 404);
+  }
 
   // Cache: si ya transcribimos, devolver sin tocar el modelo.
   if (media.transcript) {

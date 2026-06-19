@@ -952,9 +952,7 @@ body.sidebar-hidden .side-col { display: none; }
     transform 200ms var(--curve-standard);
 }
 .post-actions .vertwoitt-btn:hover,
-.post-actions .reply-btn:hover,
-.post-actions .transcribe-btn:hover { color: var(--accent); }
-.post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
+.post-actions .reply-btn:hover { color: var(--accent); }
 .post-actions .hide-btn:hover { color: var(--text-dim); }
 .post-actions .delete-btn:hover { color: var(--danger); }
 
@@ -1541,6 +1539,24 @@ body.editor-open { overflow: hidden; }
   word-wrap: break-word;
   color: var(--text);
 }
+
+/* Botón "transcribir" propio de cada audio del stage (lo cuelga stageItemHtml
+   en gallery.js). Discreto, alineado a la izquierda bajo el player; sólo lo ve
+   el dueño y desaparece al transcribir. */
+.gallery > .stage > .audio-transcribe-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  transition: color 120ms ease;
+}
+.gallery > .stage > .audio-transcribe-btn:hover { color: var(--accent); }
+.gallery > .stage > .audio-transcribe-btn:disabled { color: var(--muted); cursor: default; }
 
 /* Thumb para audio: cuadrado con el emoji de micro. Mismo tamaño que las
    otras thumbs (CSS de .thumb ya define el frame); aquí sólo se centra

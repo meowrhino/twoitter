@@ -1,8 +1,10 @@
-// Tests del endpoint POST /api/posts/:id/transcribe vía app.request(path, init, env).
-// Cierra la última laguna de cobertura backend (docs/TODO.md): cache, sin-audio,
-// blob ausente, fallo de Whisper, transcripción vacía y el flujo OK que persiste.
-// AI (Workers AI) y STORAGE (R2) se stubean a mano en el env; el adapter D1
-// (better-sqlite3) corre el mismo SQL que producción.
+// Tests del endpoint POST /api/media/:id/transcribe vía app.request(path, init, env).
+// La transcripción es POR AUDIO (media id), no por post: un twoitt con varias
+// notas las transcribe y cachea una a una. Cubre: auth/CSRF, id inválido, media
+// inexistente/no-audio, cache, blob ausente, fallo de Whisper, transcripción
+// vacía, el flujo OK que persiste y la independencia entre dos audios del mismo
+// post. AI (Workers AI) y STORAGE (R2) se stubean a mano en el env; el adapter
+// D1 (better-sqlite3) corre el mismo SQL que producción.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import app from '../src/index';
 import { makeTestDb } from './helpers/d1';
@@ -51,25 +53,33 @@ async function authCookie() {
   return `twoitter_auth=${await makeToken(SECRET)}`;
 }
 
+// Lee los ids de los media de un post en orden de galería (position, id).
+async function mediaIds(db: D1Database, postId: number): Promise<number[]> {
+  const { results } = await db
+    .prepare('SELECT id FROM media WHERE post_id = ? ORDER BY position ASC, id ASC')
+    .bind(postId)
+    .all<{ id: number }>();
+  return results.map((r) => r.id);
+}
+
 // Inserta un post con un media de audio; si `transcript`, lo deja ya cacheado.
+// Devuelve el media id del audio (lo que consume el endpoint).
 async function postWithAudio(
   db: D1Database,
   { transcript }: { transcript?: string } = {},
-) {
+): Promise<number> {
   const p = await createPost(db, 'con audio', null);
   await attachMedia(db, p.id, [
     { kind: 'audio', r2_key: 'audios/x.webm', thumb_key: null, width: null, height: null },
   ]);
-  if (transcript) {
-    const m = await getAudioMediaForPost(db, p.id);
-    await setMediaTranscript(db, m!.id, transcript);
-  }
-  return p;
+  const m = await getAudioMediaForPost(db, p.id);
+  if (transcript) await setMediaTranscript(db, m!.id, transcript);
+  return m!.id;
 }
 
-// POST /transcribe autenticado + con header CSRF.
+// POST /transcribe autenticado + con header CSRF, por media id.
 function transcribe(id: number | string, env: ReturnType<typeof makeEnv>, cookie: string) {
-  return app.request(`/api/posts/${id}/transcribe`, {
+  return app.request(`/api/media/${id}/transcribe`, {
     method: 'POST',
     headers: { 'x-twoitter-csrf': '1', cookie },
   }, env);
@@ -85,9 +95,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe('POST /api/posts/:id/transcribe — auth/CSRF', () => {
+describe('POST /api/media/:id/transcribe — auth/CSRF', () => {
   it('401 sin auth', async () => {
-    const res = await app.request('/api/posts/1/transcribe', {
+    const res = await app.request('/api/media/1/transcribe', {
       method: 'POST',
       headers: { 'x-twoitter-csrf': '1' },
     }, makeEnv(db));
@@ -95,7 +105,7 @@ describe('POST /api/posts/:id/transcribe — auth/CSRF', () => {
   });
 
   it('403 con auth pero sin header CSRF', async () => {
-    const res = await app.request('/api/posts/1/transcribe', {
+    const res = await app.request('/api/media/1/transcribe', {
       method: 'POST',
       headers: { cookie: await authCookie() },
     }, makeEnv(db));
@@ -103,7 +113,7 @@ describe('POST /api/posts/:id/transcribe — auth/CSRF', () => {
   });
 });
 
-describe('POST /api/posts/:id/transcribe — flujo', () => {
+describe('POST /api/media/:id/transcribe — flujo', () => {
   it('400 con id no numérico (incluida basura final como "5abc")', async () => {
     const res = await transcribe('abc', makeEnv(db), await authCookie());
     expect(res.status).toBe(400);
@@ -112,17 +122,25 @@ describe('POST /api/posts/:id/transcribe — flujo', () => {
     expect(res2.status).toBe(400);
   });
 
-  it('404 si el post no tiene audio', async () => {
-    const p = await createPost(db, 'sin audio', null);
-    const res = await transcribe(p.id, makeEnv(db), await authCookie());
+  it('404 si el media no existe', async () => {
+    const res = await transcribe(999, makeEnv(db), await authCookie());
     expect(res.status).toBe(404);
-    expect((await res.json()).error).toContain('audio');
+  });
+
+  it('404 si el media no es audio (p.ej. una imagen)', async () => {
+    const p = await createPost(db, 'con imagen', null);
+    await attachMedia(db, p.id, [
+      { kind: 'image', r2_key: 'images/x.webp', thumb_key: null, width: 10, height: 10 },
+    ]);
+    const [imgId] = await mediaIds(db, p.id);
+    const res = await transcribe(imgId, makeEnv(db), await authCookie());
+    expect(res.status).toBe(404);
   });
 
   it('200 cached: con transcript ya guardado, devuelve sin tocar el modelo', async () => {
     const ai = { run: vi.fn() };
-    const p = await postWithAudio(db, { transcript: 'ya transcrito' });
-    const res = await transcribe(p.id, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
+    const mid = await postWithAudio(db, { transcript: 'ya transcrito' });
+    const res = await transcribe(mid, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, transcript: 'ya transcrito', cached: true });
@@ -130,9 +148,9 @@ describe('POST /api/posts/:id/transcribe — flujo', () => {
   });
 
   it('404 si el blob no está en R2', async () => {
-    const p = await postWithAudio(db);
+    const mid = await postWithAudio(db);
     const res = await transcribe(
-      p.id, makeEnv(db, { ai: { run: vi.fn() }, storage: r2Empty() }), await authCookie(),
+      mid, makeEnv(db, { ai: { run: vi.fn() }, storage: r2Empty() }), await authCookie(),
     );
     expect(res.status).toBe(404);
     expect((await res.json()).error).toContain('r2');
@@ -140,25 +158,25 @@ describe('POST /api/posts/:id/transcribe — flujo', () => {
 
   it('500 si Whisper falla', async () => {
     const ai = { run: vi.fn(async () => { throw new Error('boom'); }) };
-    const p = await postWithAudio(db);
-    const res = await transcribe(p.id, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
+    const mid = await postWithAudio(db);
+    const res = await transcribe(mid, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
     expect(res.status).toBe(500);
     expect((await res.json()).error).toContain('fallo al transcribir');
   });
 
   it('422 si la transcripción sale vacía (solo whitespace → trim vacío)', async () => {
     const ai = { run: vi.fn(async () => ({ text: '   ' })) };
-    const p = await postWithAudio(db);
-    const res = await transcribe(p.id, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
+    const mid = await postWithAudio(db);
+    const res = await transcribe(mid, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
     expect(res.status).toBe(422);
   });
 
   it('200 OK: pasa audio base64 + language a Whisper, trimmea, y persiste (2ª llamada → cached)', async () => {
     const ai = { run: vi.fn(async () => ({ text: '  hola mundo  ' })) };
     const cookie = await authCookie();
-    const p = await postWithAudio(db);
+    const mid = await postWithAudio(db);
 
-    const res = await transcribe(p.id, makeEnv(db, { ai, storage: r2WithBlob() }), cookie);
+    const res = await transcribe(mid, makeEnv(db, { ai, storage: r2WithBlob() }), cookie);
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, transcript: 'hola mundo', cached: false }); // .trim()
@@ -173,7 +191,7 @@ describe('POST /api/posts/:id/transcribe — flujo', () => {
 
     // Persistió: una 2ª llamada (con un AI que tiraría si lo invocaran) → cached.
     const ai2 = { run: vi.fn(async () => { throw new Error('no debería llamarse'); }) };
-    const res2 = await transcribe(p.id, makeEnv(db, { ai: ai2, storage: r2WithBlob() }), cookie);
+    const res2 = await transcribe(mid, makeEnv(db, { ai: ai2, storage: r2WithBlob() }), cookie);
     const body2 = await res2.json();
     expect(res2.status).toBe(200);
     expect(body2).toMatchObject({ transcript: 'hola mundo', cached: true });
@@ -182,10 +200,34 @@ describe('POST /api/posts/:id/transcribe — flujo', () => {
 
   it('acepta también el campo `transcription` del resultado de Whisper', async () => {
     const ai = { run: vi.fn(async () => ({ transcription: 'desde transcription' })) };
-    const p = await postWithAudio(db);
-    const res = await transcribe(p.id, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
+    const mid = await postWithAudio(db);
+    const res = await transcribe(mid, makeEnv(db, { ai, storage: r2WithBlob() }), await authCookie());
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.transcript).toBe('desde transcription');
+  });
+
+  it('dos audios del mismo post se transcriben independientes (uno no pisa al otro)', async () => {
+    const cookie = await authCookie();
+    const p = await createPost(db, 'dos notas', null);
+    await attachMedia(db, p.id, [
+      { kind: 'audio', r2_key: 'audios/a.webm', thumb_key: null, width: null, height: null },
+      { kind: 'audio', r2_key: 'audios/b.webm', thumb_key: null, width: null, height: null },
+    ]);
+    const [id1, id2] = await mediaIds(db, p.id);
+
+    // Transcribe SÓLO el segundo audio.
+    const ai = { run: vi.fn(async () => ({ text: 'segundo audio' })) };
+    const res = await transcribe(id2, makeEnv(db, { ai, storage: r2WithBlob() }), cookie);
+    expect(res.status).toBe(200);
+    expect((await res.json()).transcript).toBe('segundo audio');
+
+    // El primero sigue SIN transcript (no se pisó). Transcribirlo da lo suyo.
+    const ai1 = { run: vi.fn(async () => ({ text: 'primer audio' })) };
+    const res1 = await transcribe(id1, makeEnv(db, { ai: ai1, storage: r2WithBlob() }), cookie);
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json();
+    expect(body1).toMatchObject({ transcript: 'primer audio', cached: false });
+    expect(ai1.run).toHaveBeenCalledTimes(1); // no estaba cacheado
   });
 });

@@ -30,9 +30,10 @@ import { escapeHtml } from './utils.js';
 //     "transcribir" pueda rellenarlo in-place sin recrear DOM.
 //   - `src: string | undefined`. Si llega, se usa tal cual (caso composer
 //     con blob: URL). Si no, se construye `/r2/${r2_key}` como antes.
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-// "19 jun a las 22:25" (día + mes + hora, todo LOCAL) a partir del ISO UTC
+// Fecha entera local: "19 de junio de 2026 a las 22:25" a partir del ISO UTC
 // guardado. '' si no hay / no es válida. Mes manual (array) en vez de Intl para
 // que sea determinista en los tests, sin depender del locale del runtime.
 export function fmtTranscribedAt(iso) {
@@ -41,12 +42,12 @@ export function fmtTranscribedAt(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${d.getDate()} ${MESES[d.getMonth()]} a las ${hh}:${mm}`;
+  return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()} a las ${hh}:${mm}`;
 }
 
 // Contenido interno del bloque .audio-transcript: el texto y, si hay fecha, una
-// línea "transcrito el 19 jun a las 22:25" (la CSS la alinea a la derecha bajo
-// el texto). Compartido por audioPlayerMarkup (render inicial) y
+// línea "transcrito el 19 de junio de 2026 a las 22:25" (la CSS la alinea a la
+// derecha bajo el texto). Compartido por audioPlayerMarkup (render inicial) y
 // updateGalleryTranscript (tras transcribir en caliente) para que pinten igual.
 export function transcriptInnerHtml(transcript, transcribedAt) {
   const text = `<span class="transcript-text">${escapeHtml(transcript || '')}</span>`;

@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>twoitter · publicar</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
+  <!-- PWA: ver index.html. Manifest + iconos, sin service worker. -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0d0c0a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="twoitter" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="stylesheet" href="/style.css" />
   <!-- COOP/COEP los sirve el Worker (ver src/index.ts); sin coi-serviceworker. -->
 </head>

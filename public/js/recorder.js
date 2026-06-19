@@ -5,10 +5,10 @@
 //   stop()   → cierra el recorder + libera el stream, devuelve un File
 //              (audio/webm normalmente) listo para pasar a attachFile().
 //
-// Una sola sesión activa por composer (gestionado por el caller). No
-// re-comprimimos: grabamos directo a 24 kbps mono (AAC en mp4 u Opus en webm
-// según el navegador, ver opts/PREFERRED_TYPES), que ya es tamaño de nota de
-// voz. El default del navegador serían ~128 kbps.
+// Una sola sesión activa por composer (gestionado por el caller). Pedimos 24
+// kbps mono al grabar, pero Safari/iOS IGNORA ese hint y graba a ~189 kbps; por
+// eso media.js recomprime la nota a mono 16 kHz MP3 antes de subir (voiceNote →
+// audio-transcode.js). Aquí sólo capturamos y entregamos el File a attachFile.
 
 import { uuid } from './utils.js';
 import { attachFile } from './media.js';
@@ -28,11 +28,12 @@ const PREFERRED_TYPES = [
   'audio/webm',
 ];
 
-// 24 kbps mono: calidad de voz por encima de WhatsApp (~16 kbps) y ~5× más
-// ligero que el default del navegador (~128 kbps). Un minuto y medio ≈ 270 KB.
-// Distinto del audio de los vídeos (compressor-video PRESET.audioBitrate=128k) y
-// del re-encode al recortar una nota (AUDIO_TRIM_BITRATE=96k): contextos/códecs
-// distintos, NO una constante compartida.
+// 24 kbps mono pedido al MediaRecorder. Lo respeta el escritorio (Chrome/Brave
+// dan ~50 kbps opus); Safari/iOS lo ignora y graba ~189 kbps AAC. En ambos casos
+// la nota se recomprime después a mono 16 kHz mp3 (audio-transcode.js), así que
+// este valor sólo marca el "techo" en escritorio. Distinto del audio de los
+// vídeos (compressor-video PRESET.audioBitrate=128k) y del re-encode al recortar
+// (AUDIO_TRIM_BITRATE=96k): contextos/códecs distintos, NO una constante compartida.
 const VOICE_NOTE_BITRATE = 24000;
 
 function pickMimeType() {
@@ -175,7 +176,9 @@ function stopRecording(form, button, preview, pending) {
     state.timer = null;
 
     if (blob.size > 0) {
-      await attachFile(file, preview, pending);
+      // voiceNote: true → media.js la recomprime a mono 16 kHz MP3 antes de subir
+      // (Safari ignora el bitrate al grabar; ver audio-transcode.js).
+      await attachFile(file, preview, pending, { voiceNote: true });
     } else {
       toast('grabación vacía', 'info');
     }

@@ -18,6 +18,7 @@ import {
   trimAudio,
 } from './compressor.js';
 import { createPreviewItem, setItemStatus, updatePreviewMedia } from './preview-item.js';
+import { toMonoMp3 } from './audio-transcode.js';
 
 // Subimos vía XHR (no fetch) para poder reportar el progreso real con
 // xhr.upload.onprogress — fetch no expone progreso de subida. onProgress
@@ -77,13 +78,14 @@ async function uploadCompressed(compressed, kind, onProgress) {
 }
 
 // Orquesta compresión + thumb. Para vídeo, el thumb se genera del File
-// original (canvas decoder fiable) en paralelo al output ffmpeg. El audio
-// no se re-comprime: el recorder ya graba Opus a 24 kbps mono (ver
-// recorder.js), y los formatos subidos manualmente (mp3/m4a/ogg) ya están
-// comprimidos lo bastante.
+// original (canvas decoder fiable) en paralelo al output ffmpeg.
+// Audio: una nota GRABADA (voiceNote) se recomprime a mono 16 kHz MP3 — Safari
+// ignora el bitrate del MediaRecorder y graba a ~189 kbps, así que sin esto
+// pesan ~7× de más (ver audio-transcode.js). El audio SUBIDO a mano se deja tal
+// cual (podría ser música; además mp3/m4a/ogg ya vienen comprimidos).
 // `editParams` (opcional) = { crop?, trim? } en unidades de ORIGEN; el editor de
 // medios los produce. Null en el primer pase → comportamiento de siempre.
-async function compressItem(file, kind, onProgress, editParams = null) {
+async function compressItem(file, kind, onProgress, editParams = null, voiceNote = false) {
   if (kind === 'video') {
     // sizeLimit habilita "gana el más pequeño" en compressVideo: si el reencode
     // a WebM queda más pesado que el original (vídeo ya eficiente, sin editar),
@@ -100,9 +102,17 @@ async function compressItem(file, kind, onProgress, editParams = null) {
     return { ...result, thumbBlob };
   }
   if (kind === 'audio') {
-    // Con trim → ffmpeg lo recorta; sin trim, passthrough (uploadBlob lee
-    // blob.type, y los tipos aceptados ya están en la whitelist de media.ts).
+    // Con trim → ffmpeg lo recorta (y ya queda recodificado).
     if (editParams?.trim) return trimAudio(file, editParams.trim, onProgress);
+    // Nota grabada sin editar → recomprimir a mono 16 kHz MP3. Fallback al
+    // original (toMonoMp3 devuelve null) si decode/encode falla o no compensa.
+    if (voiceNote) {
+      onProgress?.({ phase: 'loading', label: 'comprimiendo nota…' });
+      const mp3 = await toMonoMp3(file);
+      if (mp3) return { blob: mp3, width: null, height: null };
+    }
+    // Audio subido a mano (o recompresión fallida): passthrough (uploadBlob lee
+    // blob.type, y los tipos aceptados ya están en la whitelist de media.ts).
     return { blob: file, width: null, height: null };
   }
   return compressImage(file, editParams);
@@ -118,7 +128,10 @@ async function compressItem(file, kind, onProgress, editParams = null) {
 // El estado del item evoluciona: pending → compressing → compressed → uploading → ready.
 // La promise de compresión se guarda en `compressionPromise` para que submit
 // la pueda esperar si todavía está en marcha.
-export async function attachFile(file, previewRoot, pending) {
+// `opts.voiceNote` (lo pasa el recorder) marca el item como nota grabada para
+// que compressItem la recomprima a mono 16 kHz MP3. Las subidas a mano no lo
+// pasan → se dejan tal cual.
+export async function attachFile(file, previewRoot, pending, opts = {}) {
   const kind = mediaKindOf(file);
   if (!kind) return;
 
@@ -147,6 +160,7 @@ export async function attachFile(file, previewRoot, pending) {
     compressionError: null,
     editParams: null,       // { crop?, trim? } tras editar; null = sin editar
     editedPreviewUrl: null, // object URL del blob editado mostrado en el preview
+    voiceNote: !!opts.voiceNote, // nota grabada → recomprimir a mp3 (compressItem)
   };
   pending.set(localId, item);
 
@@ -177,7 +191,7 @@ function runCompression(item, itemEl, localId, pending) {
       const verb = kind === 'video' ? 'comprimiendo vídeo' : 'comprimiendo';
       setItemStatus(itemEl, 'compressing', { percent: p.percent, label: verb });
     }
-  }, item.editParams)
+  }, item.editParams, item.voiceNote)
     .then((result) => {
       if (!pending.has(localId)) return null;
       // Validación de tamaño en cliente: si tras comprimir el blob aún supera

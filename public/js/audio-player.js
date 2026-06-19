@@ -30,23 +30,29 @@ import { escapeHtml } from './utils.js';
 //     "transcribir" pueda rellenarlo in-place sin recrear DOM.
 //   - `src: string | undefined`. Si llega, se usa tal cual (caso composer
 //     con blob: URL). Si no, se construye `/r2/${r2_key}` como antes.
-// "21:32" en hora LOCAL a partir del ISO UTC guardado. '' si no hay/!válida.
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+// "19 jun a las 22:25" (día + mes + hora, todo LOCAL) a partir del ISO UTC
+// guardado. '' si no hay / no es válida. Mes manual (array) en vez de Intl para
+// que sea determinista en los tests, sin depender del locale del runtime.
 export function fmtTranscribedAt(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getDate()} ${MESES[d.getMonth()]} a las ${hh}:${mm}`;
 }
 
-// Contenido interno del bloque .audio-transcript: el texto y, si hay hora, una
-// línea "transcrito a las HH:MM" (la CSS la alinea a la derecha bajo el texto).
-// Compartido por audioPlayerMarkup (render inicial) y updateGalleryTranscript
-// (tras transcribir en caliente) para que ambos pinten igual.
+// Contenido interno del bloque .audio-transcript: el texto y, si hay fecha, una
+// línea "transcrito el 19 jun a las 22:25" (la CSS la alinea a la derecha bajo
+// el texto). Compartido por audioPlayerMarkup (render inicial) y
+// updateGalleryTranscript (tras transcribir en caliente) para que pinten igual.
 export function transcriptInnerHtml(transcript, transcribedAt) {
   const text = `<span class="transcript-text">${escapeHtml(transcript || '')}</span>`;
-  const hhmm = fmtTranscribedAt(transcribedAt);
-  const time = hhmm
-    ? `<span class="transcript-time" title="${escapeHtml(transcribedAt)}">transcrito a las ${hhmm}</span>`
+  const when = fmtTranscribedAt(transcribedAt);
+  const time = when
+    ? `<span class="transcript-time" title="${escapeHtml(transcribedAt)}">transcrito el ${when}</span>`
     : '';
   return text + time;
 }

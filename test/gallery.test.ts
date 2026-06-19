@@ -122,8 +122,8 @@ describe('renderPostGallery', () => {
     const tr = el.querySelector('.audio-transcript') as HTMLElement;
     expect(tr.hidden).toBe(false);
     expect(tr.querySelector('.transcript-text')!.textContent).toBe('transcripción nueva');
-    // "transcrito a las HH:MM" en hora local (sea cual sea la TZ del runner).
-    expect(tr.querySelector('.transcript-time')!.textContent).toMatch(/^transcrito a las \d{2}:\d{2}$/);
+    // "transcrito el 19 jun a las HH:MM" (día + mes + hora; TZ del runner aparte).
+    expect(tr.querySelector('.transcript-time')!.textContent).toMatch(/^transcrito el \d{1,2} \w{3} a las \d{2}:\d{2}$/);
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed[0].tr).toBe('transcripción nueva');
     expect(parsed[0].tr_at).toBe('2026-06-19T19:05:00.000Z');

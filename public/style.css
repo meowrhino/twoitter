@@ -952,7 +952,9 @@ body.sidebar-hidden .side-col { display: none; }
     transform 200ms var(--curve-standard);
 }
 .post-actions .vertwoitt-btn:hover,
-.post-actions .reply-btn:hover { color: var(--accent); }
+.post-actions .reply-btn:hover,
+.post-actions .transcribe-btn:hover { color: var(--accent); }
+.post-actions .transcribe-btn:disabled { color: var(--muted); cursor: default; }
 .post-actions .hide-btn:hover { color: var(--text-dim); }
 .post-actions .delete-btn:hover { color: var(--danger); }
 
@@ -1532,31 +1534,24 @@ body.editor-open { overflow: hidden; }
    distingue "transcript" de "texto escrito", es todo el mensaje. */
 .audio-transcript {
   margin-top: 10px;
+  display: flex;
+  flex-direction: column;
   font-family: var(--mono);
   font-size: 0.92em;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
   color: var(--text);
 }
-
-/* Botón "transcribir" propio de cada audio del stage (lo cuelga stageItemHtml
-   en gallery.js). Discreto, alineado a la izquierda bajo el player; sólo lo ve
-   el dueño y desaparece al transcribir. */
-.gallery > .stage > .audio-transcribe-btn {
-  align-self: flex-start;
-  margin-top: 8px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  transition: color 120ms ease;
+.audio-transcript .transcript-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
-.gallery > .stage > .audio-transcribe-btn:hover { color: var(--accent); }
-.gallery > .stage > .audio-transcribe-btn:disabled { color: var(--muted); cursor: default; }
+/* "transcrito a las HH:MM": discreto, alineado a la derecha bajo el texto. */
+.audio-transcript .transcript-time {
+  align-self: flex-end;
+  margin-top: 2px;
+  font-size: 0.82em;
+  color: var(--muted);
+}
 
 /* Thumb para audio: cuadrado con el emoji de micro. Mismo tamaño que las
    otras thumbs (CSS de .thumb ya define el frame); aquí sólo se centra

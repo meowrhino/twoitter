@@ -11,6 +11,9 @@ export interface MediaRow {
   // Sólo se rellena para kind='audio' tras llamar a /transcribe.
   // NULL = aún no transcrito.
   transcript: string | null;
+  // Momento (ISO UTC) en que se transcribió. NULL si aún no. Lo pinta el front
+  // como "transcrito a las HH:MM".
+  transcribed_at: string | null;
   position: number;
 }
 
@@ -501,15 +504,25 @@ export async function getMediaById(
   return row ?? null;
 }
 
+// Guarda el texto + sella la hora (strftime, mismo formato que los created_at).
+// Devuelve el transcribed_at resultante para que el endpoint lo mande al cliente
+// sin re-consultar de más.
 export async function setMediaTranscript(
   db: D1Database,
   mediaId: number,
   transcript: string,
-): Promise<void> {
+): Promise<string | null> {
   await db
-    .prepare("UPDATE media SET transcript = ? WHERE id = ?")
+    .prepare(
+      "UPDATE media SET transcript = ?, transcribed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+    )
     .bind(transcript, mediaId)
     .run();
+  const row = await db
+    .prepare("SELECT transcribed_at FROM media WHERE id = ?")
+    .bind(mediaId)
+    .first<{ transcribed_at: string | null }>();
+  return row?.transcribed_at ?? null;
 }
 
 export async function deletePost(

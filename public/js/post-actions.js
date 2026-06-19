@@ -13,23 +13,52 @@ import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './inline-composer.js';
 import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
+import { readMedia } from './gallery-core.js';
+import { updateGalleryTranscript } from './gallery.js';
 
 // ----- render HTML de las barras -----
 
 // Barra única por thread (timeline / replies anidados). Renderiza los botones
-// disponibles según auth. (Transcribir ya NO vive aquí: es un botón por-audio
-// dentro de la galería, ver stageItemHtml en gallery.js — así cada nota de un
-// twoitt con varios audios se transcribe por separado.)
+// disponibles según auth. "transcribir" actúa sobre el audio que esté activo en
+// la galería del post (toggle entre audios → cada uno se transcribe por
+// separado); se muestra/oculta dinámicamente según ese audio
+// (refreshThreadTranscribeBtn).
 export function renderThreadActionsHtml() {
   const view = '<button class="vertwoitt-btn" type="button">ver twoitt</button>';
   const reply = isAuthed() ? '<button class="reply-btn" type="button">responder</button>' : '';
+  const transcribe = isAuthed()
+    ? '<button class="transcribe-btn" type="button" hidden>transcribir</button>'
+    : '';
   // ocultar/desocultar: per-navegador (localStorage), por eso disponibles sin
   // auth. Uno de los dos se muestra según el estado del .post.active vigente
   // (refreshThreadHideBtn). Por defecto se ofrece "ocultar".
   const hideBtn = '<button class="hide-btn" type="button">ocultar</button>';
   const unhideBtn = '<button class="unhide-btn" type="button" hidden>desocultar</button>';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  return `<div class="post-actions">${view}${reply}${hideBtn}${unhideBtn}${del}</div>`;
+  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${unhideBtn}${del}</div>`;
+}
+
+// El audio que la galería del post tiene AHORA en el stage (o null si el medio
+// activo no es audio / no hay galería). Lo usan refreshThreadTranscribeBtn y
+// doTranscribe para saber sobre qué nota actuar.
+function activeStageAudio(postEl) {
+  const gallery = postEl?.querySelector(':scope > .post-body .gallery');
+  if (!gallery) return null;
+  const stage = gallery.querySelector(':scope > .stage');
+  const idx = Number(stage?.dataset.index || 0);
+  const m = readMedia(gallery)[idx];
+  return m && m.kind === 'audio' ? { ...m, gallery } : null;
+}
+
+// Muestra "transcribir" en la barra del thread sólo si el audio activo del post
+// existe y aún no está transcrito. Se re-llama al activar un post (render.js) y
+// al cambiar de audio en la galería (evento twoitter:gallery-swapped).
+export function refreshThreadTranscribeBtn(postEl) {
+  const host = getThreadHost(postEl);
+  const btn = host?.querySelector(':scope > .post-actions .transcribe-btn');
+  if (!btn) return;
+  const audio = activeStageAudio(postEl);
+  btn.hidden = !(audio && !audio.transcript);
 }
 
 // ----- helpers de navegación por el árbol -----
@@ -59,9 +88,10 @@ function findLogicalParentPost(postEl) {
 //          cascada derecha→izquierda, sincronizada con el rail creciendo.
 //   --sc → índice desde la IZQUIERDA: cierre simétrico inverso (los de la
 //          izquierda se van primero) cuando el rail se recoge.
-// Se recalcula en cada activación porque "ocultar/desocultar" se muestra/oculta
-// según el target: contar sólo los visibles evita un hueco en mitad de la
-// cascada. Debe llamarse DESPUÉS de refreshThreadHideBtn (que fija qué se ve).
+// Se recalcula en cada activación porque "transcribir" y "ocultar/desocultar" se
+// muestran/ocultan según el target: contar sólo los visibles evita un hueco en
+// mitad de la cascada. Debe llamarse DESPUÉS de refreshThread{Transcribe,Hide}Btn
+// (que fijan qué se ve).
 export function staggerActionButtons(bar) {
   if (!bar) return;
   const btns = [...bar.children].filter((b) => b.tagName === 'BUTTON' && !b.hidden);
@@ -88,6 +118,30 @@ function openReplyComposer(targetEl, parentId) {
   // El rail lo gestiona la animación de apertura del composer (animateComposerOpen,
   // disparada vía microtask en makeInlineComposer): mientras el recuadro crece,
   // lockstepRail lo pega frame a frame. No hace falta repintar aquí.
+}
+
+// Transcribe el audio ACTIVO del post (el que esté en el stage de su galería).
+// En un twoitt con varias notas: toggle al audio que quieras → transcribir; cada
+// una se guarda por separado. Idempotente en backend (cacheado). Pinta el texto
+// + la hora bajo la nota y refresca el botón (se oculta si ya está transcrita).
+async function doTranscribe(postEl, btn) {
+  if (btn.disabled) return;
+  const audio = activeStageAudio(postEl);
+  if (!audio) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'transcribiendo…';
+  const { ok, data } = await api(`/api/media/${audio.id}/transcribe`, { method: 'POST' });
+  if (!ok || !data?.transcript) {
+    toast(data?.error || 'error al transcribir', 'error');
+    btn.disabled = false;
+    btn.textContent = original;
+    return;
+  }
+  updateGalleryTranscript(audio.gallery, audio.id, data.transcript, data.transcribed_at);
+  btn.disabled = false;
+  btn.textContent = original;
+  refreshThreadTranscribeBtn(postEl);
 }
 
 // Muestra "ocultar" o "desocultar" en la barra del thread según si el .post
@@ -182,10 +236,24 @@ function bindButtonsOnBar(bar, rules) {
 
 // ----- binds concretos -----
 
+// Al cambiar de audio en una galería (twoitter:gallery-swapped), "transcribir"
+// depende del nuevo audio activo → reevaluar. Sólo si ese post es el activo (la
+// barra es única por thread y refleja el .active). Listener global, una vez.
+let swapWired = false;
+function ensureGlobalListeners() {
+  if (swapWired) return;
+  swapWired = true;
+  document.addEventListener('twoitter:gallery-swapped', (e) => {
+    const postEl = e.detail?.gallery?.closest?.('.post');
+    if (postEl?.classList.contains('active')) refreshThreadTranscribeBtn(postEl);
+  });
+}
+
 // Thread bar: target dinámico (el .post.active vigente). Si el root del thread
 // es él mismo .active, querySelector no lo matchearía (sólo busca descendientes),
 // así que comprobamos el root explícitamente con .matches() antes.
 export function bindThreadActions(threadRootEl) {
+  ensureGlobalListeners();
   const bar = threadRootEl.querySelector(':scope > .post-actions');
   if (!bar) return;
   const target = () =>
@@ -204,6 +272,11 @@ export function bindThreadActions(threadRootEl) {
     '.reply-btn': () => {
       const t = target();
       if (t) openReplyComposer(t, t.dataset.id);
+    },
+    '.transcribe-btn': async (btn) => {
+      const t = target();
+      if (!t || btn.hidden) return;
+      await doTranscribe(t, btn);
     },
     '.hide-btn': () => {
       const t = target();

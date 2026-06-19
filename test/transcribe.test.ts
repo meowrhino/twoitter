@@ -144,6 +144,7 @@ describe('POST /api/media/:id/transcribe — flujo', () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, transcript: 'ya transcrito', cached: true });
+    expect(typeof body.transcribed_at).toBe('string'); // la hora se guardó al transcribir
     expect(ai.run).not.toHaveBeenCalled(); // cache hit → no llama a Whisper
   });
 
@@ -180,6 +181,9 @@ describe('POST /api/media/:id/transcribe — flujo', () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, transcript: 'hola mundo', cached: false }); // .trim()
+    // sella la hora y la devuelve (ISO UTC)
+    expect(typeof body.transcribed_at).toBe('string');
+    expect(body.transcribed_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     // Whisper recibió el audio como STRING base64 + language 'es'.
     expect(ai.run).toHaveBeenCalledTimes(1);

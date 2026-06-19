@@ -27,6 +27,7 @@ import {
 import {
   renderThreadActionsHtml,
   bindThreadActions,
+  refreshThreadTranscribeBtn,
   refreshThreadHideBtn,
   staggerActionButtons,
 } from './post-actions.js';
@@ -104,8 +105,9 @@ function bindPostClickToNavigate(postEl, p) {
       if (el !== postEl) el.classList.remove('active');
     });
     postEl.classList.add('active');
-    // refreshThreadHideBtn ANTES de sync: fija qué botones se ven, para que
+    // refreshThread*Btn ANTES de sync: fijan qué botones se ven, para que
     // staggerActionButtons (dentro de sync) cuente sólo los visibles.
+    refreshThreadTranscribeBtn(postEl);
     refreshThreadHideBtn(postEl);
     syncThreadActiveFlags();
   };
@@ -161,10 +163,11 @@ export function focusPostFromHash(behavior = 'smooth') {
     if (other !== el) other.classList.remove('active');
   });
   el.classList.add('active');
-  // refreshThreadHideBtn ANTES de sync (igual que bindPostClickToNavigate): fija
+  // refreshThread*Btn ANTES de sync (igual que bindPostClickToNavigate): fijan
   // qué botones se ven para que staggerActionButtons cuente solo los visibles.
   // Sin esto, un post alcanzado por /#id mostraba "ocultar" estando ya oculto
   // (la barra es única por thread y conserva el estado de la activación anterior).
+  refreshThreadTranscribeBtn(el);
   refreshThreadHideBtn(el);
   syncThreadActiveFlags();
 }

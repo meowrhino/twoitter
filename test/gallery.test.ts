@@ -67,8 +67,8 @@ describe('renderPostGallery', () => {
     ] as any));
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed).toEqual([
-      { k: 'image', r: 'a.jpg', t: null, id: null, tr: null },
-      { k: 'video', r: 'v.mp4', t: 't.jpg', id: null, tr: null },
+      { k: 'image', r: 'a.jpg', t: null, id: null, tr: null, tr_at: null },
+      { k: 'video', r: 'v.mp4', t: 't.jpg', id: null, tr: null, tr_at: null },
     ]);
   });
 
@@ -114,16 +114,19 @@ describe('renderPostGallery', () => {
     expect(tr.hidden).toBe(true);
   });
 
-  it('updateGalleryTranscript(mediaId) rellena el bloque del audio activo y su data-media', () => {
+  it('updateGalleryTranscript(mediaId) rellena texto + hora del audio activo y su data-media', () => {
     const el = mount(renderPostGallery([
       { kind: 'audio', r2_key: 'n.webm', id: 7 },
     ] as any));
-    updateGalleryTranscript(el, 7, 'transcripción nueva');
+    updateGalleryTranscript(el, 7, 'transcripción nueva', '2026-06-19T19:05:00.000Z');
     const tr = el.querySelector('.audio-transcript') as HTMLElement;
-    expect(tr.textContent).toBe('transcripción nueva');
     expect(tr.hidden).toBe(false);
+    expect(tr.querySelector('.transcript-text')!.textContent).toBe('transcripción nueva');
+    // "transcrito a las HH:MM" en hora local (sea cual sea la TZ del runner).
+    expect(tr.querySelector('.transcript-time')!.textContent).toMatch(/^transcrito a las \d{2}:\d{2}$/);
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed[0].tr).toBe('transcripción nueva');
+    expect(parsed[0].tr_at).toBe('2026-06-19T19:05:00.000Z');
   });
 
   it('updateGalleryTranscript sólo toca el audio con ese id (no pisa a los demás)', () => {
@@ -131,10 +134,11 @@ describe('renderPostGallery', () => {
       { kind: 'audio', r2_key: 'a.webm', id: 1 },
       { kind: 'audio', r2_key: 'b.webm', id: 2 },
     ] as any));
-    updateGalleryTranscript(el, 2, 'sólo el segundo');
+    updateGalleryTranscript(el, 2, 'sólo el segundo', '2026-06-19T19:05:00.000Z');
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed[0].tr).toBe(null); // audio 1 intacto
     expect(parsed[1].tr).toBe('sólo el segundo');
+    expect(parsed[1].tr_at).toBe('2026-06-19T19:05:00.000Z');
   });
 });
 

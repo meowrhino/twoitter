@@ -30,11 +30,31 @@ import { escapeHtml } from './utils.js';
 //     "transcribir" pueda rellenarlo in-place sin recrear DOM.
 //   - `src: string | undefined`. Si llega, se usa tal cual (caso composer
 //     con blob: URL). Si no, se construye `/r2/${r2_key}` como antes.
-export function audioPlayerMarkup({ r2_key, transcript, src } = {}) {
+// "21:32" en hora LOCAL a partir del ISO UTC guardado. '' si no hay/!válida.
+export function fmtTranscribedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Contenido interno del bloque .audio-transcript: el texto y, si hay hora, una
+// línea "transcrito a las HH:MM" (la CSS la alinea a la derecha bajo el texto).
+// Compartido por audioPlayerMarkup (render inicial) y updateGalleryTranscript
+// (tras transcribir en caliente) para que ambos pinten igual.
+export function transcriptInnerHtml(transcript, transcribedAt) {
+  const text = `<span class="transcript-text">${escapeHtml(transcript || '')}</span>`;
+  const hhmm = fmtTranscribedAt(transcribedAt);
+  const time = hhmm
+    ? `<span class="transcript-time" title="${escapeHtml(transcribedAt)}">transcrito a las ${hhmm}</span>`
+    : '';
+  return text + time;
+}
+
+export function audioPlayerMarkup({ r2_key, transcript, transcribedAt, src } = {}) {
   const audioSrc = src ? escapeHtml(src) : `/r2/${escapeHtml(r2_key)}`;
-  const tr = transcript ? escapeHtml(transcript) : '';
-  const trBlock = tr
-    ? `<div class="audio-transcript" data-transcript="1">${tr}</div>`
+  const trBlock = transcript
+    ? `<div class="audio-transcript" data-transcript="1">${transcriptInnerHtml(transcript, transcribedAt)}</div>`
     : `<div class="audio-transcript" data-transcript="0" hidden></div>`;
   return `<div class="audio-player" data-state="paused">
     <button class="ap-play" type="button" aria-label="reproducir">

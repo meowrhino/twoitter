@@ -475,7 +475,12 @@ app.post("/api/media/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e
 
   // Cache: si ya transcribimos, devolver sin tocar el modelo.
   if (media.transcript) {
-    return c.json({ ok: true, transcript: media.transcript, cached: true });
+    return c.json({
+      ok: true,
+      transcript: media.transcript,
+      transcribed_at: media.transcribed_at,
+      cached: true,
+    });
   }
 
   const obj = await c.env.STORAGE.get(media.r2_key);
@@ -518,8 +523,8 @@ app.post("/api/media/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e
     return c.json({ error: "transcripción vacía" }, 422);
   }
 
-  await setMediaTranscript(c.env.DB, media.id, transcript);
-  return c.json({ ok: true, transcript, cached: false });
+  const transcribed_at = await setMediaTranscript(c.env.DB, media.id, transcript);
+  return c.json({ ok: true, transcript, transcribed_at, cached: false });
 });
 
 // Votar en una encuesta. Público (no requireAuth) — los visitantes anónimos

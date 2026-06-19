@@ -14,10 +14,9 @@
 // pinten frames de medios intermedios. Todo el wiring vive en setupGallery() y
 // usa delegación global desde document → sobrevive a re-renders del feed.
 
-import { escapeHtml, toast } from './utils.js';
-import { api } from './api.js';
-import { isAuthed } from './auth.js';
+import { escapeHtml } from './utils.js';
 import { mediaItemHtml, readMedia, preloadImage, crossfadeSwap } from './gallery-core.js';
+import { transcriptInnerHtml } from './audio-player.js';
 import { openLightbox, lightboxMediaFrom, setupLightbox } from './lightbox.js';
 
 // ----- templates (sin side effects) -----
@@ -45,26 +44,11 @@ function thumbHtml(m, index, active) {
   </button>`;
 }
 
-// Contenido del stage para un media. Para audio sin transcript y con sesión
-// (sólo el dueño gasta cuota de Whisper) añade un botón "transcribir" propio de
-// ESE audio (data-mid = media id). Así un twoitt con varias notas se transcribe
-// una a una (cada audio activo en el stage muestra el suyo). El player + el
-// bloque .audio-transcript los pone mediaItemHtml/audioPlayerMarkup; aquí sólo
-// colgamos el botón detrás. NO se mete en audioPlayerMarkup porque ese markup
-// lo comparten el composer (audio aún sin guardar) y el lightbox.
-function stageItemHtml(m) {
-  const base = mediaItemHtml(m);
-  if (m.kind === 'audio' && !m.transcript && isAuthed() && m.id != null) {
-    return `${base}<button class="audio-transcribe-btn" type="button" data-mid="${m.id}">transcribir</button>`;
-  }
-  return base;
-}
-
 // Punto de entrada usado por render.js. Devuelve el HTML completo de la
 // galería. data-media lleva la lista entera (en JSON corto) para que el
 // swap del stage y el lightbox no tengan que reconstruirla. Para audio,
-// llevamos también el id (para transcribir el audio concreto) y el transcript
-// ya cacheado (o null si aún no se llamó a /transcribe).
+// llevamos también el id (para transcribir el audio concreto), el transcript
+// ya cacheado (o null) y su hora (tr_at) para pintar "transcrito a las HH:MM".
 export function renderPostGallery(media) {
   if (!media || media.length === 0) return '';
   const payload = media.map((m) => ({
@@ -73,9 +57,10 @@ export function renderPostGallery(media) {
     t: m.thumb_key || null,
     id: m.id ?? null,
     tr: m.kind === 'audio' ? (m.transcript || null) : null,
+    tr_at: m.kind === 'audio' ? (m.transcribed_at || null) : null,
   }));
   const dataAttr = escapeHtml(JSON.stringify(payload));
-  const stage = `<div class="stage" data-index="0">${stageItemHtml(media[0])}</div>`;
+  const stage = `<div class="stage" data-index="0">${mediaItemHtml(media[0])}</div>`;
   const thumbs = media.length > 1
     ? `<div class="thumbs" role="tablist">${media.map((m, i) => thumbHtml(m, i, i === 0)).join('')}</div>`
     : '';
@@ -87,7 +72,7 @@ export function renderPostGallery(media) {
 // ya cacheado y no vuelva a ofrecer el botón. Si ese audio es además el que está
 // en el stage ahora mismo, inyecta su bloque de transcript en sitio (sin recrear
 // el <audio>, para no cortar el playback).
-export function updateGalleryTranscript(galleryEl, mediaId, transcript) {
+export function updateGalleryTranscript(galleryEl, mediaId, transcript, transcribedAt) {
   if (!galleryEl) return;
   const idNum = Number(mediaId);
   const arr = readMedia(galleryEl);
@@ -95,6 +80,7 @@ export function updateGalleryTranscript(galleryEl, mediaId, transcript) {
   for (const m of arr) {
     if (m.kind === 'audio' && m.id === idNum && !m.transcript) {
       m.transcript = transcript;
+      m.transcribed_at = transcribedAt || null;
       changed = true;
     }
   }
@@ -102,9 +88,11 @@ export function updateGalleryTranscript(galleryEl, mediaId, transcript) {
   galleryEl.dataset.media = JSON.stringify(arr.map((m) => ({
     k: m.kind, r: m.r2_key, t: m.thumb_key || null, id: m.id ?? null,
     tr: m.kind === 'audio' ? (m.transcript || null) : null,
+    tr_at: m.kind === 'audio' ? (m.transcribed_at || null) : null,
   })));
-  // ¿El stage muestra justo este audio? (la transcripción se dispara desde su
-  // propio botón, así que casi siempre sí). Rellenar su bloque in situ.
+  // ¿El stage muestra justo este audio? (la transcripción se dispara con ese
+  // audio activo, así que casi siempre sí). Rellenar su bloque in situ (texto +
+  // "transcrito a las HH:MM") sin recrear el <audio> → no corta el playback.
   const stage = galleryEl.querySelector(':scope > .stage');
   const stageIdx = Number(stage?.dataset.index || 0);
   if (stage?.querySelector('audio') && arr[stageIdx]?.id === idNum) {
@@ -114,7 +102,7 @@ export function updateGalleryTranscript(galleryEl, mediaId, transcript) {
       block.className = 'audio-transcript';
       stage.appendChild(block);
     }
-    block.textContent = transcript;
+    block.innerHTML = transcriptInnerHtml(transcript, transcribedAt);
     block.dataset.transcript = '1';
     block.hidden = false;
   }
@@ -149,32 +137,14 @@ export async function swapStage(galleryEl, index) {
     isCurrent: () => galleryNav.get(galleryEl) === myNav,
     paint: () => {
       stage.dataset.index = String(index);
-      stage.innerHTML = stageItemHtml(m);
+      stage.innerHTML = mediaItemHtml(m);
     },
   });
-}
-
-// Pide a Whisper la transcripción de UN audio (por media id) y la pinta bajo su
-// player. Idempotente en backend (si ya estaba, devuelve la cacheada). El botón
-// es por-audio, así que en un twoitt con varias notas cada una se transcribe y
-// guarda por separado.
-async function transcribeAudio(btn) {
-  if (btn.disabled) return;
-  const mid = btn.dataset.mid;
-  if (!mid) return;
-  btn.disabled = true;
-  const original = btn.textContent;
-  btn.textContent = 'transcribiendo…';
-  const { ok, data } = await api(`/api/media/${mid}/transcribe`, { method: 'POST' });
-  if (!ok || !data?.transcript) {
-    toast(data?.error || 'error al transcribir', 'error');
-    btn.disabled = false;
-    btn.textContent = original;
-    return;
-  }
-  const gallery = btn.closest('.gallery');
-  updateGalleryTranscript(gallery, mid, data.transcript);
-  btn.remove(); // ya transcrito: fuera el botón (el bloque de texto ya se ve)
+  // El botón "transcribir" de la barra del thread depende del audio activo del
+  // stage; al cambiar de medio, que se reevalúe (lo escucha post-actions.js).
+  document.dispatchEvent(
+    new CustomEvent('twoitter:gallery-swapped', { detail: { gallery: galleryEl } }),
+  );
 }
 
 // ----- wiring global (idempotente) -----
@@ -188,13 +158,6 @@ export function setupGallery() {
   setupLightbox();
 
   document.addEventListener('click', (e) => {
-    // botón "transcribir" de un audio del stage → transcribe ESA nota
-    const trBtn = e.target.closest('.gallery .audio-transcribe-btn');
-    if (trBtn) {
-      e.stopPropagation();
-      transcribeAudio(trBtn);
-      return;
-    }
     // thumb → cambiar de stage
     const thumb = e.target.closest('.gallery > .thumbs > .thumb');
     if (thumb) {

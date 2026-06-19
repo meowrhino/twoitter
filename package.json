@@ -22,6 +22,8 @@
     "db:migrate:005:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/005_add_places.sql",
     "db:migrate:006": "wrangler d1 execute twoitter-db --local --file=migrations/006_add_place_owner.sql",
     "db:migrate:006:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/006_add_place_owner.sql",
+    "db:migrate:007": "wrangler d1 execute twoitter-db --local --file=migrations/007_add_transcribed_at.sql",
+    "db:migrate:007:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/007_add_transcribed_at.sql",
     "r2:create": "wrangler r2 bucket create twoitter-storage"
   },
   "dependencies": {

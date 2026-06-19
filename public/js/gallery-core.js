@@ -27,7 +27,11 @@ export function mediaItemHtml(m) {
   if (m.kind === 'audio') {
     // Markup + lógica del player viven en audio-player.js. Aquí solo
     // delegamos; cambiar la apariencia del player o el ARIA se hace allí.
-    return audioPlayerMarkup({ r2_key: m.r2_key, transcript: m.transcript });
+    return audioPlayerMarkup({
+      r2_key: m.r2_key,
+      transcript: m.transcript,
+      transcribedAt: m.transcribed_at,
+    });
   }
   const poster = m.thumb_key ? ` poster="/r2/${escapeHtml(m.thumb_key)}"` : '';
   return `<video src="/r2/${src}" controls preload="metadata"${poster} playsinline></video>`;
@@ -36,7 +40,7 @@ export function mediaItemHtml(m) {
 export function readMedia(galleryEl) {
   try {
     const arr = JSON.parse(galleryEl.dataset.media || '[]');
-    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, id: m.id ?? null, transcript: m.tr || null }));
+    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, id: m.id ?? null, transcript: m.tr || null, transcribed_at: m.tr_at || null }));
   } catch { return []; }
 }
 

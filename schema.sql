@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS media (
     -- NULL = aún no transcrito; cuando hay valor, el frontend lo muestra y no
     -- vuelve a llamar al modelo.
     transcript TEXT,
+    -- transcribed_at: hora (ISO UTC) en que se transcribió. NULL si aún no.
+    transcribed_at TEXT,
     position INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );

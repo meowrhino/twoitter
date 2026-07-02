@@ -36,7 +36,7 @@ function makeLyricsRow() {
       <input type="text" class="lyrics-label" maxlength="${LYRICS_LIMITS.labelLen}" placeholder="idioma / versión (ej. original, romaji, english)" />
       <button type="button" class="lyrics-remove composer-row-remove" aria-label="quitar idioma" hidden>×</button>
     </div>
-    <textarea class="lyrics-text" maxlength="${LYRICS_LIMITS.textLen}" placeholder="pega aquí la letra en este idioma…"></textarea>
+    <textarea class="lyrics-text" maxlength="${LYRICS_LIMITS.textLen}" placeholder="pega aquí los chords en este idioma…"></textarea>
   `;
   return row;
 }

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import app from '../src/index';
 import { makeTestDb } from './helpers/d1';
 import { makeToken } from '../src/auth';
-import { createPost, createPoll } from '../src/db';
+import { attachMedia, createPost, createPoll } from '../src/db';
 
 const SECRET = 'test-secret-1234567890';
 const okLimiter = { limit: async () => ({ success: true }) };
@@ -208,6 +208,84 @@ describe('PATCH / DELETE /api/places/:id', () => {
     expect(del.status).toBe(200);
     const again = await app.request(`/api/places/${id}`, { method: 'DELETE', headers: { 'x-twoitter-csrf': '1', cookie: await authCookie() } }, env);
     expect(again.status).toBe(404);
+  });
+});
+
+describe('PATCH /api/posts/:id (editar texto)', () => {
+  it('401 sin auth', async () => {
+    const p = await createPost(db, 'original', null);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1' },
+      body: JSON.stringify({ text: 'editado' }),
+    }, env);
+    expect(res.status).toBe(401);
+  });
+
+  it('403 sin header CSRF', async () => {
+    const p = await createPost(db, 'original', null);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', cookie: await authCookie() },
+      body: JSON.stringify({ text: 'editado' }),
+    }, env);
+    expect(res.status).toBe(403);
+  });
+
+  it('200: actualiza el texto, sella edited_at y re-sincroniza hashtags', async () => {
+    const p = await createPost(db, 'original #uno', null);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ text: 'editado #dos' }),
+    }, env);
+    expect(res.status).toBe(200);
+    const updated = await res.json();
+    expect(updated.text).toBe('editado #dos');
+    expect(updated.edited_at).toEqual(expect.any(String));
+    expect(updated.hashtags).toEqual(['dos']);
+  });
+
+  it('400 si el texto queda vacío y el post no tiene media/poll/lyrics', async () => {
+    const p = await createPost(db, 'original', null);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ text: '   ' }),
+    }, env);
+    expect(res.status).toBe(400);
+  });
+
+  it('permite vaciar el texto si el post tiene media', async () => {
+    const p = await createPost(db, 'con imagen', null);
+    await attachMedia(db, p.id, [{ kind: 'image', r2_key: 'k1', thumb_key: null, width: null, height: null }]);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ text: '' }),
+    }, env);
+    expect(res.status).toBe(200);
+    const updated = await res.json();
+    expect(updated.text).toBeNull();
+  });
+
+  it('400 texto > 4000 caracteres', async () => {
+    const p = await createPost(db, 'original', null);
+    const res = await app.request(`/api/posts/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ text: 'x'.repeat(4001) }),
+    }, env);
+    expect(res.status).toBe(400);
+  });
+
+  it('404 post inexistente', async () => {
+    const res = await app.request('/api/posts/999999', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
+      body: JSON.stringify({ text: 'editado' }),
+    }, env);
+    expect(res.status).toBe(404);
   });
 });
 

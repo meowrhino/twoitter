@@ -29,6 +29,7 @@ import {
   restorePost,
   setMediaTranscript,
   updatePlace,
+  updatePostText,
 } from "./db";
 import { syncHashtags } from "./hashtags";
 import {
@@ -516,6 +517,35 @@ app.post("/api/posts", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LI
   const voterId = await readVoterId(c);
   const full = await getPost(c.env.DB, postId, voterId);
   return c.json(full, 201);
+});
+
+// Editar el texto de un post existente. Misma validación que el create (trim,
+// máx 4000, vacío solo permitido si el post ya tiene media/poll/lyrics). Sella
+// edited_at y re-sincroniza hashtags por si el texto cambió los #tags.
+app.patch("/api/posts/:id", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LIMITER), async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
+  let body: { text?: string | null };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "json invalido" }, 400);
+  }
+  const existing = await getPost(c.env.DB, id);
+  if (!existing) return c.json({ error: "no encontrado" }, 404);
+
+  const text = (body.text ?? "").trim() || null;
+  const hasOtherContent = existing.media.length > 0 || !!existing.poll || !!existing.lyrics;
+  if (!text && !hasOtherContent) return c.json({ error: "post vacio" }, 400);
+  if (text && text.length > 4000) return c.json({ error: "texto demasiado largo" }, 400);
+
+  const updated = await updatePostText(c.env.DB, id, text);
+  if (!updated) return c.json({ error: "no encontrado" }, 404);
+  await syncHashtags(c.env.DB, id, text);
+
+  const voterId = await readVoterId(c);
+  const full = await getPost(c.env.DB, id, voterId);
+  return c.json(full);
 });
 
 app.delete("/api/posts/:id", requireAuth(), requireCsrf(), async (c) => {

@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS posts (
     location TEXT,
     lat REAL,
     lng REAL,
+    -- edited_at: NULL = nunca editado; ISO timestamp de la última edición
+    -- (mismo formato que created_at). El frontend muestra un sello "editado el...".
+    edited_at TEXT,
     FOREIGN KEY (parent_id) REFERENCES posts(id)
 );
 
@@ -127,3 +130,5 @@ CREATE INDEX IF NOT EXISTS idx_poll_votes_option ON poll_votes(option_id);
 --   npm run db:migrate:005:remote  (prod)
 --   npm run db:migrate:008         (local)   -- añade las tablas de lyrics
 --   npm run db:migrate:008:remote  (prod)
+--   npm run db:migrate:010         (local)   -- añade posts.edited_at
+--   npm run db:migrate:010:remote  (prod)

@@ -12,6 +12,7 @@
 
 import { fmt, hoursAgo, escapeHtml, linkify } from './utils.js';
 import { renderPostGallery } from './gallery.js';
+import { fmtTranscribedAt } from './audio-player.js';
 import { renderPoll, bindPollActions } from './render-poll.js';
 import { renderLyrics, bindLyricsActions } from './render-lyrics.js';
 import { isHidden, markPostHidden } from './hidden.js';
@@ -73,6 +74,16 @@ function renderLocation(p) {
     return `<a class="post-loc" href="${url}" target="_blank" rel="noopener noreferrer">📍 ${label}</a>`;
   }
   return `<span class="post-loc">📍 ${label}</span>`;
+}
+
+// Sello "editado el ...", mismo formato/estilo que el de transcripción
+// (fmtTranscribedAt). Se deja SIEMPRE el nodo (oculto si nunca se editó) para
+// que post-actions.js pueda rellenarlo in-place tras un PATCH sin re-renderizar
+// todo el post.
+function renderPostEdited(p) {
+  if (!p.edited_at) return '<div class="post-edited" hidden></div>';
+  const when = fmtTranscribedAt(p.edited_at);
+  return `<div class="post-edited" title="${escapeHtml(p.edited_at)}">editado el ${when}</div>`;
 }
 
 // ----- encuesta -----
@@ -246,10 +257,14 @@ export function renderPost(p, { topLevel = true } = {}) {
   el.dataset.id = p.id;
   // source of truth para updateReplyCount tras add/delete
   el.dataset.replyCount = String(p.reply_count || 0);
+  // Texto crudo (sin linkify) para prefiller el textarea de "editar" y para
+  // actualizar el DOM in-place tras guardar, sin re-renderizar el post.
+  el.dataset.text = p.text || '';
   el.innerHTML = `
     <div class="post-body">
       ${topLevel ? renderReplyContext(p.parent_excerpt) : ''}
       <div class="post-text">${linkify(p.text || '')}</div>
+      ${renderPostEdited(p)}
       ${renderPoll(p.poll)}
       ${renderLyrics(p.lyrics)}
       ${renderPostGallery(p.media)}

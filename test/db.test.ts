@@ -7,6 +7,7 @@ import { makeTestDb } from './helpers/d1';
 import {
   attachMedia,
   createPost,
+  getAudioMediaForPost,
   getPost,
   listPosts,
   getReplies,
@@ -22,6 +23,7 @@ import {
   findNearbyPlace,
   updatePlace,
   deletePlace,
+  setMediaTranscript,
 } from '../src/db';
 import { syncHashtags } from '../src/hashtags';
 
@@ -193,6 +195,30 @@ describe('listPosts (carrete plano)', () => {
     const huge = 'z'.repeat(300);
     const { posts } = await listPosts(db, { limit: 50, q: huge });
     expect(posts).toHaveLength(0);
+  });
+
+  it('un match SOLO en un bloque de letras saca el post', async () => {
+    const withLyrics = await createPost(db, 'una canción', null);
+    await createLyrics(db, withLyrics.id, null, [{ label: 'original', text: 'palabras clandestinas' }]);
+    const other = await createPost(db, 'otro post cualquiera', null);
+    const { posts } = await listPosts(db, { limit: 50, q: 'clandestin' });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(withLyrics.id);
+    expect(ids).not.toContain(other.id);
+  });
+
+  it('un match SOLO en la transcripción de un audio saca el post', async () => {
+    const withAudio = await createPost(db, 'nota de voz', null);
+    await attachMedia(db, withAudio.id, [
+      { kind: 'audio', r2_key: 'a.webm', thumb_key: null, width: null, height: null },
+    ]);
+    const media = await getAudioMediaForPost(db, withAudio.id);
+    await setMediaTranscript(db, media!.id, 'un secreto susurrado');
+    const other = await createPost(db, 'otro post cualquiera', null);
+    const { posts } = await listPosts(db, { limit: 50, q: 'susurr' });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(withAudio.id);
+    expect(ids).not.toContain(other.id);
   });
 });
 

@@ -26,6 +26,8 @@
     "db:migrate:007:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/007_add_transcribed_at.sql",
     "db:migrate:008": "wrangler d1 execute twoitter-db --local --file=migrations/008_add_lyrics.sql",
     "db:migrate:008:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/008_add_lyrics.sql",
+    "db:migrate:010": "wrangler d1 execute twoitter-db --local --file=migrations/010_add_edited_at.sql",
+    "db:migrate:010:remote": "wrangler d1 execute twoitter-db --remote --file=migrations/010_add_edited_at.sql",
     "r2:create": "wrangler r2 bucket create twoitter-storage"
   },
   "dependencies": {

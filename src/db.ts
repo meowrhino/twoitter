@@ -29,6 +29,9 @@ export interface PostRow {
   location?: string | null;
   lat?: number | null;
   lng?: number | null;
+  // Sello de última edición (ISO UTC), o null si nunca se editó. El frontend
+  // lo pinta como "editado el ...".
+  edited_at?: string | null;
 }
 
 export interface PollOptionPublic {
@@ -426,8 +429,13 @@ export async function listPosts(
     // Cap defensivo: TRUNCAR a 200, no descartar el filtro — si no, una q más
     // larga devolvía el feed ENTERO. Escapar wildcards LIKE (% y _ → literales).
     const escaped = opts.q.slice(0, 200).replace(/[\\%_]/g, "\\$&");
-    conds.push("p.text LIKE ? ESCAPE '\\'");
-    args.push(`%${escaped}%`);
+    const pattern = `%${escaped}%`;
+    // Además del texto del post, busca en los bloques de letras y en las
+    // transcripciones de audio — un match ahí también debe sacar el post.
+    conds.push(
+      "(p.text LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM lyrics_blocks lb WHERE lb.post_id = p.id AND lb.text LIKE ? ESCAPE '\\') OR EXISTS (SELECT 1 FROM media m2 WHERE m2.post_id = p.id AND m2.transcript LIKE ? ESCAPE '\\'))",
+    );
+    args.push(pattern, pattern, pattern);
   }
   if (opts.cursor) {
     // cursor encodes (created_at|id) to break ties on same-second posts
@@ -532,6 +540,23 @@ export async function createPost(
     .bind(text, parentId, location, lat, lng)
     .first<PostRow>();
   return row!;
+}
+
+// Actualiza el texto de un post ya existente y sella edited_at (mismo formato
+// que created_at). false si el post no existe o está borrado — el caller
+// responde 404.
+export async function updatePostText(
+  db: D1Database,
+  id: number,
+  text: string | null,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      "UPDATE posts SET text = ?, edited_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND deleted_at IS NULL",
+    )
+    .bind(text, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function attachMedia(

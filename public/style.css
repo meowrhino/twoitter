@@ -812,6 +812,34 @@ body.sidebar-hidden .side-col { display: none; }
 }
 .post-text:empty { display: none; }
 
+/* "editado el ...": mismo estilo discreto que .transcript-time. */
+.post-edited {
+  text-align: right;
+  margin-top: -8px;
+  margin-bottom: 12px;
+  font-size: 0.82em;
+  color: var(--muted);
+}
+
+/* Bloque de edición inline (textarea + guardar/cancelar), sustituye a
+   .post-text mientras se edita. Mismas clases que .reply-inline. */
+.edit-inline { margin-bottom: 12px; }
+.edit-inline .edit-textarea { min-height: 44px; }
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+.edit-actions .link-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+.edit-actions .link-btn:hover { color: var(--accent); }
+
 .thread { margin-bottom: 56px; }
 /* anidamiento infinito: cada nivel suma sangría y un 4% menos de tamaño.
    ya no necesitamos línea aquí — cada .post lleva su propio rail. */
@@ -1738,8 +1766,8 @@ button.poll-option:focus-visible {
   background: rgba(232, 176, 74, 0.08);
 }
 .lyrics-panel {
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
+  overflow-x: auto;
   line-height: 1.6;
   padding: 10px 12px;
   background: var(--bg-warm);

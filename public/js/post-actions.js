@@ -8,13 +8,14 @@
 // Este archivo se queda con la tercera. render.js le delega via imports.
 
 import { api } from './api.js';
-import { toast } from './utils.js';
+import { toast, escapeHtml, linkify } from './utils.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './inline-composer.js';
 import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
 import { readMedia } from './gallery-core.js';
 import { updateGalleryTranscript } from './gallery.js';
+import { fmtTranscribedAt } from './audio-player.js';
 
 // ----- render HTML de las barras -----
 
@@ -34,8 +35,9 @@ export function renderThreadActionsHtml() {
   // (refreshThreadHideBtn). Por defecto se ofrece "ocultar".
   const hideBtn = '<button class="hide-btn" type="button">ocultar</button>';
   const unhideBtn = '<button class="unhide-btn" type="button" hidden>desocultar</button>';
+  const edit = isAuthed() ? '<button class="edit-btn" type="button">editar</button>' : '';
   const del = isAuthed() ? '<button class="delete-btn" type="button">borrar</button>' : '';
-  return `<div class="post-actions">${view}${reply}${transcribe}${hideBtn}${unhideBtn}${del}</div>`;
+  return `<div class="post-actions">${view}${reply}${transcribe}${edit}${hideBtn}${unhideBtn}${del}</div>`;
 }
 
 // El audio que la galería del post tiene AHORA en el stage (o null si el medio
@@ -185,6 +187,87 @@ function doUnhide(targetEl) {
   toast('post visible de nuevo', 'info');
 }
 
+// ----- editar (texto inline) -----
+
+function findPostText(targetEl) {
+  return targetEl.querySelector(':scope > .post-body > .post-text');
+}
+
+function findPostEdited(targetEl) {
+  return targetEl.querySelector(':scope > .post-body > .post-edited');
+}
+
+// Rellena/actualiza in-place el sello "editado el ..." tras un PATCH, sin
+// re-renderizar el post (mismo patrón que updateGalleryTranscript).
+function updatePostEditedStamp(targetEl, editedAt) {
+  const stamp = findPostEdited(targetEl);
+  if (!stamp || !editedAt) return;
+  stamp.hidden = false;
+  stamp.title = editedAt;
+  stamp.textContent = `editado el ${fmtTranscribedAt(editedAt)}`;
+}
+
+function closeEditBox(targetEl) {
+  const box = targetEl.querySelector(':scope > .post-body > .edit-inline');
+  if (box) box.remove();
+  const textEl = findPostText(targetEl);
+  if (textEl) textEl.hidden = false;
+}
+
+// Convierte .post-text en un textarea editable con guardar/cancelar. Toggle-off
+// si ya había uno abierto en este post (mismo patrón que openReplyComposer).
+function openEdit(targetEl) {
+  const existing = targetEl.querySelector(':scope > .post-body > .edit-inline');
+  if (existing) { closeEditBox(targetEl); return; }
+  const textEl = findPostText(targetEl);
+  if (!textEl) return;
+
+  const box = document.createElement('div');
+  box.className = 'edit-inline';
+  box.innerHTML = `
+    <textarea class="edit-textarea">${escapeHtml(targetEl.dataset.text || '')}</textarea>
+    <div class="edit-actions">
+      <button type="button" class="edit-cancel link-btn">cancelar</button>
+      <button type="button" class="edit-save btn-primary">guardar</button>
+    </div>
+  `;
+  textEl.hidden = true;
+  textEl.after(box);
+
+  const textarea = box.querySelector('.edit-textarea');
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  box.querySelector('.edit-cancel').addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeEditBox(targetEl);
+  });
+  box.querySelector('.edit-save').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await saveEdit(targetEl, box, textarea);
+  });
+}
+
+async function saveEdit(targetEl, box, textarea) {
+  const saveBtn = box.querySelector('.edit-save');
+  if (saveBtn.disabled) return;
+  saveBtn.disabled = true;
+  const { ok, data } = await api(`/api/posts/${targetEl.dataset.id}`, {
+    method: 'PATCH',
+    body: { text: textarea.value },
+  });
+  if (!ok || !data) {
+    toast(data?.error || 'error al editar', 'error');
+    saveBtn.disabled = false;
+    return;
+  }
+  targetEl.dataset.text = data.text || '';
+  const textEl = findPostText(targetEl);
+  if (textEl) textEl.innerHTML = linkify(data.text || '');
+  updatePostEditedStamp(targetEl, data.edited_at);
+  closeEditBox(targetEl);
+}
+
 async function doDelete(targetEl) {
   if (!confirm('¿borrar este post?')) return;
   // capturar parent + thread root ANTES del DOM removal — closest() no
@@ -277,6 +360,10 @@ export function bindThreadActions(threadRootEl) {
       const t = target();
       if (!t || btn.hidden) return;
       await doTranscribe(t, btn);
+    },
+    '.edit-btn': () => {
+      const t = target();
+      if (t) openEdit(t);
     },
     '.hide-btn': () => {
       const t = target();

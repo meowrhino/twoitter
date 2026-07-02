@@ -20,6 +20,7 @@
 // AudioContext o el formato no decodifica (p.ej. webm de escritorio en iPhone).
 
 import { escapeHtml } from './utils.js';
+import { isAuthed } from './auth.js';
 
 // Devuelve el HTML de un player + (si lo hay) bloque de transcripción. El
 // caller decide dónde insertarlo. r2_key se interpola en el src del <audio>
@@ -45,23 +46,42 @@ export function fmtTranscribedAt(iso) {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()} a las ${hh}:${mm}`;
 }
 
-// Contenido interno del bloque .audio-transcript: el texto y, si hay fecha, una
-// línea "transcrito el 19 de junio de 2026 a las 22:25" (la CSS la alinea a la
-// derecha bajo el texto). Compartido por audioPlayerMarkup (render inicial) y
-// updateGalleryTranscript (tras transcribir en caliente) para que pinten igual.
-export function transcriptInnerHtml(transcript, transcribedAt) {
+// Contenido interno del bloque .audio-transcript: el texto, el sello de fecha
+// (transcrito el ... [· corregido el ...] si se corrigió a mano) y, debajo,
+// las acciones disponibles: "ver original" (solo si hay una corrección que
+// preservó el texto de Whisper) y "corregir" (solo authed). Compartido por
+// audioPlayerMarkup (render inicial), updateGalleryTranscript (tras
+// transcribir en caliente) y updateGalleryTranscriptEdit (tras corregir) para
+// que las tres pinten igual.
+export function transcriptInnerHtml({
+  transcript, transcribedAt, transcriptOriginal, transcriptEditedAt, mediaId,
+} = {}) {
   const text = `<span class="transcript-text">${escapeHtml(transcript || '')}</span>`;
   const when = fmtTranscribedAt(transcribedAt);
-  const time = when
-    ? `<span class="transcript-time" title="${escapeHtml(transcribedAt)}">transcrito el ${when}</span>`
+  const editedWhen = fmtTranscribedAt(transcriptEditedAt);
+  const label = when && editedWhen
+    ? `transcrito el ${when} · corregido el ${editedWhen}`
+    : when ? `transcrito el ${when}` : '';
+  const time = label
+    ? `<span class="transcript-time" title="${escapeHtml(transcribedAt)}">${label}</span>`
     : '';
-  return text + time;
+  const buttons = [];
+  if (transcriptOriginal) {
+    buttons.push('<button type="button" class="transcript-toggle-btn link-btn" data-showing="edited">ver original</button>');
+  }
+  if (isAuthed() && mediaId != null) {
+    buttons.push('<button type="button" class="transcript-correct-btn link-btn">corregir</button>');
+  }
+  const actions = buttons.length ? `<div class="transcript-actions">${buttons.join('')}</div>` : '';
+  return text + time + actions;
 }
 
-export function audioPlayerMarkup({ r2_key, transcript, transcribedAt, src } = {}) {
+export function audioPlayerMarkup({
+  r2_key, transcript, transcribedAt, transcriptOriginal, transcriptEditedAt, mediaId, src,
+} = {}) {
   const audioSrc = src ? escapeHtml(src) : `/r2/${escapeHtml(r2_key)}`;
   const trBlock = transcript
-    ? `<div class="audio-transcript" data-transcript="1">${transcriptInnerHtml(transcript, transcribedAt)}</div>`
+    ? `<div class="audio-transcript" data-transcript="1" data-media-id="${escapeHtml(String(mediaId ?? ''))}">${transcriptInnerHtml({ transcript, transcribedAt, transcriptOriginal, transcriptEditedAt, mediaId })}</div>`
     : `<div class="audio-transcript" data-transcript="0" hidden></div>`;
   return `<div class="audio-player" data-state="paused">
     <button class="ap-play" type="button" aria-label="reproducir">

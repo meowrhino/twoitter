@@ -35,6 +35,13 @@ CREATE TABLE IF NOT EXISTS media (
     transcript TEXT,
     -- transcribed_at: hora (ISO UTC) en que se transcribió. NULL si aún no.
     transcribed_at TEXT,
+    -- transcript_original: copia del transcript de Whisper tal cual salió,
+    -- tomada en la PRIMERA corrección manual; correcciones posteriores no la
+    -- tocan. NULL si nunca se corrigió (no hace falta original que preservar).
+    transcript_original TEXT,
+    -- transcript_edited_at: hora (ISO UTC) de la última corrección manual.
+    -- NULL si nunca se corrigió.
+    transcript_edited_at TEXT,
     position INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
@@ -132,3 +139,5 @@ CREATE INDEX IF NOT EXISTS idx_poll_votes_option ON poll_votes(option_id);
 --   npm run db:migrate:008:remote  (prod)
 --   npm run db:migrate:010         (local)   -- añade posts.edited_at
 --   npm run db:migrate:010:remote  (prod)
+--   npm run db:migrate:011         (local)   -- añade media.transcript_original/transcript_edited_at
+--   npm run db:migrate:011:remote  (prod)

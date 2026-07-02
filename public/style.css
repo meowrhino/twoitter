@@ -1608,6 +1608,25 @@ body.editor-open { overflow: hidden; }
   font-size: 0.82em;
   color: var(--muted);
 }
+/* "ver original" / "corregir": mismo link-btn discreto que .edit-actions. */
+.audio-transcript .transcript-actions {
+  align-self: flex-end;
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.audio-transcript .transcript-actions .link-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 2px 4px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.audio-transcript .transcript-actions .link-btn:hover { color: var(--accent); }
+/* Corrección inline: mismas clases (.edit-inline/.edit-textarea/.edit-actions)
+   que la edición de texto del post — mismo aspecto, contexto distinto. */
+.audio-transcript .edit-inline { margin-top: 10px; margin-bottom: 0; }
 
 /* Thumb para audio: cuadrado con el emoji de micro. Mismo tamaño que las
    otras thumbs (CSS de .thumb ya define el frame); aquí sólo se centra

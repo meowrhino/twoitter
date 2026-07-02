@@ -14,6 +14,11 @@ export interface MediaRow {
   // Momento (ISO UTC) en que se transcribió. NULL si aún no. Lo pinta el front
   // como "transcrito a las HH:MM".
   transcribed_at: string | null;
+  // Transcript de Whisper sin corregir, copiado aquí en la 1ª corrección
+  // manual (ver setMediaTranscriptEdit). NULL si nunca se corrigió.
+  transcript_original: string | null;
+  // Momento (ISO UTC) de la última corrección manual. NULL si nunca se corrigió.
+  transcript_edited_at: string | null;
   position: number;
 }
 
@@ -631,6 +636,31 @@ export async function setMediaTranscript(
     .bind(mediaId)
     .first<{ transcribed_at: string | null }>();
   return row?.transcribed_at ?? null;
+}
+
+// Guarda una corrección MANUAL del transcript. COALESCE(transcript_original,
+// transcript) usa los valores de la fila ANTES del UPDATE (semántica estándar
+// de SQL: el SET se evalúa sobre la fila vieja), así que en la 1ª corrección
+// congela el transcript de Whisper en transcript_original; en correcciones
+// siguientes transcript_original ya no es NULL y se deja tal cual. Devuelve
+// la fila completa actualizada.
+export async function setMediaTranscriptEdit(
+  db: D1Database,
+  mediaId: number,
+  transcript: string,
+): Promise<MediaRow | null> {
+  const row = await db
+    .prepare(
+      `UPDATE media
+       SET transcript_original = COALESCE(transcript_original, transcript),
+           transcript = ?,
+           transcript_edited_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE id = ?
+       RETURNING *`,
+    )
+    .bind(transcript, mediaId)
+    .first<MediaRow>();
+  return row ?? null;
 }
 
 export async function deletePost(

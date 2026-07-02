@@ -67,8 +67,8 @@ describe('renderPostGallery', () => {
     ] as any));
     const parsed = JSON.parse(el.dataset.media!);
     expect(parsed).toEqual([
-      { k: 'image', r: 'a.jpg', t: null, id: null, tr: null, tr_at: null },
-      { k: 'video', r: 'v.mp4', t: 't.jpg', id: null, tr: null, tr_at: null },
+      { k: 'image', r: 'a.jpg', t: null, id: null, tr: null, tr_at: null, to: null, te: null },
+      { k: 'video', r: 'v.mp4', t: 't.jpg', id: null, tr: null, tr_at: null, to: null, te: null },
     ]);
   });
 

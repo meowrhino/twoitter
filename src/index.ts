@@ -28,6 +28,7 @@ import {
   listPosts,
   restorePost,
   setMediaTranscript,
+  setMediaTranscriptEdit,
   updatePlace,
   updatePostText,
 } from "./db";
@@ -633,6 +634,35 @@ app.post("/api/media/:id/transcribe", requireAuth(), requireCsrf(), rateLimit((e
 
   const transcribed_at = await setMediaTranscript(c.env.DB, media.id, transcript);
   return c.json({ ok: true, transcript, transcribed_at, cached: false });
+});
+
+// Corrección MANUAL de una transcripción ya existente. Sólo tiene sentido
+// sobre un audio que YA se transcribió (si no, 404 — usa /transcribe primero).
+// La 1ª corrección congela el transcript de Whisper en transcript_original
+// (ver setMediaTranscriptEdit); el frontend ofrece un toggle "ver original"
+// con ese valor, sin volver a pedir nada al servidor.
+app.patch("/api/media/:id/transcript", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LIMITER), async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) return c.json({ error: "id invalido" }, 400);
+
+  let body: { transcript?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "json invalido" }, 400);
+  }
+  const transcript = (body.transcript ?? "").trim();
+  if (!transcript) return c.json({ error: "transcript vacio" }, 400);
+  if (transcript.length > 10000) return c.json({ error: "transcript demasiado largo" }, 400);
+
+  const media = await getMediaById(c.env.DB, id);
+  if (!media || media.kind !== "audio" || !media.transcript) {
+    return c.json({ error: "media de audio con transcripcion no encontrado" }, 404);
+  }
+
+  const updated = await setMediaTranscriptEdit(c.env.DB, id, transcript);
+  if (!updated) return c.json({ error: "no encontrado" }, 404);
+  return c.json(updated);
 });
 
 // Votar en una encuesta. Público (no requireAuth) — los visitantes anónimos

@@ -58,6 +58,8 @@ export function renderPostGallery(media) {
     id: m.id ?? null,
     tr: m.kind === 'audio' ? (m.transcript || null) : null,
     tr_at: m.kind === 'audio' ? (m.transcribed_at || null) : null,
+    to: m.kind === 'audio' ? (m.transcript_original || null) : null,
+    te: m.kind === 'audio' ? (m.transcript_edited_at || null) : null,
   }));
   const dataAttr = escapeHtml(JSON.stringify(payload));
   const stage = `<div class="stage" data-index="0">${mediaItemHtml(media[0])}</div>`;
@@ -89,6 +91,8 @@ export function updateGalleryTranscript(galleryEl, mediaId, transcript, transcri
     k: m.kind, r: m.r2_key, t: m.thumb_key || null, id: m.id ?? null,
     tr: m.kind === 'audio' ? (m.transcript || null) : null,
     tr_at: m.kind === 'audio' ? (m.transcribed_at || null) : null,
+    to: m.kind === 'audio' ? (m.transcript_original || null) : null,
+    te: m.kind === 'audio' ? (m.transcript_edited_at || null) : null,
   })));
   // ¿El stage muestra justo este audio? (la transcripción se dispara con ese
   // audio activo, así que casi siempre sí). Rellenar su bloque in situ (texto +
@@ -102,9 +106,55 @@ export function updateGalleryTranscript(galleryEl, mediaId, transcript, transcri
       block.className = 'audio-transcript';
       stage.appendChild(block);
     }
-    block.innerHTML = transcriptInnerHtml(transcript, transcribedAt);
+    block.dataset.mediaId = String(idNum);
+    block.innerHTML = transcriptInnerHtml({ transcript, transcribedAt, mediaId: idNum });
     block.dataset.transcript = '1';
     block.hidden = false;
+  }
+}
+
+// Tras corregir manualmente un transcript ya existente (mediaId), refresca el
+// data-media de la galería con el texto corregido + el original (congelado en
+// la 1ª corrección, ver setMediaTranscriptEdit en el backend) y la hora de la
+// corrección. Mismo patrón in-place que updateGalleryTranscript: si ese audio
+// está en el stage ahora mismo, repinta su bloque de transcript (texto +
+// sello + toggle "ver original") sin recrear el <audio>.
+export function updateGalleryTranscriptEdit(galleryEl, mediaId, transcript, transcriptOriginal, transcriptEditedAt) {
+  if (!galleryEl) return;
+  const idNum = Number(mediaId);
+  const arr = readMedia(galleryEl);
+  let changed = false;
+  for (const m of arr) {
+    if (m.kind === 'audio' && m.id === idNum) {
+      m.transcript = transcript;
+      m.transcript_original = transcriptOriginal || null;
+      m.transcript_edited_at = transcriptEditedAt || null;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  galleryEl.dataset.media = JSON.stringify(arr.map((m) => ({
+    k: m.kind, r: m.r2_key, t: m.thumb_key || null, id: m.id ?? null,
+    tr: m.kind === 'audio' ? (m.transcript || null) : null,
+    tr_at: m.kind === 'audio' ? (m.transcribed_at || null) : null,
+    to: m.kind === 'audio' ? (m.transcript_original || null) : null,
+    te: m.kind === 'audio' ? (m.transcript_edited_at || null) : null,
+  })));
+  const stage = galleryEl.querySelector(':scope > .stage');
+  const stageIdx = Number(stage?.dataset.index || 0);
+  if (stage?.querySelector('audio') && arr[stageIdx]?.id === idNum) {
+    const block = stage.querySelector('.audio-transcript');
+    if (!block) return;
+    const m = arr[stageIdx];
+    block.dataset.mediaId = String(idNum);
+    block.innerHTML = transcriptInnerHtml({
+      transcript: m.transcript,
+      transcribedAt: m.transcribed_at,
+      transcriptOriginal: m.transcript_original,
+      transcriptEditedAt: m.transcript_edited_at,
+      mediaId: idNum,
+    });
+    block.dataset.transcript = '1';
   }
 }
 

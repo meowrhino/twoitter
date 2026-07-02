@@ -14,7 +14,7 @@ import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './inline-composer.js';
 import { hide, unhide, markPostHidden, unmarkPostHidden } from './hidden.js';
 import { readMedia } from './gallery-core.js';
-import { updateGalleryTranscript } from './gallery.js';
+import { updateGalleryTranscript, updateGalleryTranscriptEdit } from './gallery.js';
 import { fmtTranscribedAt } from './audio-player.js';
 
 // ----- render HTML de las barras -----
@@ -144,6 +144,99 @@ async function doTranscribe(postEl, btn) {
   btn.disabled = false;
   btn.textContent = original;
   refreshThreadTranscribeBtn(postEl);
+}
+
+// ----- corregir transcripción (inline, por audio) -----
+//
+// El botón "corregir" vive DENTRO del bloque .audio-transcript de cada nota
+// (no en la barra del thread, a diferencia de "transcribir"): cada audio de
+// un twoitt tiene el suyo. Se abre/cierra/guarda con el mismo patrón que
+// openEdit/saveEdit (texto del post), pero delegado globalmente desde
+// document (ensureGlobalListeners) porque el bloque vive dentro del stage de
+// la galería, que se recrea en cada swap.
+
+function findTranscriptTextEls(block) {
+  return {
+    text: block.querySelector(':scope > .transcript-text'),
+    time: block.querySelector(':scope > .transcript-time'),
+    actions: block.querySelector(':scope > .transcript-actions'),
+  };
+}
+
+function closeTranscriptEdit(block) {
+  if (!block) return;
+  const box = block.querySelector(':scope > .edit-inline');
+  if (box) box.remove();
+  const { text, time, actions } = findTranscriptTextEls(block);
+  if (text) text.hidden = false;
+  if (time) time.hidden = false;
+  if (actions) actions.hidden = false;
+}
+
+function openTranscriptEdit(correctBtn) {
+  const block = correctBtn.closest('.audio-transcript');
+  if (!block || block.querySelector(':scope > .edit-inline')) return;
+  const gallery = block.closest('.gallery');
+  const mediaId = Number(block.dataset.mediaId);
+  const media = readMedia(gallery).find((m) => m.kind === 'audio' && m.id === mediaId);
+  if (!media) return;
+
+  const { text, time, actions } = findTranscriptTextEls(block);
+  if (text) text.hidden = true;
+  if (time) time.hidden = true;
+  if (actions) actions.hidden = true;
+
+  const box = document.createElement('div');
+  box.className = 'edit-inline';
+  box.innerHTML = `
+    <textarea class="edit-textarea">${escapeHtml(media.transcript || '')}</textarea>
+    <div class="edit-actions">
+      <button type="button" class="transcript-edit-cancel link-btn">cancelar</button>
+      <button type="button" class="transcript-edit-save btn-primary">guardar</button>
+    </div>
+  `;
+  block.appendChild(box);
+  const textarea = box.querySelector('.edit-textarea');
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
+async function saveTranscriptEdit(saveBtn) {
+  if (saveBtn.disabled) return;
+  const box = saveBtn.closest('.edit-inline');
+  const block = saveBtn.closest('.audio-transcript');
+  const textarea = box?.querySelector('.edit-textarea');
+  if (!box || !block || !textarea) return;
+  const mediaId = block.dataset.mediaId;
+  saveBtn.disabled = true;
+  const { ok, data } = await api(`/api/media/${mediaId}/transcript`, {
+    method: 'PATCH',
+    body: { transcript: textarea.value },
+  });
+  if (!ok || !data) {
+    toast(data?.error || 'error al corregir', 'error');
+    saveBtn.disabled = false;
+    return;
+  }
+  const gallery = block.closest('.gallery');
+  updateGalleryTranscriptEdit(gallery, mediaId, data.transcript, data.transcript_original, data.transcript_edited_at);
+}
+
+// Alterna entre el transcript corregido (actual) y el original de Whisper —
+// ambos ya vienen en el payload de la galería (readMedia), sin fetch.
+function toggleTranscriptOriginal(toggleBtn) {
+  const block = toggleBtn.closest('.audio-transcript');
+  if (!block) return;
+  const gallery = block.closest('.gallery');
+  const mediaId = Number(block.dataset.mediaId);
+  const media = readMedia(gallery).find((m) => m.kind === 'audio' && m.id === mediaId);
+  if (!media || !media.transcript_original) return;
+  const { text } = findTranscriptTextEls(block);
+  if (!text) return;
+  const showingOriginal = toggleBtn.dataset.showing === 'original';
+  text.textContent = showingOriginal ? media.transcript : media.transcript_original;
+  toggleBtn.dataset.showing = showingOriginal ? 'edited' : 'original';
+  toggleBtn.textContent = showingOriginal ? 'ver original' : 'ver corregida';
 }
 
 // Muestra "ocultar" o "desocultar" en la barra del thread según si el .post
@@ -329,6 +422,20 @@ function ensureGlobalListeners() {
   document.addEventListener('twoitter:gallery-swapped', (e) => {
     const postEl = e.detail?.gallery?.closest?.('.post');
     if (postEl?.classList.contains('active')) refreshThreadTranscribeBtn(postEl);
+  });
+
+  // Botones dentro de .audio-transcript ("corregir" / "ver original" / guardar
+  // o cancelar la corrección): delegado desde document porque el bloque vive
+  // dentro del stage de la galería, que se recrea en cada swap.
+  document.addEventListener('click', async (e) => {
+    const correctBtn = e.target.closest('.transcript-correct-btn');
+    if (correctBtn) { e.stopPropagation(); openTranscriptEdit(correctBtn); return; }
+    const toggleBtn = e.target.closest('.transcript-toggle-btn');
+    if (toggleBtn) { e.stopPropagation(); toggleTranscriptOriginal(toggleBtn); return; }
+    const cancelBtn = e.target.closest('.transcript-edit-cancel');
+    if (cancelBtn) { e.stopPropagation(); closeTranscriptEdit(cancelBtn.closest('.audio-transcript')); return; }
+    const saveBtn = e.target.closest('.transcript-edit-save');
+    if (saveBtn) { e.stopPropagation(); await saveTranscriptEdit(saveBtn); return; }
   });
 }
 

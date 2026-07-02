@@ -31,6 +31,9 @@ export function mediaItemHtml(m) {
       r2_key: m.r2_key,
       transcript: m.transcript,
       transcribedAt: m.transcribed_at,
+      transcriptOriginal: m.transcript_original,
+      transcriptEditedAt: m.transcript_edited_at,
+      mediaId: m.id,
     });
   }
   const poster = m.thumb_key ? ` poster="/r2/${escapeHtml(m.thumb_key)}"` : '';
@@ -40,7 +43,11 @@ export function mediaItemHtml(m) {
 export function readMedia(galleryEl) {
   try {
     const arr = JSON.parse(galleryEl.dataset.media || '[]');
-    return arr.map((m) => ({ kind: m.k, r2_key: m.r, thumb_key: m.t, id: m.id ?? null, transcript: m.tr || null, transcribed_at: m.tr_at || null }));
+    return arr.map((m) => ({
+      kind: m.k, r2_key: m.r, thumb_key: m.t, id: m.id ?? null,
+      transcript: m.tr || null, transcribed_at: m.tr_at || null,
+      transcript_original: m.to || null, transcript_edited_at: m.te || null,
+    }));
   } catch { return []; }
 }
 

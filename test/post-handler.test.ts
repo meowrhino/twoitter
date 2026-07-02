@@ -69,6 +69,65 @@ describe('validatePostBody', () => {
     if (r.ok) expect(r.pollOptions).toEqual(['sí', 'no']);
   });
 
+  it('rechaza lyrics sin ningún bloque con texto', async () => {
+    const r = await validatePostBody(db, { lyrics: { blocks: [{ label: 'original', text: '  ' }] } });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it('rechaza más de LYRICS_MAX_BLOCKS bloques', async () => {
+    const blocks = Array.from({ length: 7 }, (_, i) => ({ label: `v${i}`, text: 'x' }));
+    const r = await validatePostBody(db, { lyrics: { blocks } });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it('acepta lyrics válidas, descarta bloques vacíos y guarda la fuente', async () => {
+    const r = await validatePostBody(db, {
+      lyrics: {
+        source: '  https://example.com/song  ',
+        blocks: [
+          { label: 'original', text: 'línea uno' },
+          { label: '  ', text: '' },
+          { label: 'english', text: 'line one' },
+        ],
+      },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.lyricsBlocks).toEqual([
+        { label: 'original', text: 'línea uno' },
+        { label: 'english', text: 'line one' },
+      ]);
+      expect(r.lyricsSource).toBe('https://example.com/song');
+    }
+  });
+
+  it('un post solo-lyrics (sin texto/media) es válido', async () => {
+    const r = await validatePostBody(db, { lyrics: { blocks: [{ label: 'original', text: 'x' }] } });
+    expect(r.ok).toBe(true);
+  });
+
+  it('numera los bloques de lyrics sin etiqueta: "sin título", "sin título 2", …', async () => {
+    const r = await validatePostBody(db, {
+      lyrics: {
+        blocks: [
+          { label: '', text: 'a' },
+          { label: 'original', text: 'b' },
+          { label: '  ', text: 'c' },
+          { label: '', text: 'd' },
+        ],
+      },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.lyricsBlocks!.map((b) => b.label)).toEqual([
+        'sin título',
+        'original',
+        'sin título 2',
+        'sin título 3',
+      ]);
+    }
+  });
+
   it('acepta reply a un parent que sí existe', async () => {
     const parent = await createPost(db, 'padre', null);
     const r = await validatePostBody(db, { text: 'reply', parent_id: parent.id });
@@ -99,6 +158,17 @@ describe('persistPost', () => {
     const got = await getPost(db, id);
     expect(got!.poll!.options.map((o) => o.label)).toEqual(['a', 'b']);
   });
+
+  it('crea las letras cuando hay lyricsBlocks', async () => {
+    const id = await persistPost(db, pp({
+      lyricsBlocks: [{ label: 'original', text: 'x' }],
+      lyricsSource: 'fuente',
+    }));
+    const got = await getPost(db, id);
+    expect(got!.lyrics!.blocks.map((b) => b.label)).toEqual(['original']);
+    expect(got!.lyrics!.source).toBe('fuente');
+  });
+
 });
 
 describe('persistPost — geofence (auto-save de sitios)', () => {

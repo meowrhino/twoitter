@@ -5,12 +5,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { makeTestDb } from './helpers/d1';
 import {
+  attachMedia,
   createPost,
   getPost,
   listPosts,
   getReplies,
   createPoll,
   castVote,
+  createLyrics,
   deletePost,
   restorePost,
   listHashtags,
@@ -194,6 +196,55 @@ describe('listPosts (carrete plano)', () => {
   });
 });
 
+describe('listPosts filtra por type', () => {
+  function img() {
+    return { kind: 'image' as const, r2_key: 'k.jpg', thumb_key: null, width: null, height: null };
+  }
+
+  it('type=image devuelve solo posts con media de ese kind', async () => {
+    const withImg = await createPost(db, 'con imagen', null);
+    await attachMedia(db, withImg.id, [img()]);
+    const withoutImg = await createPost(db, 'sin imagen', null);
+    const { posts } = await listPosts(db, { limit: 50, type: 'image' });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(withImg.id);
+    expect(ids).not.toContain(withoutImg.id);
+  });
+
+  it('type=poll devuelve solo posts con encuesta', async () => {
+    const withPoll = await createPost(db, '¿cuál?', null);
+    await createPoll(db, withPoll.id, ['a', 'b']);
+    const withoutPoll = await createPost(db, 'normal', null);
+    const { posts } = await listPosts(db, { limit: 50, type: 'poll' });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(withPoll.id);
+    expect(ids).not.toContain(withoutPoll.id);
+  });
+
+  it('type=lyrics devuelve solo posts con letras', async () => {
+    const withLyrics = await createPost(db, 'una canción', null);
+    await createLyrics(db, withLyrics.id, null, [{ label: 'original', text: 'x' }]);
+    const withoutLyrics = await createPost(db, 'normal', null);
+    const { posts } = await listPosts(db, { limit: 50, type: 'lyrics' });
+    const ids = posts.map((p) => p.id);
+    expect(ids).toContain(withLyrics.id);
+    expect(ids).not.toContain(withoutLyrics.id);
+  });
+
+  it('un post con varios tipos aparece en cada filtro correspondiente', async () => {
+    const multi = await createPost(db, 'con todo', null);
+    await attachMedia(db, multi.id, [img()]);
+    await createPoll(db, multi.id, ['a', 'b']);
+    await createLyrics(db, multi.id, null, [{ label: 'original', text: 'x' }]);
+    for (const type of ['image', 'poll', 'lyrics'] as const) {
+      const { posts } = await listPosts(db, { limit: 50, type });
+      expect(posts.map((p) => p.id)).toContain(multi.id);
+    }
+    const { posts: videoPosts } = await listPosts(db, { limit: 50, type: 'video' });
+    expect(videoPosts.map((p) => p.id)).not.toContain(multi.id);
+  });
+});
+
 describe('getReplies', () => {
   it('devuelve el subárbol de un post (replies directas)', async () => {
     const a = await createPost(db, 'root', null);
@@ -256,6 +307,33 @@ describe('encuestas: createPoll + castVote', () => {
     await castVote(db, postId, 'voter-2', options[1].id);
     const full = await getPost(db, postId);
     expect(full!.poll!.total_votes).toBe(2);
+  });
+});
+
+describe('lyrics: createLyrics', () => {
+  it('getPost arma los bloques en orden con su fuente', async () => {
+    const p = await createPost(db, 'una canción', null);
+    await createLyrics(db, p.id, 'https://example.com/song', [
+      { label: 'original', text: 'línea uno' },
+      { label: 'romaji', text: 'linea uno romanizada' },
+    ]);
+    const got = await getPost(db, p.id);
+    expect(got!.lyrics!.source).toBe('https://example.com/song');
+    expect(got!.lyrics!.blocks.map((b) => b.label)).toEqual(['original', 'romaji']);
+    expect(got!.lyrics!.blocks.map((b) => b.text)).toEqual(['línea uno', 'linea uno romanizada']);
+  });
+
+  it('post sin lyrics → lyrics null', async () => {
+    const p = await createPost(db, 'sin letras', null);
+    const got = await getPost(db, p.id);
+    expect(got!.lyrics).toBeNull();
+  });
+
+  it('fuente null si no se pasa', async () => {
+    const p = await createPost(db, 'otra canción', null);
+    await createLyrics(db, p.id, null, [{ label: 'original', text: 'texto' }]);
+    const got = await getPost(db, p.id);
+    expect(got!.lyrics!.source).toBeNull();
   });
 });
 
@@ -326,6 +404,14 @@ describe('exportAll', () => {
     const ids = dump.posts.map((p: { id: number }) => p.id);
     expect(ids).toContain(vivo.id);
     expect(ids).not.toContain(muerto.id);
+  });
+
+  it('incluye lyrics y lyrics_blocks de posts vivos', async () => {
+    const p = await createPost(db, 'con letras', null);
+    await createLyrics(db, p.id, null, [{ label: 'original', text: 'texto' }]);
+    const dump = await exportAll(db);
+    expect(dump.lyrics.map((l: { post_id: number }) => l.post_id)).toContain(p.id);
+    expect(dump.lyrics_blocks.map((b: { post_id: number }) => b.post_id)).toContain(p.id);
   });
 });
 

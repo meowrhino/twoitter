@@ -30,6 +30,14 @@
     <a href="/compose" class="menu-link" data-authed-only hidden>✍️ publicar (modo ligero)</a>
     <a href="/places" class="menu-link" data-authed-only hidden>📍 sitios guardados</a>
     <button id="toggleSidebar" class="menu-link as-btn" data-authed-only hidden>mostrar #tags</button>
+    <div id="typeFilter" class="menu-type-filter" data-authed-only hidden>
+      <span class="menu-type-filter-label">tipo</span>
+      <a href="/?type=image">imágenes</a>
+      <a href="/?type=video">vídeos</a>
+      <a href="/?type=audio">audios</a>
+      <a href="/?type=poll">encuestas</a>
+      <a href="/?type=lyrics">letras</a>
+    </div>
     <div class="menu-divider"></div>
     <a href="/api/export" class="menu-link" data-authed-only hidden>export json</a>
     <div class="menu-divider" data-authed-only hidden></div>
@@ -48,14 +56,26 @@
         <div id="mediaPreview" class="media-preview"></div>
         <!-- Bloque de encuesta. Oculto por defecto; el botón "encuesta" del
              foot lo despliega. composer.js cablea filas y add/remove. -->
-        <div id="composerPoll" class="composer-poll" hidden>
-          <div class="composer-poll-head">
+        <div id="composerPoll" class="composer-block composer-poll" hidden>
+          <div class="composer-block-head">
             <span>encuesta</span>
             <span class="grow"></span>
             <button type="button" class="link-btn poll-close" title="cerrar encuesta">×</button>
           </div>
           <div class="composer-poll-rows"></div>
-          <button type="button" class="composer-poll-add">+ añadir opción</button>
+          <button type="button" class="composer-poll-add composer-block-add">+ añadir opción</button>
+        </div>
+        <!-- Bloque de letras. Oculto por defecto; el botón "letras" del foot lo
+             despliega. composer-lyrics.js cablea filas (idioma+texto) y add/remove. -->
+        <div id="composerLyrics" class="composer-block composer-lyrics" hidden>
+          <div class="composer-block-head">
+            <span>letras</span>
+            <span class="grow"></span>
+            <button type="button" class="link-btn lyrics-close" title="cerrar letras">×</button>
+          </div>
+          <div class="composer-lyrics-rows"></div>
+          <button type="button" class="composer-lyrics-add composer-block-add">+ añadir idioma</button>
+          <input type="text" class="composer-lyrics-source" placeholder="fuente (opcional)" maxlength="300" aria-label="fuente" />
         </div>
         <div class="composer-foot">
           <label class="file-btn">
@@ -63,7 +83,8 @@
             <input id="fileInput" type="file" accept="image/*,video/*,audio/*" multiple hidden />
           </label>
           <button type="button" id="btnRecord" class="rec-btn" aria-label="grabar nota de voz">grabar</button>
-          <button type="button" id="btnPoll" class="rec-btn poll-btn" aria-pressed="false" aria-label="añadir encuesta">encuesta</button>
+          <button type="button" id="btnPoll" class="rec-btn composer-toggle-btn" aria-pressed="false" aria-label="añadir encuesta">encuesta</button>
+          <button type="button" id="btnLyrics" class="rec-btn composer-toggle-btn" aria-pressed="false" aria-label="añadir letras">letras</button>
           <button type="button" id="btnGeo" class="geo-btn rec-btn" aria-label="añadir ubicación">ubicación</button>
           <input type="text" id="locInput" class="loc-input" placeholder="nombre del sitio (opcional)" maxlength="120" aria-label="nombre del sitio" hidden />
           <button type="button" id="btnGeoClear" class="geo-clear link-btn" aria-label="quitar ubicación" title="quitar ubicación" hidden>✕</button>

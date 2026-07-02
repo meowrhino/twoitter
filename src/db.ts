@@ -47,6 +47,18 @@ export interface PollPublic {
   my_vote_id: number | null;
 }
 
+export interface LyricsBlockPublic {
+  id: number;
+  position: number;
+  label: string;
+  text: string;
+}
+
+export interface LyricsPublic {
+  source: string | null;
+  blocks: LyricsBlockPublic[];
+}
+
 export interface ParentExcerpt {
   id: number;
   text_snippet: string;
@@ -60,6 +72,8 @@ export interface Post extends PostRow {
   replies?: Post[];
   // Sólo presente si el post tiene una fila en `polls`. Null/undefined si no.
   poll?: PollPublic | null;
+  // Sólo presente si el post tiene una fila en `lyrics`. Null/undefined si no.
+  lyrics?: LyricsPublic | null;
   // Sólo presente cuando parent_id != null. Permite al frontend pintar el
   // header "↓ en respuesta a: «snippet»" sin un fetch extra del padre.
   parent_excerpt?: ParentExcerpt | null;
@@ -139,6 +153,29 @@ function assemblePollsByPost(
   return pollsByPost;
 }
 
+// Ensambla el bloque `lyrics` de cada post a partir de sus filas de
+// lyrics/lyrics_blocks. Devuelve un Map postId → LyricsPublic SOLO para los
+// posts que tienen letras; el caller pone lyrics:null para el resto.
+function assembleLyricsByPost(
+  lyricsRows: Array<{ post_id: number; source: string | null }>,
+  blockRows: Array<{ id: number; post_id: number; position: number; label: string; text: string }>,
+): Map<number, LyricsPublic> {
+  const blocksByPost = new Map<number, LyricsBlockPublic[]>();
+  for (const b of blockRows) {
+    const arr = blocksByPost.get(b.post_id) || [];
+    arr.push({ id: b.id, position: b.position, label: b.label, text: b.text });
+    blocksByPost.set(b.post_id, arr);
+  }
+  const lyricsByPost = new Map<number, LyricsPublic>();
+  for (const { post_id, source } of lyricsRows) {
+    lyricsByPost.set(post_id, {
+      source,
+      blocks: blocksByPost.get(post_id) || [],
+    });
+  }
+  return lyricsByPost;
+}
+
 // Resuelve el parent_excerpt (snippet del padre) de cada post que sea reply.
 // Muchos padres ya vienen en `posts` (la TL carga el árbol del BLOQUE) → sacamos
 // su snippet de memoria y solo consultamos a la BD los ausentes. NO filtramos
@@ -203,7 +240,35 @@ async function attachMediaAndTags(
 
   // Cada relación es una query troceada en lotes ≤ D1_MAX_BIND (D1 capa los
   // parámetros vinculados ~100). selectByIds concatena los lotes.
-  const [mediaRows, tagRows, replyRows, pollRows, optionRows, voteCountRows, myVoteRows] =
+  // Lyrics va aparte del Promise.all de abajo: lyrics_blocks solo hace falta
+  // consultarla para los post_ids que SÍ tienen lyrics (la inmensa mayoría de
+  // posts no tiene letras), así que se lanza en cuanto sabemos esos ids en vez
+  // de consultar TODOS los ids de la página de antemano.
+  const lyricsPromise = selectByIds<{ post_id: number; source: string | null }>(
+    db,
+    ids,
+    (ph) => `SELECT post_id, source FROM lyrics WHERE post_id IN (${ph})`,
+  ).then(async (lyricsRows) => {
+    const lyricsPostIds = lyricsRows.map((r) => r.post_id);
+    const lyricsBlockRows = lyricsPostIds.length
+      ? await selectByIds<{ id: number; post_id: number; position: number; label: string; text: string }>(
+          db,
+          lyricsPostIds,
+          (ph) => `SELECT id, post_id, position, label, text FROM lyrics_blocks WHERE post_id IN (${ph}) ORDER BY post_id, position`,
+        )
+      : [];
+    return { lyricsRows, lyricsBlockRows };
+  });
+
+  const [
+    mediaRows,
+    tagRows,
+    replyRows,
+    pollRows,
+    optionRows,
+    voteCountRows,
+    myVoteRows,
+  ] =
     await Promise.all([
       selectByIds<MediaRow>(
         db,
@@ -248,6 +313,7 @@ async function attachMediaAndTags(
           )
         : Promise.resolve([] as Array<{ post_id: number; option_id: number }>),
     ]);
+  const { lyricsRows, lyricsBlockRows } = await lyricsPromise;
 
   const mediaByPost = new Map<number, MediaRow[]>();
   for (const m of mediaRows) {
@@ -266,6 +332,7 @@ async function attachMediaAndTags(
     repliesByPost.set(r.parent_id, r.c);
   }
   const pollsByPost = assemblePollsByPost(pollRows, optionRows, voteCountRows, myVoteRows);
+  const lyricsByPost = assembleLyricsByPost(lyricsRows, lyricsBlockRows);
   const parentExcerptByPost = await resolveParentExcerpts(db, posts);
 
   return posts.map((p) => ({
@@ -274,6 +341,7 @@ async function attachMediaAndTags(
     hashtags: tagsByPost.get(p.id) || [],
     reply_count: repliesByPost.get(p.id) || 0,
     poll: pollsByPost.get(p.id) ?? null,
+    lyrics: lyricsByPost.get(p.id) ?? null,
     parent_excerpt: parentExcerptByPost.get(p.id) ?? null,
   }));
 }
@@ -318,7 +386,14 @@ async function getDescendants(
 
 export async function listPosts(
   db: D1Database,
-  opts: { cursor?: string; tag?: string; q?: string; limit: number; voterId?: string | null },
+  opts: {
+    cursor?: string;
+    tag?: string;
+    q?: string;
+    type?: "image" | "video" | "audio" | "poll" | "lyrics";
+    limit: number;
+    voterId?: string | null;
+  },
 ): Promise<{ posts: Post[]; nextCursor: string | null }> {
   // Cap 100 por página: el frontend carga "todo" de forma progresiva con
   // auto-fetch (IntersectionObserver) al llegar al fondo. 100 mantiene la
@@ -338,6 +413,14 @@ export async function listPosts(
       "EXISTS (SELECT 1 FROM hashtags h WHERE h.post_id = p.id AND h.tag = ?)",
     );
     args.push(opts.tag.toLowerCase());
+  }
+  if (opts.type === "image" || opts.type === "video" || opts.type === "audio") {
+    conds.push("EXISTS (SELECT 1 FROM media m WHERE m.post_id = p.id AND m.kind = ?)");
+    args.push(opts.type);
+  } else if (opts.type === "poll") {
+    conds.push("EXISTS (SELECT 1 FROM polls pl WHERE pl.post_id = p.id)");
+  } else if (opts.type === "lyrics") {
+    conds.push("EXISTS (SELECT 1 FROM lyrics ly WHERE ly.post_id = p.id)");
   }
   if (opts.q) {
     // Cap defensivo: TRUNCAR a 200, no descartar el filtro — si no, una q más
@@ -701,7 +784,7 @@ export async function exportAll(db: D1Database) {
   // contenido de la papelera. media/hashtags/polls cuelgan por post_id, pero al
   // venir los posts ya filtrados, los hijos de posts borrados quedan huérfanos
   // en el JSON sin su post — los excluimos también con un subselect.
-  const [posts, media, hashtags, polls, pollOptions, pollVotes, places] = await Promise.all([
+  const [posts, media, hashtags, polls, pollOptions, pollVotes, lyrics, lyricsBlocks, places] = await Promise.all([
     db.prepare("SELECT * FROM posts WHERE deleted_at IS NULL ORDER BY id").all(),
     db
       .prepare(
@@ -730,6 +813,16 @@ export async function exportAll(db: D1Database) {
         "SELECT * FROM poll_votes WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id, created_at",
       )
       .all(),
+    db
+      .prepare(
+        "SELECT * FROM lyrics WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id",
+      )
+      .all(),
+    db
+      .prepare(
+        "SELECT * FROM lyrics_blocks WHERE post_id IN (SELECT id FROM posts WHERE deleted_at IS NULL) ORDER BY post_id, position",
+      )
+      .all(),
     // Sitios guardados: datos del usuario, no cuelgan de posts → export propio.
     db.prepare("SELECT * FROM places ORDER BY id").all(),
   ]);
@@ -741,6 +834,8 @@ export async function exportAll(db: D1Database) {
     polls: polls.results,
     poll_options: pollOptions.results,
     poll_votes: pollVotes.results,
+    lyrics: lyrics.results,
+    lyrics_blocks: lyricsBlocks.results,
     places: places.results,
   };
 }
@@ -763,6 +858,29 @@ export async function createPoll(
     "INSERT INTO poll_options (post_id, position, label) VALUES (?, ?, ?)",
   );
   await db.batch(options.map((label, i) => stmt.bind(postId, i, label)));
+}
+
+// ---------- lyrics: writes ----------
+
+// Crea la fila de lyrics y sus bloques para un post recién creado. El
+// caller (POST /api/posts) ya validó blocks.length >= 1 y los topes de
+// longitud de label/text/source.
+export async function createLyrics(
+  db: D1Database,
+  postId: number,
+  source: string | null,
+  blocks: Array<{ label: string; text: string }>,
+): Promise<void> {
+  await db
+    .prepare("INSERT INTO lyrics (post_id, source) VALUES (?, ?)")
+    .bind(postId, source)
+    .run();
+  const stmt = db.prepare(
+    "INSERT INTO lyrics_blocks (post_id, position, label, text) VALUES (?, ?, ?, ?)",
+  );
+  await db.batch(
+    blocks.map((b, i) => stmt.bind(postId, i, b.label, b.text)),
+  );
 }
 
 export type CastVoteResult =

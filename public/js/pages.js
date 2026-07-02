@@ -126,8 +126,10 @@ export async function loadTimeline(reset = false) {
     const params = new URLSearchParams();
     const tag = new URLSearchParams(location.search).get('tag');
     const q = new URLSearchParams(location.search).get('q');
+    const type = new URLSearchParams(location.search).get('type');
     if (tag) params.set('tag', tag);
     if (q) params.set('q', q);
+    if (type) params.set('type', type);
     if (!reset && nextCursor) params.set('cursor', nextCursor);
 
     const { ok, status, data } = await api('/api/posts?' + params);
@@ -208,6 +210,8 @@ export function setupTimelineComposer() {
     recordBtn: $('#btnRecord'),
     pollEl: $('#composerPoll'),
     pollBtn: $('#btnPoll'),
+    lyricsEl: $('#composerLyrics'),
+    lyricsBtn: $('#btnLyrics'),
     parentId: null,
     onPosted: (post) => {
       const el = renderThread(post);

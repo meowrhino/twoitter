@@ -41,6 +41,8 @@ navigator.serviceWorker?.getRegistrations?.()
     recordBtn: $('#btnRecord'),
     pollEl: $('#composerPoll'),
     pollBtn: $('#btnPoll'),
+    lyricsEl: $('#composerLyrics'),
+    lyricsBtn: $('#btnLyrics'),
     parentId: null,
     // Sin timeline que actualizar: confirmamos con un toast. wireComposer ya
     // limpia el form (texto/preview/encuesta/ubicación) al publicar con éxito.

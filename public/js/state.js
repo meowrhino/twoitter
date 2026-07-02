@@ -18,6 +18,10 @@ export const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
 // los valores ya actualizados después de checkAuth.
 export const POLL_LIMITS = { min: 2, max: 10, optLen: 80 };
 
+// Límites de bloques de letras (lyrics). Mismo patrón mutable que
+// POLL_LIMITS: defaults sensatos que checkAuth() sobreescribe con /api/me.
+export const LYRICS_LIMITS = { min: 1, max: 6, labelLen: 40, textLen: 20000, sourceLen: 300 };
+
 // Topes de tamaño de upload (bytes) por tipo. Mismo patrón que POLL_LIMITS:
 // defaults sensatos que checkAuth() sobreescribe con los del server (/api/me).
 // Permiten avisar al usuario antes de subir; el server los revalida.

@@ -12,6 +12,7 @@ import type { Context, Next } from "hono";
 import {
   attachMedia,
   castVote,
+  createLyrics,
   createPlace,
   createPoll,
   createPost,
@@ -172,6 +173,12 @@ app.get("/api/me", async (c) => {
       max: POLL_MAX_OPTIONS,
       optLen: POLL_OPTION_MAX_LEN,
     },
+    lyrics: {
+      max: LYRICS_MAX_BLOCKS,
+      labelLen: LYRICS_LABEL_MAX_LEN,
+      textLen: LYRICS_TEXT_MAX_LEN,
+      sourceLen: LYRICS_SOURCE_MAX_LEN,
+    },
     // Topes de tamaño (bytes) por tipo, para que el cliente avise ANTES de
     // subir en vez de tras el upload. El server los revalida igualmente.
     media: {
@@ -184,10 +191,17 @@ app.get("/api/me", async (c) => {
 
 // ---------- API: reads (public) ----------
 
+// Tipos de contenido filtrables por ?type= en /api/posts. image|video|audio
+// miran a media.kind; poll|lyrics miran a su propia tabla (ver listPosts).
+const POST_TYPES = new Set(["image", "video", "audio", "poll", "lyrics"]);
+type PostType = "image" | "video" | "audio" | "poll" | "lyrics";
+
 app.get("/api/posts", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
   const tag = c.req.query("tag") || undefined;
   const q = c.req.query("q") || undefined;
+  const rawType = c.req.query("type");
+  const type = rawType && POST_TYPES.has(rawType) ? (rawType as PostType) : undefined;
   // Default 100 por página; el frontend carga "todo" progresivamente con
   // auto-fetch. listPosts capa a 100 (Math.min) por el límite de subrequests
   // y de parámetros vinculados de D1.
@@ -196,7 +210,7 @@ app.get("/api/posts", async (c) => {
   // voterId solo si el visitante ya tiene cookie firmada — no emitimos
   // cookies en GETs: la primera cookie nace al votar.
   const voterId = await readVoterId(c);
-  const result = await listPosts(c.env.DB, { cursor, tag, q, limit, voterId });
+  const result = await listPosts(c.env.DB, { cursor, tag, q, type, limit, voterId });
   return c.json(result);
 });
 
@@ -260,6 +274,14 @@ const POLL_MAX_OPTIONS = 10;
 const POLL_MIN_OPTIONS = 2;
 const POLL_OPTION_MAX_LEN = 80;
 
+// Límites de bloques de letras (lyrics). Un post-letra suele traer 1-3
+// versiones (original/romaji/traducción); 6 da margen sin permitir spam.
+// textLen generoso (una canción larga con florituras cabe de sobra).
+const LYRICS_MAX_BLOCKS = 6;
+const LYRICS_LABEL_MAX_LEN = 40;
+const LYRICS_TEXT_MAX_LEN = 20000;
+const LYRICS_SOURCE_MAX_LEN = 300;
+
 type PostBody = {
   text?: string | null;
   parent_id?: number | null;
@@ -271,6 +293,8 @@ type PostBody = {
     height?: number | null;
   }>;
   poll?: { options?: unknown } | null;
+  // Letras (lyrics) opcionales: bloques {label, text} + fuente libre.
+  lyrics?: { source?: string | null; blocks?: unknown } | null;
   // Ubicación opcional: etiqueta de texto + coords (del botón "ubicación").
   location?: string | null;
   lat?: number | null;
@@ -285,6 +309,8 @@ type MediaInput = {
   height: number | null;
 };
 
+type LyricsBlockInput = { label: string; text: string };
+
 type PostValidation =
   | { ok: false; error: string; status: 400 | 404 }
   | {
@@ -292,6 +318,8 @@ type PostValidation =
       text: string | null;
       media: MediaInput[];
       pollOptions: string[] | null;
+      lyricsBlocks: LyricsBlockInput[] | null;
+      lyricsSource: string | null;
       parentId: number | null;
       location: string | null;
       lat: number | null;
@@ -325,7 +353,39 @@ export async function validatePostBody(
     pollOptions = opts;
   }
 
-  if (!text && rawMedia.length === 0 && !pollOptions)
+  // Letras (si vienen). Cada bloque es una versión/idioma; se descartan los
+  // que llegan sin texto. La fuente es libre (URL o cita) y opcional.
+  let lyricsBlocks: LyricsBlockInput[] | null = null;
+  let lyricsSource: string | null = null;
+  if (body.lyrics && Array.isArray(body.lyrics.blocks)) {
+    let untitledCount = 0;
+    const blocks = body.lyrics.blocks
+      .map((b) => {
+        const o = b as { label?: unknown; text?: unknown };
+        return {
+          label: typeof o?.label === "string" ? o.label.trim() : "",
+          text: typeof o?.text === "string" ? o.text.trim() : "",
+        };
+      })
+      .filter((b) => b.text.length > 0)
+      .map((b) => {
+        if (b.label) return b;
+        untitledCount++;
+        return { ...b, label: untitledCount === 1 ? "sin título" : `sin título ${untitledCount}` };
+      });
+    if (blocks.length === 0)
+      return { ok: false, error: "las letras necesitan al menos 1 bloque con texto", status: 400 };
+    if (blocks.length > LYRICS_MAX_BLOCKS)
+      return { ok: false, error: `máximo ${LYRICS_MAX_BLOCKS} bloques de letras`, status: 400 };
+    if (blocks.some((b) => b.label.length > LYRICS_LABEL_MAX_LEN))
+      return { ok: false, error: `idioma/etiqueta de máx ${LYRICS_LABEL_MAX_LEN} caracteres`, status: 400 };
+    if (blocks.some((b) => b.text.length > LYRICS_TEXT_MAX_LEN))
+      return { ok: false, error: `bloque de letras de máx ${LYRICS_TEXT_MAX_LEN} caracteres`, status: 400 };
+    lyricsBlocks = blocks;
+    lyricsSource = String(body.lyrics.source ?? "").trim().slice(0, LYRICS_SOURCE_MAX_LEN) || null;
+  }
+
+  if (!text && rawMedia.length === 0 && !pollOptions && !lyricsBlocks)
     return { ok: false, error: "post vacio", status: 400 };
   if (text && text.length > 4000)
     return { ok: false, error: "texto demasiado largo", status: 400 };
@@ -365,7 +425,18 @@ export async function validatePostBody(
   const location = String(body.location ?? "").trim().slice(0, LOCATION_MAX_LEN) || null;
   const { lat, lng } = parseCoords(body.lat, body.lng);
 
-  return { ok: true, text, media, pollOptions, parentId: body.parent_id ?? null, location, lat, lng };
+  return {
+    ok: true,
+    text,
+    media,
+    pollOptions,
+    lyricsBlocks,
+    lyricsSource,
+    parentId: body.parent_id ?? null,
+    location,
+    lat,
+    lng,
+  };
 }
 
 // Tope de la etiqueta de ubicación (coincide con el maxlength del input).
@@ -396,6 +467,8 @@ export async function persistPost(
     text: string | null;
     media: MediaInput[];
     pollOptions: string[] | null;
+    lyricsBlocks?: LyricsBlockInput[] | null;
+    lyricsSource?: string | null;
     parentId: number | null;
     location: string | null;
     lat: number | null;
@@ -403,9 +476,14 @@ export async function persistPost(
   },
 ): Promise<number> {
   const post = await createPost(db, v.text, v.parentId, v.location, v.lat, v.lng);
-  await attachMedia(db, post.id, v.media);
-  await syncHashtags(db, post.id, v.text);
+  await Promise.all([
+    attachMedia(db, post.id, v.media),
+    syncHashtags(db, post.id, v.text),
+  ]);
   if (v.pollOptions) await createPoll(db, post.id, v.pollOptions);
+  if (v.lyricsBlocks) {
+    await createLyrics(db, post.id, v.lyricsSource ?? null, v.lyricsBlocks);
+  }
 
   // Geofence: si el post trae ubicación CON NOMBRE + coords y no hay ya un sitio
   // guardado dentro de su radio, lo guardamos para autorrellenar la próxima vez.

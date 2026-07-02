@@ -71,12 +71,32 @@ CREATE TABLE IF NOT EXISTS poll_votes (
     FOREIGN KEY (option_id) REFERENCES poll_options(id) ON DELETE CASCADE
 );
 
+-- Letras (lyrics). Un post puede llevar uno o más bloques de texto con
+-- etiqueta libre (p.ej. "Original", "Romaji", "English") + una fuente
+-- opcional para dejar siempre citado de dónde sale. Mismo patrón que polls.
+CREATE TABLE IF NOT EXISTS lyrics (
+    post_id INTEGER PRIMARY KEY,
+    source TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS lyrics_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL,
+    FOREIGN KEY (post_id) REFERENCES lyrics(post_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_parent_created ON posts(parent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_posts_deleted ON posts(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id, position);
 CREATE INDEX IF NOT EXISTS idx_hashtags_tag ON hashtags(tag);
 CREATE INDEX IF NOT EXISTS idx_poll_options_post ON poll_options(post_id, position);
+CREATE INDEX IF NOT EXISTS idx_lyrics_blocks_post ON lyrics_blocks(post_id, position);
 -- Sitios guardados (geofence). Se autocrean al publicar con ubicación nombrada +
 -- coords; el composer autorrellena el nombre cuando vuelves dentro del radio.
 CREATE TABLE IF NOT EXISTS places (
@@ -105,3 +125,5 @@ CREATE INDEX IF NOT EXISTS idx_poll_votes_option ON poll_votes(option_id);
 --   npm run db:migrate:004:remote  (prod)
 --   npm run db:migrate:005         (local)   -- añade la tabla places (geofence)
 --   npm run db:migrate:005:remote  (prod)
+--   npm run db:migrate:008         (local)   -- añade las tablas de lyrics
+--   npm run db:migrate:008:remote  (prod)

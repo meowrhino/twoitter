@@ -13,6 +13,7 @@
 import { fmt, hoursAgo, escapeHtml, linkify } from './utils.js';
 import { renderPostGallery } from './gallery.js';
 import { renderPoll, bindPollActions } from './render-poll.js';
+import { renderLyrics, bindLyricsActions } from './render-lyrics.js';
 import { isHidden, markPostHidden } from './hidden.js';
 import {
   markExtendsToBottom,
@@ -250,12 +251,14 @@ export function renderPost(p, { topLevel = true } = {}) {
       ${topLevel ? renderReplyContext(p.parent_excerpt) : ''}
       <div class="post-text">${linkify(p.text || '')}</div>
       ${renderPoll(p.poll)}
+      ${renderLyrics(p.lyrics)}
       ${renderPostGallery(p.media)}
       ${renderPostFoot(p, { collapsible: !!(p.replies && p.replies.length) })}
     </div>
   `;
 
   if (p.poll) bindPollActions(el, p);
+  if (p.lyrics) bindLyricsActions(el, p);
   bindPostClickToNavigate(el, p);
   // Oculto en este navegador → colapsar a placeholder "este post está oculto"
   // (revelable). No se quita del DOM; "desocultar" en la barra lo recupera.

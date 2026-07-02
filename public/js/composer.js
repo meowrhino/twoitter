@@ -7,6 +7,7 @@ import { mediaKindOf, toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { wireRecorderButton } from './recorder.js';
 import { wirePollBlock, collectPollOptions, resetPollBlock } from './composer-poll.js';
+import { wireLyricsBlock, collectLyrics, resetLyricsBlock } from './composer-lyrics.js';
 import { wireLocation } from './composer-location.js';
 
 // ----- estado interno -----
@@ -21,7 +22,7 @@ let lastFocusedComposer = null;
 // Engancha drop/file-input/submit a un form .composer. El paste se gestiona
 // globalmente con setupGlobalPasteHandler y enruta al composer con foco.
 // El estado por composer vive en composerState (WeakMap).
-export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl = null, pollBtn = null, parentId = null, onPosted }) {
+export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl = null, pollBtn = null, lyricsEl = null, lyricsBtn = null, parentId = null, onPosted }) {
   if (!form) return;
   const pending = new Map();
   composerState.set(form, { pending, preview });
@@ -41,6 +42,12 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
   // encuestas nacen como root post, no como respuesta).
   if (pollEl && pollBtn) {
     wirePollBlock(pollEl, pollBtn);
+  }
+
+  // Bloque de letras: opcional, mismo criterio que el bloque de encuesta
+  // (solo el composer principal del timeline lo recibe).
+  if (lyricsEl && lyricsBtn) {
+    wireLyricsBlock(lyricsEl, lyricsBtn);
   }
 
   // Control de ubicación: opcional. Sólo actúa si el form trae el markup
@@ -64,6 +71,8 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
     const hasFiles = pending.size > 0;
     const pollOpts = collectPollOptions(pollEl);
     const hasPoll = pollOpts !== null;
+    const lyrics = collectLyrics(lyricsEl);
+    const hasLyrics = lyrics !== null;
 
     // Validación cliente: si el bloque encuesta está abierto exige >=2
     // opciones rellenas, antes de gastar uploads y red.
@@ -71,7 +80,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       toast(`la encuesta necesita al menos ${POLL_LIMITS.min} opciones`, 'error');
       return;
     }
-    if (!t && !hasFiles && !hasPoll) return;
+    if (!t && !hasFiles && !hasPoll && !hasLyrics) return;
 
     const submitBtn = form.querySelector('button[type="submit"]');
     // Guardamos la etiqueta original ("publicar" o "responder") para
@@ -86,6 +95,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       const { location, lat, lng } = loc.getValue();
       const payload = { text: t || null, media, parent_id: parentId, location, lat, lng };
       if (hasPoll) payload.poll = { options: pollOpts };
+      if (hasLyrics) payload.lyrics = lyrics;
       const { ok, data: post } = await api('/api/posts', {
         method: 'POST',
         body: payload,
@@ -96,6 +106,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       preview.innerHTML = '';
       pending.clear();
       resetPollBlock(pollEl, pollBtn);
+      resetLyricsBlock(lyricsEl, lyricsBtn);
       loc.reset();
       onPosted(post);
     } catch (err) {

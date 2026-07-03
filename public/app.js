@@ -58,6 +58,12 @@ navigator.serviceWorker?.getRegistrations?.()
   )
   .catch(() => {});
 
+// SW propio: shell disponible offline (network-first, ver sw.js). Mejora
+// progresiva pura — la app y la cola offline funcionan igual sin él.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 (async () => {
   await checkAuth();
   window.addEventListener('online', flushQueue);

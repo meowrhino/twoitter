@@ -6,6 +6,7 @@ import { isAuthed } from './auth.js';
 import { mediaKindOf, toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { wireRecorderButton } from './recorder.js';
+import { enqueueVoiceNotes } from './queue.js';
 import { wirePollBlock, collectPollOptions, resetPollBlock } from './composer-poll.js';
 import { wireLyricsBlock, collectLyrics, resetLyricsBlock } from './composer-lyrics.js';
 import { wireLocation } from './composer-location.js';
@@ -34,7 +35,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
 
   // Botón de grabar: opcional (no todos los browsers soportan MediaRecorder).
   if (recordBtn) {
-    wireRecorderButton({ form, button: recordBtn, preview, pending });
+    wireRecorderButton({ form, button: recordBtn, preview, pending, parentId });
   }
 
   // Bloque encuesta: opcional. Sólo el composer principal del timeline lo
@@ -96,11 +97,13 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       const payload = { text: t || null, media, parent_id: parentId, location, lat, lng };
       if (hasPoll) payload.poll = { options: pollOpts };
       if (hasLyrics) payload.lyrics = lyrics;
-      const { ok, data: post } = await api('/api/posts', {
+      const { ok, status, data: post } = await api('/api/posts', {
         method: 'POST',
         body: payload,
       });
-      if (!ok) throw new Error('post failed');
+      // status 0 = fallo de red (api() no lanza): TypeError, como fetch, para
+      // que el catch pueda decidir mandar la nota de voz a la cola offline.
+      if (!ok) throw status === 0 ? new TypeError('post failed: red') : new Error('post failed');
       text.value = '';
       revokePendingUrls(pending);
       preview.innerHTML = '';
@@ -111,9 +114,27 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       onPosted(post);
     } catch (err) {
       console.error(err);
-      // los items 'ready' conservan su r2_key cacheado: reintentando
-      // publicar solo se vuelven a subir los que estaban en 'pending'.
-      toast('error al publicar', 'error');
+      // Fallo de RED (TypeError: lo lanza fetch, y uploadBlob/el throw de
+      // arriba lo replican) y el post es solo nota(s) de voz, sin encuesta ni
+      // letras → a la cola offline: se subirá, publicará y transcribirá sola
+      // al volver la conexión (queue.js, flush en app.js).
+      const netFail = err instanceof TypeError || !navigator.onLine;
+      const { location, lat, lng } = loc.getValue();
+      if (
+        netFail && hasFiles && !hasPoll && !hasLyrics &&
+        (await enqueueVoiceNotes(pending, { text: t || null, parent_id: parentId, location, lat, lng }))
+      ) {
+        text.value = '';
+        revokePendingUrls(pending);
+        preview.innerHTML = '';
+        pending.clear();
+        loc.reset();
+        toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
+      } else {
+        // los items 'ready' conservan su r2_key cacheado: reintentando
+        // publicar solo se vuelven a subir los que estaban en 'pending'.
+        toast('error al publicar', 'error');
+      }
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;

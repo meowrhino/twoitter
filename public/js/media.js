@@ -49,7 +49,9 @@ function uploadBlob(blob, folder, onProgress) {
         reject(new Error('upload failed: ' + xhr.status));
       }
     });
-    xhr.addEventListener('error', () => reject(new Error('upload failed: red')));
+    // TypeError = el mismo tipo que lanza fetch ante un fallo de red; el
+    // submit del composer lo usa para mandar la nota de voz a la cola offline.
+    xhr.addEventListener('error', () => reject(new TypeError('upload failed: red')));
     xhr.send(blob);
   });
 }

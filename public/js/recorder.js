@@ -13,6 +13,8 @@
 import { uuid } from './utils.js';
 import { attachFile } from './media.js';
 import { toast } from './utils.js';
+import { enqueue } from './queue.js';
+import { toMonoMp3 } from './audio-transcode.js';
 
 // Prioridad de mimeTypes: mp4/AAC PRIMERO. Es el único formato que graban TANTO
 // iOS (WebKit) como el Chromium moderno (Chrome/Brave ≥111), así que produce una
@@ -66,7 +68,7 @@ export function canRecord() {
 
 // Cablea el botón "grabar" de un composer. El caller pasa los nodos
 // necesarios. Idempotente: si ya está cableado para este form, no repite.
-export function wireRecorderButton({ form, button, preview, pending }) {
+export function wireRecorderButton({ form, button, preview, pending, parentId = null }) {
   if (!button) return;
   if (sessions.has(form)) {
     // ya cableado — sólo asegúrate de que esté disponible
@@ -76,7 +78,9 @@ export function wireRecorderButton({ form, button, preview, pending }) {
     button.hidden = true;
     return;
   }
-  sessions.set(form, { active: false });
+  // parentId se guarda para que una nota grabada SIN conexión desde un
+  // reply-inline se encole como respuesta al post correcto (queue.js).
+  sessions.set(form, { active: false, parentId });
 
   button.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -175,13 +179,30 @@ function stopRecording(form, button, preview, pending) {
     state.chunks = null;
     state.timer = null;
 
-    if (blob.size > 0) {
-      // voiceNote: true → media.js la recomprime a mono 16 kHz MP3 antes de subir
-      // (Safari ignora el bitrate al grabar; ver audio-transcode.js).
-      await attachFile(file, preview, pending, { voiceNote: true });
-    } else {
+    if (blob.size === 0) {
       toast('grabación vacía', 'info');
+      return;
     }
+
+    // Sin conexión: directo a la cola offline (queue.js) en vez del composer —
+    // se subirá, publicará y transcribirá sola al volver la red. Intentamos
+    // transcodificar YA a mono 16 kHz mp3 (lamejs es un asset local y puede
+    // estar ya cargado); si no se puede, se encola el original: pesa más pero
+    // la nota no se pierde. El texto del composer viaja con la nota (será el
+    // texto del post publicado desde la cola), por eso se limpia aquí.
+    if (!navigator.onLine) {
+      const textarea = form.querySelector('textarea');
+      const text = textarea?.value.trim() || null;
+      const mp3 = await toMonoMp3(file); // null si falla → original
+      await enqueue(mp3 || file, { text, parent_id: state.parentId });
+      if (textarea) textarea.value = '';
+      toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
+      return;
+    }
+
+    // voiceNote: true → media.js la recomprime a mono 16 kHz MP3 antes de subir
+    // (Safari ignora el bitrate al grabar; ver audio-transcode.js).
+    await attachFile(file, preview, pending, { voiceNote: true });
   };
 
   try {

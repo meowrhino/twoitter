@@ -26,7 +26,7 @@
 // conservan sus cabeceras, así que servir desde caché mantiene el aislamiento
 // (necesario para el SharedArrayBuffer de ffmpeg.wasm).
 
-const SW_VERSION = 'twoitter-v1';
+const SW_VERSION = 'twoitter-v2';
 
 const SHELL = [
   '/',

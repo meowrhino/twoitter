@@ -19,6 +19,31 @@ import { wireLocation } from './composer-location.js';
 // cuál era el "activo" para enrutar bien el paste.
 let lastFocusedComposer = null;
 
+// ----- borrador persistente (solo composer raíz) -----
+
+// El texto del composer principal se pierde al recargar o dar atrás (p.ej.
+// tras compartir un link, o si iOS mata la pestaña). Los reply-inline no lo
+// necesitan: son efímeros, viven y mueren con el DOM de su hilo. Solo se
+// guarda el texto (media/poll/lyrics no sobreviven a un reload de todos modos).
+const DRAFT_KEY = 'twoitter-draft';
+
+function saveDraft(text) {
+  try {
+    if (text.value.trim()) localStorage.setItem(DRAFT_KEY, text.value);
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch { /* storage lleno: el borrador vive solo en memoria */ }
+}
+
+function restoreDraft(text) {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(DRAFT_KEY);
+  } catch { /* no accesible: empezamos de cero */ }
+  if (!saved) return;
+  text.value = saved;
+  toast('borrador recuperado');
+}
+
 // ----- cablear un composer ya existente en el DOM -----
 
 // Engancha drop/file-input/submit a un form .composer. El paste se gestiona
@@ -28,6 +53,15 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
   if (!form) return;
   const pending = new Map();
   composerState.set(form, { pending, preview });
+
+  // Borrador solo en el composer raíz (parentId null): index y /compose
+  // comparten la misma clave, así que un dictado a medias sobrevive tanto a
+  // un reload como a saltar de una página a otra.
+  const isRoot = parentId === null;
+  if (isRoot) {
+    restoreDraft(text);
+    text.addEventListener('input', () => saveDraft(text));
+  }
 
   fileInput.addEventListener('change', async (e) => {
     for (const f of e.target.files) await attachFile(f, preview, pending);
@@ -103,6 +137,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
 
     const clearForm = () => {
       text.value = '';
+      if (isRoot) { try { localStorage.removeItem(DRAFT_KEY); } catch { /* ni estaba guardado */ } }
       revokePendingUrls(pending);
       preview.innerHTML = '';
       pending.clear();

@@ -26,11 +26,14 @@ import { setupEditor } from './js/editor.js';
 import { loadHashtags } from './js/hashtags.js';
 import { loadTimeline, setupTimelineComposer } from './js/pages.js';
 import { pendingCount, processQueue } from './js/queue.js';
+import { setupOutbox } from './js/outbox.js';
 import { toast } from './js/utils.js';
 
-// Vacía la cola offline de notas de voz: sube, publica y transcribe las
-// pendientes (queue.js). Se llama al arrancar y al evento 'online'. Solo con
+// Vacía la cola offline de NOTAS DE VOZ (queue.js: sube, publica y transcribe
+// las pendientes). Se llama al arrancar y al evento 'online'. Solo con
 // sesión: sin auth el upload daría 401 y quemaría intentos para nada.
+// La cola GENÉRICA (texto/imágenes/vídeo/encuesta/letras, sin transcripción)
+// vive aparte en outbox.js — ver setupOutbox más abajo.
 async function flushQueue() {
   if (!isAuthed()) return;
   try {
@@ -59,10 +62,8 @@ navigator.serviceWorker?.getRegistrations?.()
   .catch(() => {});
 
 // SW propio: shell disponible offline (network-first, ver sw.js). Mejora
-// progresiva pura — la app y la cola offline funcionan igual sin él.
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
+// progresiva pura — la app y ambas colas offline funcionan igual sin él.
+navigator.serviceWorker?.register?.('/sw.js').catch(() => {});
 
 (async () => {
   await checkAuth();
@@ -77,6 +78,17 @@ if ('serviceWorker' in navigator) {
 
   setupTimelineComposer();
   setupFilterBanner();
+
+  // Cola genérica (outbox.js): publica lo que quedó pendiente de otra sesión
+  // (texto/imágenes/vídeo/encuesta/letras) y se suscribe al evento 'online'.
+  // Al publicar, recarga la TL para que los posts recién salidos aparezcan.
+  setupOutbox({
+    onPublished: (n) => {
+      toast(n === 1 ? 'publicado 1 pendiente ✓' : `publicados ${n} pendientes ✓`);
+      loadTimeline(true);
+    },
+  });
+
   loadTimeline(true);
   if (!document.body.classList.contains('sidebar-hidden')) {
     loadHashtags();

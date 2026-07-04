@@ -10,6 +10,7 @@ import { checkAuth, isAuthed } from './js/auth.js';
 import { setupGlobalPasteHandler, wireComposer } from './js/composer.js';
 import { setupAudioPlayers } from './js/audio-player.js';
 import { toast } from './js/utils.js';
+import { setupOutbox } from './js/outbox.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -23,6 +24,10 @@ navigator.serviceWorker?.getRegistrations?.()
   )
   .catch(() => {});
 
+// PWA offline: mismo sw.js que la TL (app shell network-first). Registrarlo
+// también aquí cubre a quien entra directo a /compose desde el icono.
+navigator.serviceWorker?.register?.('/sw.js').catch(() => {});
+
 (async () => {
   await checkAuth();
   // Esta página es solo para publicar: si no estás logueado, al login.
@@ -32,6 +37,12 @@ navigator.serviceWorker?.getRegistrations?.()
   }
   setupGlobalPasteHandler();
   setupAudioPlayers(); // para el preview de la nota de voz grabada
+
+  // Cola offline: aquí no hay timeline que recargar — solo confirmamos.
+  setupOutbox({
+    onPublished: (n) =>
+      toast(n === 1 ? 'publicado 1 pendiente ✓' : `publicados ${n} pendientes ✓`),
+  });
 
   wireComposer({
     form: $('#composer'),

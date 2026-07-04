@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>twoitter</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>" />
-  <!-- PWA: instalable (icono en pantalla/dock, ventana propia). Solo manifest +
-       iconos; SIN service worker (offline) para no chocar con el COOP/COEP que
-       sirve el Worker para ffmpeg.wasm. -->
+  <!-- PWA: instalable (manifest + iconos) y offline via sw.js (app shell
+       network-first + cola de publicaciones en js/outbox.js). El SW cachea las
+       respuestas del Worker TAL CUAL, con sus cabeceras COOP/COEP → el
+       cross-origin isolation de ffmpeg.wasm sobrevive también desde cache. -->
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#0d0c0a" />
   <meta name="mobile-web-app-capable" content="yes" />

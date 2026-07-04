@@ -58,7 +58,8 @@ function uploadBlob(blob, folder, onProgress) {
 
 // Sube los blobs ya procesados + (si es vídeo) thumbnail. `kind` puede ser
 // 'image' | 'video' | 'audio'; el folder R2 cambia en consecuencia.
-async function uploadCompressed(compressed, kind, onProgress) {
+// Exportada porque outbox.js la reutiliza al publicar la cola offline.
+export async function uploadCompressed(compressed, kind, onProgress) {
   const folder =
     kind === 'video' ? 'videos' : kind === 'audio' ? 'audios' : 'images';
   const main = await uploadBlob(compressed.blob, folder, onProgress);

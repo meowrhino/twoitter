@@ -8,8 +8,10 @@
 //     y la caché se refresca sola con cada fetch que sale bien; offline se
 //     sirve la última copia buena. Cero disciplina de versiones.
 //   - /api/* y /r2/*: red SIEMPRE, ni se tocan (nada de cachear datos
-//     privados; el feed vive en el server y la cola de notas de voz en
-//     IndexedDB, gestionada por la página — queue.js).
+//     privados; el feed vive en el server y las colas offline en IndexedDB,
+//     gestionadas por la página: queue.js para notas de voz sueltas — sube,
+//     publica y transcribe sola —, outbox.js para el resto de posts
+//     (texto/imágenes/vídeo/encuesta/letras, sin transcripción automática).
 //
 // El precache del install existe solo para que el shell COMPLETO esté
 // disponible offline aunque no hayas visitado todas las rutas (p.ej.
@@ -69,6 +71,7 @@ const SHELL = [
   '/js/media.js',
   '/js/menu.js',
   '/js/modal.js',
+  '/js/outbox.js',
   '/js/pages.js',
   '/js/post-actions.js',
   '/js/preview-item.js',

@@ -7,6 +7,7 @@ import { mediaKindOf, toast } from './utils.js';
 import { attachFile, uploadPendingFiles, revokePendingUrls } from './media.js';
 import { wireRecorderButton } from './recorder.js';
 import { enqueueVoiceNotes } from './queue.js';
+import { queuePost, outboxSupported } from './outbox.js';
 import { wirePollBlock, collectPollOptions, resetPollBlock } from './composer-poll.js';
 import { wireLyricsBlock, collectLyrics, resetLyricsBlock } from './composer-lyrics.js';
 import { wireLocation } from './composer-location.js';
@@ -91,19 +92,16 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       submitBtn.disabled = true;
       submitBtn.textContent = 'publicando…';
     }
-    try {
-      const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
-      const { location, lat, lng } = loc.getValue();
-      const payload = { text: t || null, media, parent_id: parentId, location, lat, lng };
-      if (hasPoll) payload.poll = { options: pollOpts };
-      if (hasLyrics) payload.lyrics = lyrics;
-      const { ok, status, data: post } = await api('/api/posts', {
-        method: 'POST',
-        body: payload,
-      });
-      // status 0 = fallo de red (api() no lanza): TypeError, como fetch, para
-      // que el catch pueda decidir mandar la nota de voz a la cola offline.
-      if (!ok) throw status === 0 ? new TypeError('post failed: red') : new Error('post failed');
+
+    // Body de POST /api/posts sin la media (que sale de los uploads o de
+    // alguna de las dos colas offline). Se construye antes de subir nada
+    // para poder encolarlo tal cual si no hay red.
+    const { location, lat, lng } = loc.getValue();
+    const payloadBase = { text: t || null, parent_id: parentId, location, lat, lng };
+    if (hasPoll) payloadBase.poll = { options: pollOpts };
+    if (hasLyrics) payloadBase.lyrics = lyrics;
+
+    const clearForm = () => {
       text.value = '';
       revokePendingUrls(pending);
       preview.innerHTML = '';
@@ -111,30 +109,98 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
       resetPollBlock(pollEl, pollBtn);
       resetLyricsBlock(lyricsEl, lyricsBtn);
       loc.reset();
+    };
+
+    // Guarda el post en la cola offline GENÉRICA (outbox.js) para publicarlo
+    // cuando vuelva la red. Espera a que termine la compresión (lo que se
+    // guarda son los blobs YA comprimidos); si algún adjunto quedó en error
+    // no se puede encolar → false y el submit cae al toast de error normal.
+    // Los items 'ready' (ya subidos a R2 en un intento anterior) guardan solo
+    // su r2_key — el flush no los re-sube.
+    const queueGeneric = async () => {
+      if (!outboxSupported()) return false;
+      const media = [];
+      for (const [localId, item] of pending.entries()) {
+        if (item.compressionPromise && item.status === 'compressing') {
+          try { await item.compressionPromise; } catch { return false; }
+        }
+        if (!pending.has(localId)) continue;
+        if (item.status === 'ready') {
+          media.push({
+            kind: item.kind,
+            r2_key: item.r2_key,
+            thumb_key: item.thumb_key ?? null,
+            width: item.width ?? null,
+            height: item.height ?? null,
+          });
+          continue;
+        }
+        if (!item.compressed) return false;
+        media.push({
+          kind: item.kind,
+          blob: item.compressed.blob,
+          thumbBlob: item.compressed.thumbBlob ?? null,
+          width: item.compressed.width ?? null,
+          height: item.compressed.height ?? null,
+        });
+      }
+      try {
+        await queuePost({ payload: payloadBase, media });
+      } catch (err) {
+        console.error('no se pudo encolar offline', err);
+        return false;
+      }
+      clearForm();
+      toast('sin conexión — guardado, se publicará al volver la red 📤');
+      return true;
+    };
+
+    // Punto único de "vamos offline": si el post es UNA O VARIAS notas de voz
+    // solas (sin texto extra que perder, sin encuesta ni letras), preferimos
+    // la cola de queue.js — publica Y transcribe sola al volver la red. Para
+    // cualquier otra cosa (texto solo, imágenes, vídeo, mezclas) cae a la cola
+    // genérica de outbox.js, que no transcribe pero cubre todos los tipos.
+    const queueOffline = async () => {
+      if (hasFiles && !hasPoll && !hasLyrics) {
+        try {
+          if (await enqueueVoiceNotes(pending, payloadBase)) {
+            clearForm();
+            toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
+            return true;
+          }
+        } catch (err) {
+          console.error('enqueueVoiceNotes failed', err);
+        }
+      }
+      return queueGeneric();
+    };
+
+    try {
+      // Offline declarado: ni intentamos subir, directo a la cola.
+      if (navigator.onLine === false && (await queueOffline())) return;
+
+      const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
+      const { ok, status, data: post } = await api('/api/posts', {
+        method: 'POST',
+        body: { ...payloadBase, media },
+      });
+      if (!ok) {
+        // status 0 = la red cayó justo al postear (la media ya subió y los
+        // items quedaron 'ready' con su r2_key) → a la cola.
+        if (status === 0 && (await queueOffline())) return;
+        throw new Error('post failed');
+      }
+      clearForm();
       onPosted(post);
     } catch (err) {
-      console.error(err);
-      // Fallo de RED (TypeError: lo lanza fetch, y uploadBlob/el throw de
-      // arriba lo replican) y el post es solo nota(s) de voz, sin encuesta ni
-      // letras → a la cola offline: se subirá, publicará y transcribirá sola
-      // al volver la conexión (queue.js, flush en app.js).
+      // TypeError = la lanza fetch (api.js la reporta como status:0) o el XHR
+      // de subida (uploadBlob) ante un fallo de red → a alguna de las colas.
       const netFail = err instanceof TypeError || !navigator.onLine;
-      const { location, lat, lng } = loc.getValue();
-      if (
-        netFail && hasFiles && !hasPoll && !hasLyrics &&
-        (await enqueueVoiceNotes(pending, { text: t || null, parent_id: parentId, location, lat, lng }))
-      ) {
-        text.value = '';
-        revokePendingUrls(pending);
-        preview.innerHTML = '';
-        pending.clear();
-        loc.reset();
-        toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
-      } else {
-        // los items 'ready' conservan su r2_key cacheado: reintentando
-        // publicar solo se vuelven a subir los que estaban en 'pending'.
-        toast('error al publicar', 'error');
-      }
+      if (netFail && (await queueOffline())) return;
+      console.error(err);
+      // los items 'ready' conservan su r2_key cacheado: reintentando
+      // publicar solo se vuelven a subir los que estaban en 'pending'.
+      toast('error al publicar', 'error');
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;

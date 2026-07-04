@@ -166,6 +166,26 @@ a:hover { border-bottom-color: var(--accent-dim); }
 .toast-error { border-color: var(--danger); color: var(--danger); }
 .toast-warn { border-color: var(--accent-dim); color: var(--accent); }
 
+/* ---------- outbox (cola offline) ---------- */
+
+/* Chip fijo "📤 N por publicar" (js/outbox.js). Tocarlo reintenta el flush.
+   Encima del toastHost para que un toast no lo tape. */
+.outbox-chip {
+  position: fixed;
+  bottom: 20px;
+  right: 16px;
+  z-index: 31;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  cursor: pointer;
+}
+
 /* ---------- buttons ---------- */
 
 button, .btn-primary, .btn-secondary, .link-btn {

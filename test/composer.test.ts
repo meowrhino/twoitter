@@ -10,7 +10,9 @@
 //   - el reset de los campos al publicar
 //   - el comportamiento ante error de red (no limpia, no llama onPosted)
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
 import { wireComposer } from '../public/js/composer.js';
+import { outboxCount } from '../public/js/outbox.js';
 
 // fetch mock: api.js hace `await fetch(...)` y luego `res.json()`. Replicamos
 // la forma mínima de Response que api.js consume (ok, status, json()).
@@ -171,6 +173,44 @@ describe('wireComposer — publicar un post', () => {
     await vi.waitFor(() => expect(submit.disabled).toBe(false));
     expect(posted).toBe(false);
     expect(text.value).toBe('no se debe perder');
+  });
+});
+
+describe('wireComposer — sin conexión (cola offline)', () => {
+  it('navigator.onLine === false: no hace fetch, encola en el outbox y limpia el form', async () => {
+    const { form, text, preview, fileInput, submit } = setupForm();
+    const fetchMock = mockFetch({}, { status: 201 });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    // happy-dom no deja escribir navigator.onLine → navigator falso mínimo.
+    vi.stubGlobal('navigator', { onLine: false });
+
+    let posted = false;
+    wireComposer({ form, text, preview, fileInput, parentId: null, onPosted: () => { posted = true; } });
+    text.value = 'escrito sin red';
+    submitForm(form);
+
+    await vi.waitFor(async () => expect(await outboxCount()).toBe(1));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(posted).toBe(false); // no hay post del server que pintar
+    expect(text.value).toBe(''); // el form se limpia como si hubiera publicado
+    expect(submit.disabled).toBe(false);
+    expect(document.getElementById('outboxChip')?.textContent).toBe('📤 1 por publicar');
+  });
+
+  it('la red cae justo al postear (status 0): el post acaba en el outbox', async () => {
+    const { form, text, preview, fileInput } = setupForm();
+    // fetch "falla" como api.js lo reporta: throw → api() devuelve status 0.
+    const fetchMock = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('indexedDB', new IDBFactory());
+
+    wireComposer({ form, text, preview, fileInput, parentId: null, onPosted: () => {} });
+    text.value = 'se cayó la red';
+    submitForm(form);
+
+    await vi.waitFor(async () => expect(await outboxCount()).toBe(1));
+    expect(text.value).toBe('');
   });
 });
 

@@ -1,6 +1,6 @@
 // ----- composer principal + reply-inline + paste global -----
 
-import { composerState, POLL_LIMITS } from './state.js';
+import { composerState, POLL_LIMITS, TEXT_LIMITS } from './state.js';
 import { api } from './api.js';
 import { isAuthed } from './auth.js';
 import { mediaKindOf, toast } from './utils.js';
@@ -114,6 +114,12 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
     // opciones rellenas, antes de gastar uploads y red.
     if (hasPoll && pollOpts.length < POLL_LIMITS.min) {
       toast(`la encuesta necesita al menos ${POLL_LIMITS.min} opciones`, 'error');
+      return;
+    }
+    // Aviso antes de gastar red: el texto se pasó del tope (el server lo
+    // revalida). Decimos cuánto sobra para que sea fácil recortar.
+    if (t.length > TEXT_LIMITS.max) {
+      toast(`texto demasiado largo: ${t.length}/${TEXT_LIMITS.max} caracteres (sobran ${t.length - TEXT_LIMITS.max})`, 'error');
       return;
     }
     if (!t && !hasFiles && !hasPoll && !hasLyrics) return;

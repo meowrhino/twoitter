@@ -170,6 +170,7 @@ app.get("/api/me", async (c) => {
   // ya hace este fetch al arrancar (checkAuth), así que va sin coste extra.
   return c.json({
     authed: await isAuthed(c),
+    text: { max: TEXT_MAX_LEN },
     poll: {
       min: POLL_MIN_OPTIONS,
       max: POLL_MAX_OPTIONS,
@@ -270,6 +271,9 @@ app.delete("/api/places/:id", requireAuth(), requireCsrf(), async (c) => {
 });
 
 // ---------- API: writes (gated) ----------
+
+// Tope del texto de un post. Tope blando, fácil de subir si hace falta.
+const TEXT_MAX_LEN = 5000;
 
 // Límites de encuesta. Tope blando, fácil de subir si hace falta.
 const POLL_MAX_OPTIONS = 10;
@@ -389,8 +393,8 @@ export async function validatePostBody(
 
   if (!text && rawMedia.length === 0 && !pollOptions && !lyricsBlocks)
     return { ok: false, error: "post vacio", status: 400 };
-  if (text && text.length > 4000)
-    return { ok: false, error: "texto demasiado largo", status: 400 };
+  if (text && text.length > TEXT_MAX_LEN)
+    return { ok: false, error: `texto de máx ${TEXT_MAX_LEN} caracteres`, status: 400 };
   // Cap de media: sin tope, un body manipulado podría spamear la tabla media.
   if (rawMedia.length > 12)
     return { ok: false, error: "demasiados adjuntos", status: 400 };
@@ -538,7 +542,8 @@ app.patch("/api/posts/:id", requireAuth(), requireCsrf(), rateLimit((e) => e.WRI
   const text = (body.text ?? "").trim() || null;
   const hasOtherContent = existing.media.length > 0 || !!existing.poll || !!existing.lyrics;
   if (!text && !hasOtherContent) return c.json({ error: "post vacio" }, 400);
-  if (text && text.length > 4000) return c.json({ error: "texto demasiado largo" }, 400);
+  if (text && text.length > TEXT_MAX_LEN)
+    return c.json({ error: `texto de máx ${TEXT_MAX_LEN} caracteres` }, 400);
 
   const updated = await updatePostText(c.env.DB, id, text);
   if (!updated) return c.json({ error: "no encontrado" }, 404);

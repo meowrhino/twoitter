@@ -1,7 +1,7 @@
 // ----- auth check + visibilidad anon/authed -----
 
 import { $, $$ } from './utils.js';
-import { SIDEBAR_KEY, POLL_LIMITS, MEDIA_LIMITS, LYRICS_LIMITS, savedPlaces } from './state.js';
+import { SIDEBAR_KEY, POLL_LIMITS, MEDIA_LIMITS, LYRICS_LIMITS, TEXT_LIMITS, savedPlaces } from './state.js';
 import { api } from './api.js';
 
 // Estado interno mutable: solo lo modifica este módulo. Los demás
@@ -17,6 +17,7 @@ export async function checkAuth() {
   if (data?.poll) Object.assign(POLL_LIMITS, data.poll);
   if (data?.media) Object.assign(MEDIA_LIMITS, data.media);
   if (data?.lyrics) Object.assign(LYRICS_LIMITS, data.lyrics);
+  if (data?.text) Object.assign(TEXT_LIMITS, data.text);
   applyAuthVisibility();
   // Sitios guardados (solo authed): los usa el composer para autorrellenar el
   // nombre al capturar GPS. Fire-and-forget; un fallo no bloquea el arranque.

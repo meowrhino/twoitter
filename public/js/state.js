@@ -18,6 +18,10 @@ export const CSRF_HEADERS = { 'x-twoitter-csrf': '1' };
 // los valores ya actualizados después de checkAuth.
 export const POLL_LIMITS = { min: 2, max: 10, optLen: 80 };
 
+// Tope del texto de un post. Mismo patrón mutable que POLL_LIMITS: default
+// sensato que checkAuth() sobreescribe con /api/me (el server manda).
+export const TEXT_LIMITS = { max: 5000 };
+
 // Límites de bloques de letras (lyrics). Mismo patrón mutable que
 // POLL_LIMITS: defaults sensatos que checkAuth() sobreescribe con /api/me.
 export const LYRICS_LIMITS = { min: 1, max: 6, labelLen: 40, textLen: 20000, sourceLen: 300 };

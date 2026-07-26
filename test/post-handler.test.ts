@@ -22,8 +22,8 @@ describe('validatePostBody', () => {
     expect(r).toMatchObject({ ok: false, status: 400, error: 'post vacio' });
   });
 
-  it('rechaza texto > 4000 chars', async () => {
-    const r = await validatePostBody(db, { text: 'x'.repeat(4001) });
+  it('rechaza texto > 5000 chars', async () => {
+    const r = await validatePostBody(db, { text: 'x'.repeat(5001) });
     expect(r).toMatchObject({ ok: false, status: 400 });
   });
 

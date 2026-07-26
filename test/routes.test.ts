@@ -269,12 +269,12 @@ describe('PATCH /api/posts/:id (editar texto)', () => {
     expect(updated.text).toBeNull();
   });
 
-  it('400 texto > 4000 caracteres', async () => {
+  it('400 texto > 5000 caracteres', async () => {
     const p = await createPost(db, 'original', null);
     const res = await app.request(`/api/posts/${p.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', 'x-twoitter-csrf': '1', cookie: await authCookie() },
-      body: JSON.stringify({ text: 'x'.repeat(4001) }),
+      body: JSON.stringify({ text: 'x'.repeat(5001) }),
     }, env);
     expect(res.status).toBe(400);
   });

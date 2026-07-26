@@ -525,7 +525,8 @@ app.post("/api/posts", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LI
 });
 
 // Editar el texto de un post existente. Misma validación que el create (trim,
-// máx 4000, vacío solo permitido si el post ya tiene media/poll/lyrics). Sella
+// máx TEXT_MAX_LEN, vacío solo permitido si el post ya tiene media/poll/
+// lyrics). Sella
 // edited_at y re-sincroniza hashtags por si el texto cambió los #tags.
 app.patch("/api/posts/:id", requireAuth(), requireCsrf(), rateLimit((e) => e.WRITE_LIMITER), async (c) => {
   const id = parseId(c.req.param("id"));

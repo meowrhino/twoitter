@@ -177,7 +177,13 @@ describe('wireComposer — publicar un post', () => {
 });
 
 describe('wireComposer — sin conexión (cola offline)', () => {
-  it('navigator.onLine === false: no hace fetch, encola en el outbox y limpia el form', async () => {
+  // Regresión: navigator.onLine miente. En escritorio se queda clavado en false
+  // si DevTools tiene el throttling en Offline (es por pestaña y silencioso) y
+  // en iOS vuelve rancio de background. Antes ese flag cortocircuitaba el
+  // submit y CADA post acababa en la cola sin intentar publicarse, esperando a
+  // un evento 'online' que no llegaba nunca. El flag ya no decide nada: se
+  // intenta siempre y solo se encola si la red falla de verdad (test siguiente).
+  it('navigator.onLine === false pero la red responde: publica igual, sin tocar la cola', async () => {
     const { form, text, preview, fileInput, submit } = setupForm();
     const fetchMock = mockFetch({}, { status: 201 });
     vi.stubGlobal('fetch', fetchMock);
@@ -187,15 +193,15 @@ describe('wireComposer — sin conexión (cola offline)', () => {
 
     let posted = false;
     wireComposer({ form, text, preview, fileInput, parentId: null, onPosted: () => { posted = true; } });
-    text.value = 'escrito sin red';
+    text.value = 'escrito con el flag mintiendo';
     submitForm(form);
 
-    await vi.waitFor(async () => expect(await outboxCount()).toBe(1));
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(posted).toBe(false); // no hay post del server que pintar
-    expect(text.value).toBe(''); // el form se limpia como si hubiera publicado
+    await vi.waitFor(() => expect(posted).toBe(true));
+    expect(fetchMock).toHaveBeenCalled();
+    expect(await outboxCount()).toBe(0); // no se encoló nada
+    expect(text.value).toBe('');
     expect(submit.disabled).toBe(false);
-    expect(document.getElementById('outboxChip')?.textContent).toBe('📤 1 por publicar');
+    expect(document.getElementById('outboxChip')).toBeNull(); // sin chip que confirmar
   });
 
   it('la red cae justo al postear (status 0): el post acaba en el outbox', async () => {

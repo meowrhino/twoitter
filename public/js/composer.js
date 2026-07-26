@@ -19,6 +19,16 @@ import { wireLocation } from './composer-location.js';
 // cuál era el "activo" para enrutar bien el paste.
 let lastFocusedComposer = null;
 
+// Texto del toast al encolar. Solo se llega aquí cuando la publicación ya ha
+// fallado de verdad, pero el motivo importa: sin red se publicará solo al
+// volver, y con red el fallo es otra cosa (subida cortada, pestaña dormida a
+// medias, el server caído) y conviene que no parezca un problema de conexión.
+function queuedMsg(what) {
+  return navigator.onLine
+    ? `no se pudo publicar — ${what}, se reintenta solo 📤`
+    : `sin conexión — ${what}, se publicará al volver la red 📤`;
+}
+
 // ----- borrador persistente (solo composer raíz) -----
 
 // El texto del composer principal se pierde al recargar o dar atrás (p.ej.
@@ -70,7 +80,9 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
 
   // Botón de grabar: opcional (no todos los browsers soportan MediaRecorder).
   if (recordBtn) {
-    wireRecorderButton({ form, button: recordBtn, preview, pending, parentId });
+    // parentId ya no viaja al recorder: desde que la grabación no se auto-encola
+    // (ver recorder.js), la respuesta se enruta al publicar, vía payloadBase.
+    wireRecorderButton({ form, button: recordBtn, preview, pending });
   }
 
   // Bloque encuesta: opcional. Sólo el composer principal del timeline lo
@@ -192,7 +204,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
         return false;
       }
       clearForm();
-      toast('sin conexión — guardado, se publicará al volver la red 📤');
+      toast(queuedMsg('guardado'));
       return true;
     };
 
@@ -206,7 +218,7 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
         try {
           if (await enqueueVoiceNotes(pending, payloadBase)) {
             clearForm();
-            toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
+            toast(queuedMsg('nota guardada'), 'info');
             return true;
           }
         } catch (err) {
@@ -217,9 +229,14 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
     };
 
     try {
-      // Offline declarado: ni intentamos subir, directo a la cola.
-      if (navigator.onLine === false && (await queueOffline())) return;
-
+      // NO se pregunta por navigator.onLine antes de intentarlo: ese flag
+      // miente. En escritorio se queda clavado en false si DevTools tiene el
+      // throttling en Offline (es por pestaña y no avisa de nada) y en iOS
+      // vuelve rancio de background — y cada mentira mandaba el post a la cola
+      // sin intentar publicarlo, obligando a tocar el chip a mano (el evento
+      // 'online' tampoco salta si el navegador nunca se creyó offline).
+      // Se intenta siempre: sin red, fetch rechaza al instante y caemos a la
+      // cola igual por status 0 / TypeError, que sí son fallos reales.
       const media = hasFiles ? await uploadPendingFiles(pending, preview) : [];
       const { ok, status, data: post } = await api('/api/posts', {
         method: 'POST',
@@ -236,8 +253,11 @@ export function wireComposer({ form, text, preview, fileInput, recordBtn, pollEl
     } catch (err) {
       // TypeError = la lanza fetch (api.js la reporta como status:0) o el XHR
       // de subida (uploadBlob) ante un fallo de red → a alguna de las colas.
-      const netFail = err instanceof TypeError || !navigator.onLine;
-      if (netFail && (await queueOffline())) return;
+      // Antes también se encolaba con !navigator.onLine, pero eso mandaba a la
+      // cola posts que el SERVER había rechazado de verdad (un 500 sale por
+      // aquí como Error) solo porque el flag mentía: quedaban esperando a una
+      // red que nunca faltó, y al reintentar volvían a fallar igual.
+      if (err instanceof TypeError && (await queueOffline())) return;
       console.error(err);
       // los items 'ready' conservan su r2_key cacheado: reintentando
       // publicar solo se vuelven a subir los que estaban en 'pending'.

@@ -238,10 +238,19 @@ async function refreshChip() {
 export function setupOutbox({ onPublished } = {}) {
   if (!outboxSupported()) return;
   onPublishedCb = onPublished || null;
-  window.addEventListener('online', () => {
-    flushOutbox().catch(() => {});
+  const retry = () => {
+    flushOutbox().catch(() => {
+      refreshChip().catch(() => {});
+    });
+  };
+  window.addEventListener('online', retry);
+  // 'online' solo salta si el navegador se creyó offline ANTES. Cuando encola
+  // por un fallo de red suelto (o porque navigator.onLine mintió) ese evento
+  // no llega nunca y la cola se quedaba esperando al chip. Volver a la pestaña
+  // es la otra señal barata de reintento; flushOutbox() tiene guarda de
+  // reentrada, así que insistir no publica nada dos veces.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') retry();
   });
-  flushOutbox().catch(() => {
-    refreshChip().catch(() => {});
-  });
+  retry();
 }

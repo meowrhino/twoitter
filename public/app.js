@@ -68,6 +68,11 @@ navigator.serviceWorker?.register?.('/sw.js').catch(() => {});
 (async () => {
   await checkAuth();
   window.addEventListener('online', flushQueue);
+  // 'online' no siempre llega (ver outbox.js): volver a la pestaña es la otra
+  // señal de reintento. processQueue() tiene guarda de reentrada.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') flushQueue();
+  });
   flushQueue(); // notas grabadas sin red en una sesión anterior
   setupMenu();
   setupGlobalPasteHandler();

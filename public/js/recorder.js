@@ -13,8 +13,6 @@
 import { uuid } from './utils.js';
 import { attachFile } from './media.js';
 import { toast } from './utils.js';
-import { enqueue } from './queue.js';
-import { toMonoMp3 } from './audio-transcode.js';
 
 // Prioridad de mimeTypes: mp4/AAC PRIMERO. Es el único formato que graban TANTO
 // iOS (WebKit) como el Chromium moderno (Chrome/Brave ≥111), así que produce una
@@ -68,7 +66,7 @@ export function canRecord() {
 
 // Cablea el botón "grabar" de un composer. El caller pasa los nodos
 // necesarios. Idempotente: si ya está cableado para este form, no repite.
-export function wireRecorderButton({ form, button, preview, pending, parentId = null }) {
+export function wireRecorderButton({ form, button, preview, pending }) {
   if (!button) return;
   if (sessions.has(form)) {
     // ya cableado — sólo asegúrate de que esté disponible
@@ -78,9 +76,7 @@ export function wireRecorderButton({ form, button, preview, pending, parentId = 
     button.hidden = true;
     return;
   }
-  // parentId se guarda para que una nota grabada SIN conexión desde un
-  // reply-inline se encole como respuesta al post correcto (queue.js).
-  sessions.set(form, { active: false, parentId });
+  sessions.set(form, { active: false });
 
   button.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -184,21 +180,15 @@ function stopRecording(form, button, preview, pending) {
       return;
     }
 
-    // Sin conexión: directo a la cola offline (queue.js) en vez del composer —
-    // se subirá, publicará y transcribirá sola al volver la red. Intentamos
-    // transcodificar YA a mono 16 kHz mp3 (lamejs es un asset local y puede
-    // estar ya cargado); si no se puede, se encola el original: pesa más pero
-    // la nota no se pierde. El texto del composer viaja con la nota (será el
-    // texto del post publicado desde la cola), por eso se limpia aquí.
-    if (!navigator.onLine) {
-      const textarea = form.querySelector('textarea');
-      const text = textarea?.value.trim() || null;
-      const mp3 = await toMonoMp3(file); // null si falla → original
-      await enqueue(mp3 || file, { text, parent_id: state.parentId });
-      if (textarea) textarea.value = '';
-      toast('sin conexión — nota guardada, se publicará al volver la red', 'info');
-      return;
-    }
+    // Antes había aquí un atajo: con navigator.onLine en false la grabación
+    // saltaba el composer y se encolaba directa. Pero ese flag miente (en
+    // escritorio se queda clavado en false con el throttling Offline de
+    // DevTools, en iOS vuelve rancio de background), así que con red la nota
+    // desaparecía del composer sin motivo. Ya no hace falta el atajo: attachFile
+    // solo COMPRIME (local, sin red), la subida ocurre al publicar, y si esa
+    // falla el submit la manda a la misma cola vía enqueueVoiceNotes. Sin red
+    // la nota sigue sin perderse; la diferencia es que ahora la ves en el
+    // composer y sale al darle a publicar, en vez de esfumarse sola.
 
     // voiceNote: true → media.js la recomprime a mono 16 kHz MP3 antes de subir
     // (Safari ignora el bitrate al grabar; ver audio-transcode.js).

@@ -49,11 +49,14 @@ export function linkify(text) {
 const NUM_FMT = new Intl.NumberFormat('es-ES');
 export const fmt = (n) => NUM_FMT.format(n);
 
-// siempre en horas, con separador de millares (0h para < 1h)
-export function hoursAgo(iso) {
-  const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).getTime();
-  const hours = Math.floor((Date.now() - t) / 3600_000);
-  return `${fmt(hours)}h`;
+// Fecha y hora de publicación, como en notas8: «4 oct 2026 · 21:32», en la
+// hora local de quien lee. created_at llega de SQLite como «aaaa-mm-dd
+// hh:mm:ss» en UTC: se pasa a ISO con la T (Safari no traga el espacio) y Z.
+export function fechaHora(iso) {
+  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+  const fecha = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  const hora = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  return `${fecha} · ${hora}`;
 }
 
 export function uuid() {

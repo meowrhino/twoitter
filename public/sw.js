@@ -83,6 +83,7 @@ const SHELL = [
   '/js/render.js',
   '/js/state.js',
   '/js/utils.js',
+  '/js/youtube.js',
 ];
 
 self.addEventListener('install', (e) => {
@@ -104,7 +105,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   if (url.origin !== location.origin) return;
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/r2/')) return;
+  if (/^\/(api|r2|yt)\//.test(url.pathname)) return;
 
   e.respondWith(
     fetch(e.request)

@@ -9,6 +9,7 @@
 
 import { api } from './api.js';
 import { toast, escapeHtml, linkify } from './utils.js';
+import { appendYoutubeCards } from './youtube.js';
 import { isAuthed } from './auth.js';
 import { notifyThreadChanged, getThreadRoot, releaseRail } from './rails.js';
 import { makeInlineComposer } from './inline-composer.js';
@@ -356,7 +357,10 @@ async function saveEdit(targetEl, box, textarea) {
   }
   targetEl.dataset.text = data.text || '';
   const textEl = findPostText(targetEl);
-  if (textEl) textEl.innerHTML = linkify(data.text || '');
+  if (textEl) {
+    textEl.innerHTML = linkify(data.text || '');
+    appendYoutubeCards(textEl, data.text || '');
+  }
   updatePostEditedStamp(targetEl, data.edited_at);
   closeEditBox(targetEl);
 }

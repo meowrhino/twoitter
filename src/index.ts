@@ -814,6 +814,43 @@ app.get("/r2/*", async (c) => {
   return new Response(obj.body, { headers });
 });
 
+// ---------- youtube: proxy de miniaturas (portado de notas8) ----------
+// El COEP require-corp de arriba (ffmpeg) bloquea tanto el iframe de youtube
+// como las imágenes de i.ytimg.com (no mandan CORP). La tarjeta del feed pinta
+// /yt/<id>.jpg y aquí se trae la miniatura, same-origin — el navegador del
+// lector no habla nunca con Google. maxres primero (1280×720, sin bandas
+// negras) y hqdefault de respaldo (existe siempre). Públicos como el feed;
+// solo aceptan un id de vídeo y la caché de Cloudflare absorbe las repeticiones.
+app.get("/yt/:file", async (c) => {
+  const m = /^([A-Za-z0-9_-]{11})\.jpg$/.exec(c.req.param("file") ?? "");
+  if (!m) return c.json({ error: "id inválido" }, 400);
+  const cf = { cacheEverything: true, cacheTtl: 60 * 60 * 24 * 30 };
+  let up = await fetch(`https://i.ytimg.com/vi/${m[1]}/maxresdefault.jpg`, { cf });
+  if (!up.ok) up = await fetch(`https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`, { cf });
+  if (!up.ok) return c.json({ error: "sin miniatura" }, 404);
+  return new Response(up.body, {
+    headers: {
+      "content-type": "image/jpeg",
+      "cache-control": "public, max-age=2592000, immutable",
+    },
+  });
+});
+
+// Título/autor del vídeo vía el oEmbed público de YouTube, proxeado por la
+// misma razón que la miniatura. El cliente lo pinta como pie de la tarjeta.
+app.get("/yt/:id/meta", async (c) => {
+  const id = c.req.param("id") ?? "";
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return c.json({ error: "id inválido" }, 400);
+  const r = await fetch(
+    `https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D${id}&format=json`,
+    { cf: { cacheEverything: true, cacheTtl: 60 * 60 * 24 * 7 } },
+  );
+  if (!r.ok) return c.json({ error: "sin datos" }, 404);
+  const data = (await r.json()) as { title?: string; author_name?: string };
+  c.header("cache-control", "public, max-age=604800");
+  return c.json({ title: data.title ?? null, author: data.author_name ?? null });
+});
+
 // ---------- HTML routes ----------
 
 app.get("/", (c) =>

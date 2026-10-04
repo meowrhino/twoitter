@@ -26,7 +26,9 @@ export function escapeHtml(s) {
 // "meowrhino", gold), así que aquí solo marcamos el <a> con class="link".
 export function linkify(text) {
   const esc = escapeHtml(text);
-  let out = esc.replace(/#([\p{L}\p{N}_]+)/gu, (_, t) =>
+  // (?<!&): escapeHtml convierte cada apóstrofo en &#39;, y sin él «l'home»
+  // salía como «l&» + un #39 clicable + «;home»
+  let out = esc.replace(/(?<!&)#([\p{L}\p{N}_]+)/gu, (_, t) =>
     `<a class="hashtag" href="/?tag=${encodeURIComponent(t.toLowerCase())}">#${escapeHtml(t)}</a>`,
   );
   const URL_RE = /(https?:\/\/[^\s<]+|(?:[a-z0-9-]+\.)*meowrhino\.(?:[a-z0-9-]+\.)*[a-z]{2,}(?:\/[^\s<]*)?)/gi;

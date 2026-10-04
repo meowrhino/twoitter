@@ -2039,3 +2039,38 @@ button.poll-option:focus-visible {
   white-space: nowrap;
 }
 .place-map:hover { color: var(--accent); }
+
+/* tarjeta de youtube: miniatura + ▸. Sin iframe a propósito: el COEP
+   require-corp que exige ffmpeg bloquea los embeds de terceros (y iOS no
+   soporta credentialless), así que la tarjeta abre el vídeo en youtube.
+   La miniatura llega por /yt/<id>.jpg (proxy same-origin del Worker). */
+.yt-card {
+  display: block;
+  max-width: min(100%, 480px);
+  margin: 6px 0;
+  text-decoration: none;
+}
+.yt-frame { position: relative; display: block; }
+.yt-card img { display: block; width: 100%; }
+.yt-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 42px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.25);
+  transition: color 0.15s, background 0.15s;
+}
+.yt-card:hover .yt-play { color: var(--accent); background: rgba(0, 0, 0, 0.45); }
+/* pie de tarjeta: «título — canal» (oEmbed), mismo idioma que las meta-líneas */
+.yt-caption {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.yt-caption:empty { display: none; }
+.yt-card:hover .yt-caption { color: var(--text-dim); }

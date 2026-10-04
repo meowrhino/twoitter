@@ -12,6 +12,7 @@
 
 import { fmt, hoursAgo, escapeHtml, linkify } from './utils.js';
 import { renderPostGallery } from './gallery.js';
+import { appendYoutubeCards } from './youtube.js';
 import { fmtTranscribedAt } from './audio-player.js';
 import { renderPoll, bindPollActions } from './render-poll.js';
 import { renderLyrics, bindLyricsActions } from './render-lyrics.js';
@@ -272,6 +273,8 @@ export function renderPost(p, { topLevel = true } = {}) {
     </div>
   `;
 
+  // un link de youtube en el texto saca su tarjeta debajo (el enlace sigue)
+  appendYoutubeCards(el.querySelector('.post-text'), p.text || '');
   if (p.poll) bindPollActions(el, p);
   if (p.lyrics) bindLyricsActions(el, p);
   bindPostClickToNavigate(el, p);
